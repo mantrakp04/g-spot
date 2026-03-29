@@ -16,6 +16,7 @@
     "@g-spot/ui": "workspace:*",
     "@hookform/resolvers": "^5.2.2",
     "@libsql/client": "catalog:",
+    "@stackframe/react": "^2.8.78",
     "@tailwindcss/vite": "^4.2.2",
     "@tanstack/react-query": "^5.95.2",
     "@tanstack/react-router": "^1.168.8",

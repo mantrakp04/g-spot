@@ -4,7 +4,6 @@
   "type": "module",
   "scripts": {
     "start": "turbo -F web build && electrobun dev",
-    "dev": "electrobun dev --watch",
     "dev:hmr": "concurrently \"bun run hmr\" \"bun run start\"",
     "hmr": "turbo -F web dev",
     "build": "turbo -F web build && electrobun build",

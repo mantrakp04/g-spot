@@ -1,0 +1,3 @@
+{
+  "extends": "@g-spot/config/tsconfig.base.json"
+}

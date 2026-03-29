@@ -1,0 +1,26 @@
+{
+  "name": "@g-spot/api",
+  "type": "module",
+  "exports": {
+    ".": {
+      "default": "./src/index.ts"
+    },
+    "./*": {
+      "default": "./src/*.ts"
+    }
+  },
+  "scripts": {},
+  "dependencies": {
+    "@g-spot/db": "workspace:*",
+    "@g-spot/env": "workspace:*",
+    "@trpc/client": "catalog:",
+    "@trpc/server": "catalog:",
+    "dotenv": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@g-spot/config": "workspace:*",
+    "elysia": "catalog:",
+    "typescript": "^5"
+  }
+}

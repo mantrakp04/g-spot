@@ -20,13 +20,13 @@
     "@g-spot/env": "workspace:*",
     "@libsql/client": "catalog:",
     "dotenv": "catalog:",
-    "drizzle-orm": "^0.45.1",
+    "drizzle-orm": "^0.45.2",
     "libsql": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {
     "@g-spot/config": "workspace:*",
-    "drizzle-kit": "^0.31.8",
-    "typescript": "^5"
+    "drizzle-kit": "^0.31.10",
+    "typescript": "^6"
   }
 }

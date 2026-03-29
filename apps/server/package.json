@@ -15,7 +15,7 @@
     "@g-spot/api": "workspace:*",
     "@g-spot/db": "workspace:*",
     "@g-spot/env": "workspace:*",
-    "@hono/trpc-server": "^0.4.0",
+    "@hono/trpc-server": "^0.4.2",
     "@trpc/server": "catalog:",
     "dotenv": "catalog:",
     "elysia": "catalog:",
@@ -24,7 +24,7 @@
   "devDependencies": {
     "@g-spot/config": "workspace:*",
     "@types/bun": "catalog:",
-    "tsdown": "^0.16.5",
-    "typescript": "^5"
+    "tsdown": "^0.21.7",
+    "typescript": "^6"
   }
 }

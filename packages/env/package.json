@@ -8,13 +8,13 @@
     "./web": "./src/web.ts"
   },
   "dependencies": {
-    "@t3-oss/env-core": "^0.13.1",
+    "@t3-oss/env-core": "^0.13.11",
     "dotenv": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {
     "@g-spot/config": "workspace:*",
     "@types/bun": "catalog:",
-    "typescript": "^5"
+    "typescript": "^6"
   }
 }

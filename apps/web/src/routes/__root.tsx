@@ -1,11 +1,12 @@
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@g-spot/ui/components/resizable";
 import { Toaster } from "@g-spot/ui/components/sonner";
 import type { QueryClient } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { HeadContent, Outlet, createRootRouteWithContext } from "@tanstack/react-router";
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
 
-import Header from "@/components/header";
-import { ThemeProvider } from "@/components/theme-provider";
+import { AppSidebar } from "@/components/app-sidebar";
+import { ThemeProvider, ThemeScript } from "@/components/tweakcn-theme-provider";
 import type { trpc } from "@/utils/trpc";
 
 import "../index.css";
@@ -30,7 +31,8 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
     links: [
       {
         rel: "icon",
-        href: "/favicon.ico",
+        type: "image/png",
+        href: "/logo.png",
       },
     ],
   }),
@@ -43,16 +45,20 @@ function RootComponent() {
       <ThemeProvider
         attribute="class"
         defaultTheme="dark"
-        disableTransitionOnChange
-        storageKey="vite-ui-theme"
+        enableSystem
       >
-        <div className="grid grid-rows-[auto_1fr] h-svh">
-          <Header />
-          <Outlet />
-        </div>
+        <ResizablePanelGroup orientation="horizontal" className="min-h-screen">
+          <ResizablePanel defaultSize="15" minSize="10" maxSize="25">
+            <AppSidebar />
+          </ResizablePanel>
+          <ResizableHandle />
+          <ResizablePanel defaultSize="85">
+            <Outlet />
+          </ResizablePanel>
+        </ResizablePanelGroup>
         <Toaster richColors />
       </ThemeProvider>
-      <TanStackRouterDevtools position="bottom-left" />
+      <TanStackRouterDevtools position="bottom-right" />
       <ReactQueryDevtools position="bottom" buttonPosition="bottom-right" />
     </>
   );

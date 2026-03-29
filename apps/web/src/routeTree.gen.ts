@@ -10,11 +10,17 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as SettingsConnectionsRouteImport } from './routes/settings/connections'
 import { Route as HandlerSplatRouteImport } from './routes/handler/$'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsConnectionsRoute = SettingsConnectionsRouteImport.update({
+  id: '/settings/connections',
+  path: '/settings/connections',
   getParentRoute: () => rootRouteImport,
 } as any)
 const HandlerSplatRoute = HandlerSplatRouteImport.update({
@@ -26,27 +32,31 @@ const HandlerSplatRoute = HandlerSplatRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/handler/$': typeof HandlerSplatRoute
+  '/settings/connections': typeof SettingsConnectionsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/handler/$': typeof HandlerSplatRoute
+  '/settings/connections': typeof SettingsConnectionsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/handler/$': typeof HandlerSplatRoute
+  '/settings/connections': typeof SettingsConnectionsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/handler/$'
+  fullPaths: '/' | '/handler/$' | '/settings/connections'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/handler/$'
-  id: '__root__' | '/' | '/handler/$'
+  to: '/' | '/handler/$' | '/settings/connections'
+  id: '__root__' | '/' | '/handler/$' | '/settings/connections'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   HandlerSplatRoute: typeof HandlerSplatRoute
+  SettingsConnectionsRoute: typeof SettingsConnectionsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -56,6 +66,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings/connections': {
+      id: '/settings/connections'
+      path: '/settings/connections'
+      fullPath: '/settings/connections'
+      preLoaderRoute: typeof SettingsConnectionsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/handler/$': {
@@ -71,6 +88,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   HandlerSplatRoute: HandlerSplatRoute,
+  SettingsConnectionsRoute: SettingsConnectionsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

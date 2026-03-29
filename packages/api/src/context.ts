@@ -5,9 +5,10 @@ export type CreateContextOptions = {
 };
 
 export async function createContext({ context }: CreateContextOptions) {
+  const userId = context.request.headers.get("x-user-id");
+
   return {
-    auth: null,
-    session: null,
+    userId,
   };
 }
 

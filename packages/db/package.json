@@ -5,6 +5,9 @@
     ".": {
       "default": "./src/index.ts"
     },
+    "./schema": {
+      "default": "./src/schema/index.ts"
+    },
     "./*": {
       "default": "./src/*.ts"
     }
@@ -22,6 +25,7 @@
     "dotenv": "catalog:",
     "drizzle-orm": "^0.45.2",
     "libsql": "catalog:",
+    "nanoid": "^5.1.7",
     "zod": "catalog:"
   },
   "devDependencies": {

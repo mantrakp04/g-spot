@@ -27,6 +27,7 @@ import {
 } from "@dnd-kit/sortable";
 import { Logo } from "./logo";
 import { NavUser } from "./nav-user";
+import { ThemePicker } from "./tweakcn-theme-picker";
 import { SectionBuilder } from "./inbox/section-builder";
 import { trpc, trpcClient } from "@/utils/trpc";
 
@@ -187,6 +188,7 @@ export function AppSidebar() {
 
       {/* Footer */}
       <div className="border-t border-sidebar-border p-2">
+        <ThemePicker side="right" sideOffset={4} />
         {user ? (
           <NavUser />
         ) : (

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 
 import type { FilterCondition } from "@g-spot/api/schemas/section-filters";
 import {
@@ -16,6 +16,7 @@ import { SectionEmpty } from "./section-empty";
 import { SectionSkeleton } from "./section-skeleton";
 import { useGitHubPRs } from "@/hooks/use-github-prs";
 import { useInfiniteScroll } from "@/hooks/use-infinite-scroll";
+import { useReadState } from "@/hooks/use-read-state";
 
 type GitHubPRTableProps = {
   sectionId: string;
@@ -41,6 +42,8 @@ export function GitHubPRTable({ sectionId, filters, repos, accountId, sortAsc, o
   useEffect(() => {
     onCountChange?.(totalCount);
   }, [totalCount, onCountChange]);
+
+  const { isUnread, markAsRead } = useReadState(`github-prs:${sectionId}`);
 
   const [scrollContainer, setScrollContainer] = useState<HTMLElement | null>(null);
   const sentinelRef = useInfiniteScroll({
@@ -85,9 +88,9 @@ export function GitHubPRTable({ sectionId, filters, repos, accountId, sortAsc, o
   }
 
   return (
-    <div ref={setScrollContainer} className="max-h-[28rem] overflow-y-auto">
+    <div ref={setScrollContainer} className="max-h-[28rem] overflow-y-auto [&_[data-slot=table-container]]:overflow-visible">
       <Table>
-        <TableHeader>
+        <TableHeader className="sticky top-0 z-10 bg-card">
           <TableRow className="hover:bg-transparent">
             <TableHead className="pl-3">Title</TableHead>
             <TableHead className="hidden md:table-cell">Reviewers</TableHead>
@@ -100,7 +103,7 @@ export function GitHubPRTable({ sectionId, filters, repos, accountId, sortAsc, o
         </TableHeader>
         <TableBody>
           {prs.map((pr) => (
-            <GitHubPRRow key={pr.id} pr={pr} />
+            <GitHubPRRow key={pr.id} pr={pr} isUnread={isUnread(pr.id)} onMarkRead={markAsRead} />
           ))}
         </TableBody>
       </Table>

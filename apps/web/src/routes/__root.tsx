@@ -47,12 +47,12 @@ function RootComponent() {
         defaultTheme="dark"
         enableSystem
       >
-        <ResizablePanelGroup orientation="horizontal" className="min-h-screen">
+        <ResizablePanelGroup orientation="horizontal" className="h-full">
           <ResizablePanel defaultSize="15" minSize="10" maxSize="25">
             <AppSidebar />
           </ResizablePanel>
           <ResizableHandle />
-          <ResizablePanel defaultSize="85">
+          <ResizablePanel defaultSize="85" className="overflow-hidden">
             <Outlet />
           </ResizablePanel>
         </ResizablePanelGroup>

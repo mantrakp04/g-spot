@@ -34,6 +34,10 @@ interface SavedThemeEntry {
 interface ThemePickerProps {
   themes?: Theme[]
   className?: string
+  side?: "top" | "right" | "bottom" | "left"
+  align?: "start" | "center" | "end"
+  sideOffset?: number
+  compact?: boolean
 }
 
 const SAVED_THEMES_KEY = "tweakcn-saved-themes"
@@ -86,6 +90,10 @@ function ThemeColorDots({ theme }: { theme: Theme }) {
 export function ThemePicker({
   themes: additionalThemes = [],
   className,
+  side,
+  align = "end",
+  sideOffset,
+  compact = false,
 }: ThemePickerProps) {
   const { currentTheme, setTheme: setTweakCNTheme } = useTweakCNThemes()
   const { theme: themeMode, setTheme: setThemeMode } = useTheme()
@@ -211,22 +219,22 @@ export function ThemePicker({
 
   if (!mounted || isLoadingThemes) {
     return (
-      <Button variant="outline" size="sm" className={cn("gap-2", className)} disabled>
+      <Button variant={compact ? "ghost" : "outline"} size="sm" className={cn(compact ? "w-full justify-start gap-2 px-2 py-1.5" : "gap-2", className)} disabled>
         <Palette className="h-4 w-4" />
-        Loading...
+        {!compact && "Loading..."}
       </Button>
     )
   }
 
   return (
     <DropdownMenu open={isOpen} onOpenChange={setIsOpen}>
-      <DropdownMenuTrigger>
-        <Button variant="outline" size="sm" className={cn("gap-2", className)}>
-          <Palette className="h-4 w-4" />
-          {currentTheme ? formatThemeName(currentTheme.name) : "Choose TweakCN Theme"}
-        </Button>
+      <DropdownMenuTrigger
+        render={<Button variant={compact ? "ghost" : "outline"} size="lg" className={cn(compact ? "h-auto w-full justify-start gap-2 px-2 py-1.5" : "gap-2", className)} />}
+      >
+        <Palette className="h-4 w-4 shrink-0" />
+        <span className="truncate">{currentTheme ? formatThemeName(currentTheme.name) : compact ? "Theme" : "Choose TweakCN Theme"}</span>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-[280px] p-0">
+      <DropdownMenuContent align={align} side={side} sideOffset={sideOffset} className="w-[280px] p-0">
         {/* Search Input */}
         <div className="p-2 border-b border-border">
           <div className="relative">

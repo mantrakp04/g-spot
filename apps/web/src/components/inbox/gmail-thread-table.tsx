@@ -13,6 +13,7 @@ import {
 import { useUser } from "@stackframe/react";
 import { Loader2 } from "lucide-react";
 
+import type { GmailThread } from "@/lib/gmail/types";
 import { GmailThreadRow } from "./gmail-thread-row";
 import { SectionEmpty } from "./section-empty";
 import { useGmailThreads } from "@/hooks/use-gmail-threads";
@@ -23,7 +24,9 @@ type GmailThreadTableProps = {
   filters: FilterCondition[];
   accountId?: string | null;
   sortAsc?: boolean;
-  onCountChange?: (count: number) => void;
+  onCountChange?: (count: number, hasMore: boolean) => void;
+  selectedThreadId?: string | null;
+  onSelectThread?: (thread: GmailThread) => void;
 };
 
 function GmailSkeleton({ rows = 7 }: { rows?: number }) {
@@ -55,7 +58,7 @@ function GmailSkeleton({ rows = 7 }: { rows?: number }) {
   );
 }
 
-export function GmailThreadTable({ sectionId, filters, accountId, sortAsc, onCountChange }: GmailThreadTableProps) {
+export function GmailThreadTable({ sectionId, filters, accountId, sortAsc, onCountChange, selectedThreadId, onSelectThread }: GmailThreadTableProps) {
   const user = useUser();
   const accounts = user?.useConnectedAccounts();
   const googleAccount = accountId
@@ -65,11 +68,11 @@ export function GmailThreadTable({ sectionId, filters, accountId, sortAsc, onCou
   const { data, isLoading, isError, error, hasNextPage, fetchNextPage, isFetchingNextPage } =
     useGmailThreads(sectionId, filters, googleAccount);
 
-  // Report estimated count to parent
-  const estimatedCount = data?.pages[0]?.resultSizeEstimate ?? 0;
+  // Report actual loaded thread count to parent
+  const loadedCount = data?.pages.reduce((sum, p) => sum + p.threads.length, 0) ?? 0;
   useEffect(() => {
-    onCountChange?.(estimatedCount);
-  }, [estimatedCount, onCountChange]);
+    onCountChange?.(loadedCount, hasNextPage ?? false);
+  }, [loadedCount, hasNextPage, onCountChange]);
 
   const [scrollContainer, setScrollContainer] = useState<HTMLElement | null>(null);
   const sentinelRef = useInfiniteScroll({
@@ -118,9 +121,9 @@ export function GmailThreadTable({ sectionId, filters, accountId, sortAsc, onCou
   }
 
   return (
-    <div ref={setScrollContainer} className="max-h-[28rem] overflow-y-auto">
+    <div ref={setScrollContainer} className="max-h-[28rem] overflow-y-auto [&_[data-slot=table-container]]:overflow-visible">
       <Table>
-        <TableHeader>
+        <TableHeader className="sticky top-0 z-10 bg-card">
           <TableRow className="hover:bg-transparent">
             <TableHead className="w-48 pl-3">From</TableHead>
             <TableHead>Subject</TableHead>
@@ -130,7 +133,12 @@ export function GmailThreadTable({ sectionId, filters, accountId, sortAsc, onCou
         </TableHeader>
         <TableBody>
           {threads.map((thread) => (
-            <GmailThreadRow key={thread.id} thread={thread} />
+            <GmailThreadRow
+              key={thread.id}
+              thread={thread}
+              isSelected={selectedThreadId === thread.threadId}
+              onClick={onSelectThread}
+            />
           ))}
         </TableBody>
       </Table>

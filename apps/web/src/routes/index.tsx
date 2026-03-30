@@ -8,7 +8,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Inbox } from "lucide-react";
 
 import { GitHubPRTable } from "@/components/inbox/github-pr-table";
-import { GmailThreadTable } from "@/components/inbox/gmail-thread-table";
+import { GmailMailView } from "@/components/inbox/gmail-mail-view";
 import { InboxSection } from "@/components/inbox/inbox-section";
 import { SectionBuilder } from "@/components/inbox/section-builder";
 import { trpc, trpcClient } from "@/utils/trpc";
@@ -56,12 +56,19 @@ function InboxPage() {
 
   // Per-section item counts from data queries
   const [sectionCounts, setSectionCounts] = useState<Record<string, number>>({});
+  const [sectionHasMore, setSectionHasMore] = useState<Record<string, boolean>>({});
 
-  const handleCountChange = useCallback((sectionId: string, count: number) => {
+  const handleCountChange = useCallback((sectionId: string, count: number, hasMore?: boolean) => {
     setSectionCounts((prev) => {
       if (prev[sectionId] === count) return prev;
       return { ...prev, [sectionId]: count };
     });
+    if (hasMore !== undefined) {
+      setSectionHasMore((prev) => {
+        if (prev[sectionId] === hasMore) return prev;
+        return { ...prev, [sectionId]: hasMore };
+      });
+    }
   }, []);
 
   if (isLoading) {
@@ -88,8 +95,6 @@ function InboxPage() {
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-5xl space-y-3 p-4">
-        <h1 className="text-lg font-semibold">Inbox</h1>
-
         {sections.map((section) => {
           const filters = parseFilters(section.filters);
           const isSortAsc = sortState[section.id] ?? false;
@@ -108,6 +113,7 @@ function InboxPage() {
                   showBadge: section.showBadge,
                 }}
                 itemCount={sectionCounts[section.id] ?? 0}
+                hasMoreItems={sectionHasMore[section.id] ?? false}
                 sortAsc={isSortAsc}
                 onToggleSort={() =>
                   setSortState((prev) => ({
@@ -115,7 +121,8 @@ function InboxPage() {
                     [section.id]: !prev[section.id],
                   }))
                 }
-                onToggleCollapse={(newCollapsed) => {
+                onToggle={() => {
+                  const newCollapsed = !collapsed;
                   setCollapseState((prev) => ({
                     ...prev,
                     [section.id]: newCollapsed,
@@ -148,12 +155,12 @@ function InboxPage() {
                     onCountChange={(count) => handleCountChange(section.id, count)}
                   />
                 ) : (
-                  <GmailThreadTable
+                  <GmailMailView
                     sectionId={section.id}
                     filters={filters}
                     accountId={section.accountId}
                     sortAsc={isSortAsc}
-                    onCountChange={(count) => handleCountChange(section.id, count)}
+                    onCountChange={(count, hasMore) => handleCountChange(section.id, count, hasMore)}
                   />
                 )}
               </InboxSection>

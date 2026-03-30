@@ -7,6 +7,7 @@
       "dependencies": {
         "@g-spot/env": "workspace:*",
         "dotenv": "catalog:",
+        "jose": "^6.2.2",
         "zod": "catalog:",
       },
       "devDependencies": {

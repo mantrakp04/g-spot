@@ -58,23 +58,34 @@ function ReviewDecisionIcon({
 
 const MAX_REVIEWERS = 4;
 
-export function GitHubPRRow({ pr }: { pr: GitHubPR }) {
+export function GitHubPRRow({
+  pr,
+  isUnread,
+  onMarkRead,
+}: {
+  pr: GitHubPR;
+  isUnread?: boolean;
+  onMarkRead?: (id: string) => void;
+}) {
   const visibleReviewers = pr.reviewers.slice(0, MAX_REVIEWERS);
   const extraCount = pr.reviewers.length - MAX_REVIEWERS;
 
   return (
     <TableRow
       className="group cursor-pointer"
-      onClick={() => window.open(pr.url, "_blank", "noopener")}
+      onClick={() => {
+        onMarkRead?.(pr.id);
+        window.open(pr.url, "_blank", "noopener");
+      }}
     >
-      {/* Indicator + Avatar + Title */}
+      {/* Unread indicator + Avatar + Title */}
       <TableCell className="w-full max-w-0 pl-3">
         <div className="flex items-center gap-2.5">
           <div className="flex shrink-0 items-center gap-2">
-            {pr.isDraft ? (
-              <span className="size-1.5 shrink-0 rounded-full bg-muted-foreground/40" />
-            ) : (
+            {isUnread ? (
               <span className="size-1.5 shrink-0 rounded-full bg-blue-500" />
+            ) : (
+              <span className="size-1.5 shrink-0 rounded-full bg-transparent" />
             )}
             <Avatar size="sm">
               <AvatarImage src={pr.author.avatarUrl} alt={pr.author.login} />

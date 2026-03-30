@@ -173,8 +173,16 @@ export function SectionBuilder({
   }
 
   // Mutations
-  const invalidate = () =>
+  const invalidate = (sectionId?: string, source?: SectionSource) => {
     queryClient.invalidateQueries({ queryKey: [["sections", "list"]] });
+    if (sectionId) {
+      const dataKey =
+        source === "github_pr"
+          ? ["github", "prs", sectionId]
+          : ["gmail", "threads", sectionId];
+      queryClient.invalidateQueries({ queryKey: dataKey });
+    }
+  };
 
   const createMutation = useMutation({
     mutationFn: (input: {
@@ -201,7 +209,7 @@ export function SectionBuilder({
       showBadge?: boolean;
     }) => trpcClient.sections.update.mutate(input),
     onSuccess: () => {
-      invalidate();
+      invalidate(section?.id, section?.source);
       onOpenChange(false);
     },
   });
@@ -209,7 +217,7 @@ export function SectionBuilder({
   const deleteMutation = useMutation({
     mutationFn: (id: string) => trpcClient.sections.delete.mutate({ id }),
     onSuccess: () => {
-      invalidate();
+      invalidate(section?.id, section?.source);
       onOpenChange(false);
     },
   });

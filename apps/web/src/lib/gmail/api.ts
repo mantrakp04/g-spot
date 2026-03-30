@@ -1,5 +1,5 @@
 import type { FilterCondition } from "@g-spot/api/schemas/section-filters";
-import type { GmailThread, GmailThreadPage } from "./types";
+import type { GmailThread, GmailThreadPage, GmailFullMessage, GmailThreadDetail, GmailDraft } from "./types";
 
 const GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me";
 
@@ -181,12 +181,20 @@ type GmailMessageResponse = {
   threadId: string;
   snippet: string;
   labelIds?: string[];
-  payload?: {
-    headers?: Array<{ name: string; value: string }>;
-    parts?: Array<{
-      filename?: string;
-    }>;
-  };
+  payload?: GmailPayloadPart;
+};
+
+type GmailPayloadPart = {
+  mimeType?: string;
+  headers?: Array<{ name: string; value: string }>;
+  body?: { data?: string; size?: number };
+  parts?: GmailPayloadPart[];
+  filename?: string;
+};
+
+type GmailThreadResponse = {
+  id: string;
+  messages: GmailMessageResponse[];
 };
 
 async function fetchGmailJson<T>(
@@ -271,4 +279,207 @@ export async function searchGmailThreads(
     nextPageToken: listData.nextPageToken ?? null,
     resultSizeEstimate: listData.resultSizeEstimate ?? 0,
   };
+}
+
+/** Decode base64url-encoded Gmail body data */
+function decodeBase64Url(data: string): string {
+  const base64 = data.replace(/-/g, "+").replace(/_/g, "/");
+  return atob(base64);
+}
+
+/** Recursively extract body parts from a MIME payload */
+function extractBody(part: GmailPayloadPart): { html: string | null; text: string | null } {
+  if (part.mimeType === "text/html" && part.body?.data) {
+    return { html: decodeBase64Url(part.body.data), text: null };
+  }
+  if (part.mimeType === "text/plain" && part.body?.data) {
+    return { html: null, text: decodeBase64Url(part.body.data) };
+  }
+  if (part.parts) {
+    let html: string | null = null;
+    let text: string | null = null;
+    for (const sub of part.parts) {
+      const result = extractBody(sub);
+      if (result.html) html = result.html;
+      if (result.text) text = result.text;
+    }
+    return { html, text };
+  }
+  return { html: null, text: null };
+}
+
+function getHeaderFromPart(part: GmailPayloadPart, name: string): string {
+  return (
+    part.headers?.find(
+      (h) => h.name.toLowerCase() === name.toLowerCase(),
+    )?.value ?? ""
+  );
+}
+
+export async function archiveGmailThread(
+  accessToken: string,
+  threadId: string,
+): Promise<void> {
+  const res = await fetch(`${GMAIL_API}/threads/${threadId}/modify`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ removeLabelIds: ["INBOX"] }),
+  });
+  if (!res.ok) throw new Error(`Gmail API error: ${res.status}`);
+}
+
+export async function trashGmailThread(
+  accessToken: string,
+  threadId: string,
+): Promise<void> {
+  const res = await fetch(`${GMAIL_API}/threads/${threadId}/trash`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) throw new Error(`Gmail API error: ${res.status}`);
+}
+
+export async function modifyGmailThreadLabels(
+  accessToken: string,
+  threadId: string,
+  addLabelIds?: string[],
+  removeLabelIds?: string[],
+): Promise<void> {
+  const res = await fetch(`${GMAIL_API}/threads/${threadId}/modify`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ addLabelIds, removeLabelIds }),
+  });
+  if (!res.ok) throw new Error(`Gmail API error: ${res.status}`);
+}
+
+export async function fetchGmailThreadDetail(
+  accessToken: string,
+  threadId: string,
+): Promise<GmailThreadDetail> {
+  const data = await fetchGmailJson<GmailThreadResponse>(
+    `${GMAIL_API}/threads/${threadId}?format=full`,
+    accessToken,
+  );
+
+  const messages: GmailFullMessage[] = data.messages.map((msg) => {
+    const payload = msg.payload!;
+    const from = parseFromHeader(getHeaderFromPart(payload, "From"));
+    const { html, text } = extractBody(payload);
+
+    return {
+      id: msg.id,
+      from,
+      to: getHeaderFromPart(payload, "To"),
+      cc: getHeaderFromPart(payload, "Cc"),
+      date: getHeaderFromPart(payload, "Date"),
+      subject: getHeaderFromPart(payload, "Subject") || "(no subject)",
+      messageId: getHeaderFromPart(payload, "Message-ID"),
+      inReplyTo: getHeaderFromPart(payload, "In-Reply-To"),
+      references: getHeaderFromPart(payload, "References"),
+      bodyHtml: html,
+      bodyText: text,
+    };
+  });
+
+  return {
+    id: data.id,
+    subject: messages[0]?.subject ?? "(no subject)",
+    messages,
+  };
+}
+
+// --- Draft & Send ---
+
+export async function createGmailDraft(
+  accessToken: string,
+  raw: string,
+  threadId?: string | null,
+): Promise<GmailDraft> {
+  const body: { message: { raw: string; threadId?: string } } = {
+    message: { raw },
+  };
+  if (threadId) body.message.threadId = threadId;
+
+  const res = await fetch(`${GMAIL_API}/drafts`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Gmail API error: ${res.status}`);
+  return res.json() as Promise<GmailDraft>;
+}
+
+export async function updateGmailDraft(
+  accessToken: string,
+  draftId: string,
+  raw: string,
+  threadId?: string | null,
+): Promise<GmailDraft> {
+  const body: { id: string; message: { raw: string; threadId?: string } } = {
+    id: draftId,
+    message: { raw },
+  };
+  if (threadId) body.message.threadId = threadId;
+
+  const res = await fetch(`${GMAIL_API}/drafts/${draftId}`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Gmail API error: ${res.status}`);
+  return res.json() as Promise<GmailDraft>;
+}
+
+export async function deleteGmailDraft(
+  accessToken: string,
+  draftId: string,
+): Promise<void> {
+  const res = await fetch(`${GMAIL_API}/drafts/${draftId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) throw new Error(`Gmail API error: ${res.status}`);
+}
+
+export async function sendGmailDraft(
+  accessToken: string,
+  draftId: string,
+): Promise<void> {
+  const res = await fetch(`${GMAIL_API}/drafts/send`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ id: draftId }),
+  });
+  if (!res.ok) throw new Error(`Gmail API error: ${res.status}`);
+}
+
+export async function sendGmailMessage(
+  accessToken: string,
+  raw: string,
+): Promise<void> {
+  const res = await fetch(`${GMAIL_API}/messages/send`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ raw }),
+  });
+  if (!res.ok) throw new Error(`Gmail API error: ${res.status}`);
 }

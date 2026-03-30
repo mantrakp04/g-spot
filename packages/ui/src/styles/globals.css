@@ -189,11 +189,11 @@
   * {
     @apply border-border outline-ring/50;
   }
-  body {
-    @apply font-sans bg-background text-foreground;
-    letter-spacing: var(--tracking-normal);
-  }
   html {
-    @apply font-sans;
+    @apply font-sans h-full overflow-hidden;
+  }
+  body {
+    @apply font-sans bg-background text-foreground h-full overflow-hidden;
+    letter-spacing: var(--tracking-normal);
   }
 }

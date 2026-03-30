@@ -31,7 +31,11 @@ export const trpcClient = createTRPCClient<AppRouter>({
       url: `${env.VITE_SERVER_URL}/trpc`,
       headers: async () => {
         const user = await stackClientApp.getUser();
-        return user ? { "x-user-id": user.id } : {};
+        if (!user) return {};
+        const { accessToken } = await user.getAuthJson();
+        return accessToken
+          ? { "x-stack-access-token": accessToken }
+          : {};
       },
     }),
   ],

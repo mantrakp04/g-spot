@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SettingsConnectionsRouteImport } from './routes/settings/connections'
 import { Route as HandlerSplatRouteImport } from './routes/handler/$'
+import { Route as AuthOpenaiCallbackRouteImport } from './routes/auth/openai/callback'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -28,35 +29,53 @@ const HandlerSplatRoute = HandlerSplatRouteImport.update({
   path: '/handler/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthOpenaiCallbackRoute = AuthOpenaiCallbackRouteImport.update({
+  id: '/auth/openai/callback',
+  path: '/auth/openai/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/handler/$': typeof HandlerSplatRoute
   '/settings/connections': typeof SettingsConnectionsRoute
+  '/auth/openai/callback': typeof AuthOpenaiCallbackRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/handler/$': typeof HandlerSplatRoute
   '/settings/connections': typeof SettingsConnectionsRoute
+  '/auth/openai/callback': typeof AuthOpenaiCallbackRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/handler/$': typeof HandlerSplatRoute
   '/settings/connections': typeof SettingsConnectionsRoute
+  '/auth/openai/callback': typeof AuthOpenaiCallbackRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/handler/$' | '/settings/connections'
+  fullPaths:
+    | '/'
+    | '/handler/$'
+    | '/settings/connections'
+    | '/auth/openai/callback'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/handler/$' | '/settings/connections'
-  id: '__root__' | '/' | '/handler/$' | '/settings/connections'
+  to: '/' | '/handler/$' | '/settings/connections' | '/auth/openai/callback'
+  id:
+    | '__root__'
+    | '/'
+    | '/handler/$'
+    | '/settings/connections'
+    | '/auth/openai/callback'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   HandlerSplatRoute: typeof HandlerSplatRoute
   SettingsConnectionsRoute: typeof SettingsConnectionsRoute
+  AuthOpenaiCallbackRoute: typeof AuthOpenaiCallbackRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -82,6 +101,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof HandlerSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/auth/openai/callback': {
+      id: '/auth/openai/callback'
+      path: '/auth/openai/callback'
+      fullPath: '/auth/openai/callback'
+      preLoaderRoute: typeof AuthOpenaiCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -89,6 +115,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   HandlerSplatRoute: HandlerSplatRoute,
   SettingsConnectionsRoute: SettingsConnectionsRoute,
+  AuthOpenaiCallbackRoute: AuthOpenaiCallbackRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

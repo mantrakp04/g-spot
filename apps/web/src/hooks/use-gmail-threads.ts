@@ -27,6 +27,7 @@ export function useGmailThreads(
     getNextPageParam: (lastPage) => lastPage.nextPageToken,
     enabled: account != null,
     staleTime: 2 * 60 * 1000, // 2 min
+    refetchOnMount: "always",
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     persister: queryPersister as any,
   });

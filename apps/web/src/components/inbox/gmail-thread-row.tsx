@@ -30,9 +30,18 @@ function formatDate(date: string): string {
   });
 }
 
-export function GmailThreadRow({ thread }: { thread: GmailThread }) {
+type GmailThreadRowProps = {
+  thread: GmailThread;
+  isSelected?: boolean;
+  onClick?: (thread: GmailThread) => void;
+};
+
+export function GmailThreadRow({ thread, isSelected, onClick }: GmailThreadRowProps) {
   return (
-    <TableRow className="group cursor-pointer">
+    <TableRow
+      className={cn("group cursor-pointer", isSelected && "bg-accent")}
+      onClick={() => onClick?.(thread)}
+    >
       {/* Unread indicator + Avatar + From */}
       <TableCell className="w-48 min-w-[10rem] pl-3">
         <div className="flex items-center gap-2.5">

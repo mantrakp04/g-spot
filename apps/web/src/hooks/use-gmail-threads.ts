@@ -1,9 +1,10 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import type { OAuthConnection } from "@stackframe/react";
-import type { FilterCondition } from "@g-spot/api/schemas/section-filters";
+import type { FilterCondition } from "@g-spot/types/filters";
 import type { GmailThreadPage } from "@/lib/gmail/types";
 import { searchGmailThreads } from "@/lib/gmail/api";
-import { queryPersister } from "@/utils/query-persister";
+import { gmailKeys } from "@/lib/query-keys";
+import { persistedStaleWhileRevalidateQueryOptions } from "@/utils/query-defaults";
 
 export function useGmailThreads(
   sectionId: string,
@@ -11,7 +12,10 @@ export function useGmailThreads(
   account: OAuthConnection | null,
 ) {
   return useInfiniteQuery({
-    queryKey: ["gmail", "threads", sectionId] as const,
+    queryKey: gmailKeys.threads(sectionId, {
+      accountId: account?.providerAccountId ?? null,
+      filters,
+    }),
     queryFn: async ({ pageParam }): Promise<GmailThreadPage> => {
       const tokenResult = await account!.getAccessToken();
       if (tokenResult.status === "error") {
@@ -26,9 +30,6 @@ export function useGmailThreads(
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.nextPageToken,
     enabled: account != null,
-    staleTime: 2 * 60 * 1000, // 2 min
-    refetchOnMount: "always",
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    persister: queryPersister as any,
+    ...persistedStaleWhileRevalidateQueryOptions,
   });
 }

@@ -58,6 +58,7 @@
         "@dnd-kit/sortable": "^10.0.0",
         "@g-spot/api": "workspace:*",
         "@g-spot/env": "workspace:*",
+        "@g-spot/types": "workspace:*",
         "@g-spot/ui": "workspace:*",
         "@hookform/resolvers": "^5.2.2",
         "@libsql/client": "catalog:",
@@ -100,6 +101,7 @@
       "dependencies": {
         "@g-spot/db": "workspace:*",
         "@g-spot/env": "workspace:*",
+        "@g-spot/types": "workspace:*",
         "@trpc/client": "catalog:",
         "@trpc/server": "catalog:",
         "dotenv": "catalog:",
@@ -143,6 +145,17 @@
       "devDependencies": {
         "@g-spot/config": "workspace:*",
         "@types/bun": "catalog:",
+        "typescript": "^6",
+      },
+    },
+    "packages/types": {
+      "name": "@g-spot/types",
+      "version": "0.0.0",
+      "dependencies": {
+        "zod": "catalog:",
+      },
+      "devDependencies": {
+        "@g-spot/config": "workspace:*",
         "typescript": "^6",
       },
     },
@@ -419,6 +432,8 @@
     "@g-spot/db": ["@g-spot/db@workspace:packages/db"],
 
     "@g-spot/env": ["@g-spot/env@workspace:packages/env"],
+
+    "@g-spot/types": ["@g-spot/types@workspace:packages/types"],
 
     "@g-spot/ui": ["@g-spot/ui@workspace:packages/ui"],
 

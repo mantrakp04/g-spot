@@ -15,6 +15,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@g-spot/api": "workspace:*",
     "@g-spot/env": "workspace:*",
+    "@g-spot/types": "workspace:*",
     "@g-spot/ui": "workspace:*",
     "@hookform/resolvers": "^5.2.2",
     "@libsql/client": "catalog:",

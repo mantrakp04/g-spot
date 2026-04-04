@@ -16,11 +16,12 @@ import {
 } from "lucide-react";
 import { cn } from "@g-spot/ui/lib/utils";
 
-import type { FilterCondition } from "@g-spot/api/schemas/section-filters";
+import type { FilterCondition } from "@g-spot/types/filters";
 import {
   githubPrFields,
+  githubIssueFields,
   gmailFields,
-} from "@g-spot/api/schemas/section-filters";
+} from "@g-spot/types/filters";
 import type { FieldValueType } from "@/lib/filter-fields";
 import { getFieldConfig } from "@/lib/filter-fields";
 import { FilterValueInput } from "./filter-value-input";
@@ -47,9 +48,10 @@ const ALL_OPERATORS = [
 
 type FilterConditionRowProps = {
   condition: FilterCondition;
-  source: "github_pr" | "gmail";
+  source: "github_pr" | "github_issue" | "gmail";
   index: number;
   onChange: (updated: FilterCondition) => void;
+  onSearchChange?: (query: string) => void;
   onRemove: () => void;
   dynamicOptions?: Array<{ value: string; label: string }>;
   isLoadingOptions?: boolean;
@@ -60,11 +62,17 @@ export function FilterConditionRow({
   source,
   index,
   onChange,
+  onSearchChange,
   onRemove,
   dynamicOptions,
   isLoadingOptions,
 }: FilterConditionRowProps) {
-  const fields = source === "github_pr" ? githubPrFields : gmailFields;
+  const fields =
+    source === "github_pr"
+      ? githubPrFields
+      : source === "github_issue"
+        ? githubIssueFields
+        : gmailFields;
   const fieldConfig = getFieldConfig(source, condition.field);
   const availableOperators = fieldConfig?.operators
     ? ALL_OPERATORS.filter((op) =>
@@ -150,6 +158,7 @@ export function FilterConditionRow({
           <FilterValueInput
             value={condition.value}
             onChange={(value) => onChange({ ...condition, value })}
+            onSearchChange={onSearchChange}
             fieldConfig={fieldConfig}
             fetchedOptions={dynamicOptions}
             isLoadingOptions={isLoadingOptions}

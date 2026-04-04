@@ -6,6 +6,9 @@ import { HeadContent, Outlet, createRootRouteWithContext } from "@tanstack/react
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
 
 import { AppSidebar } from "@/components/app-sidebar";
+import { DraftDock } from "@/components/inbox/draft-dock";
+import { DraftsProvider } from "@/contexts/drafts-context";
+import { SectionCountsProvider } from "@/contexts/section-counts-context";
 import { ThemeProvider, ThemeScript } from "@/components/tweakcn-theme-provider";
 import type { trpc } from "@/utils/trpc";
 
@@ -47,15 +50,20 @@ function RootComponent() {
         defaultTheme="dark"
         enableSystem
       >
-        <ResizablePanelGroup orientation="horizontal" className="h-full">
-          <ResizablePanel defaultSize="15" minSize="10" maxSize="25">
-            <AppSidebar />
-          </ResizablePanel>
-          <ResizableHandle />
-          <ResizablePanel defaultSize="85" className="overflow-hidden">
-            <Outlet />
-          </ResizablePanel>
-        </ResizablePanelGroup>
+        <SectionCountsProvider>
+          <DraftsProvider>
+            <ResizablePanelGroup orientation="horizontal" className="h-full">
+              <ResizablePanel defaultSize="15" minSize="10" maxSize="25">
+                <AppSidebar />
+              </ResizablePanel>
+              <ResizableHandle />
+              <ResizablePanel defaultSize="85" className="overflow-hidden">
+                <Outlet />
+              </ResizablePanel>
+            </ResizablePanelGroup>
+            <DraftDock />
+          </DraftsProvider>
+        </SectionCountsProvider>
         <Toaster richColors />
       </ThemeProvider>
       <TanStackRouterDevtools position="bottom-right" />

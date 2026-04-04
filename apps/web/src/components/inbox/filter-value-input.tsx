@@ -21,6 +21,7 @@ import type { FieldConfig } from "@/lib/filter-fields";
 type FilterValueInputProps = {
   value: string;
   onChange: (value: string) => void;
+  onSearchChange?: (query: string) => void;
   fieldConfig: FieldConfig | undefined;
   fetchedOptions?: Array<{ value: string; label: string }>;
   isLoadingOptions?: boolean;
@@ -30,20 +31,17 @@ type FilterValueInputProps = {
 export function FilterValueInput({
   value,
   onChange,
+  onSearchChange,
   fieldConfig,
   fetchedOptions,
   isLoadingOptions,
   placeholder = "Value",
 }: FilterValueInputProps) {
+  const resolvedPlaceholder = fieldConfig?.placeholder ?? placeholder;
+  const resolvedOptions = fetchedOptions ?? fieldConfig?.options ?? [];
+
   if (!fieldConfig) {
-    return (
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="h-8 w-full rounded-md border border-input bg-transparent px-2.5 text-xs outline-none transition-colors placeholder:text-muted-foreground focus:border-ring"
-      />
-    );
+    return <TextValueInput value={value} onChange={onChange} placeholder={placeholder} />;
   }
 
   if (fieldConfig.valueType === "date") {
@@ -52,21 +50,14 @@ export function FilterValueInput({
         type="date"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        placeholder={fieldConfig.placeholder ?? placeholder}
+        placeholder={resolvedPlaceholder}
         className="h-8 w-full rounded-md border border-input bg-transparent px-2.5 text-xs outline-none transition-colors placeholder:text-muted-foreground focus:border-ring"
       />
     );
   }
 
   if (fieldConfig.valueType === "text") {
-    return (
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={fieldConfig.placeholder ?? placeholder}
-        className="h-8 w-full rounded-md border border-input bg-transparent px-2.5 text-xs outline-none transition-colors placeholder:text-muted-foreground focus:border-ring"
-      />
-    );
+    return <TextValueInput value={value} onChange={onChange} placeholder={resolvedPlaceholder} />;
   }
 
   if (fieldConfig.valueType === "boolean") {
@@ -100,13 +91,42 @@ export function FilterValueInput({
     );
   }
 
+  if (
+    fieldConfig.valueType === "combobox"
+    && resolvedOptions.length === 0
+    && !onSearchChange
+    && !isLoadingOptions
+  ) {
+    return <TextValueInput value={value} onChange={onChange} placeholder={resolvedPlaceholder} />;
+  }
+
   return (
     <SearchableDropdown
       value={value}
       onChange={onChange}
-      options={fetchedOptions ?? fieldConfig.options ?? []}
+      options={resolvedOptions}
       isLoading={isLoadingOptions}
+      placeholder={resolvedPlaceholder}
+      onSearchChange={onSearchChange}
+    />
+  );
+}
+
+function TextValueInput({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+}) {
+  return (
+    <input
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
+      className="h-8 w-full rounded-md border border-input bg-transparent px-2.5 text-xs outline-none transition-colors placeholder:text-muted-foreground focus:border-ring"
     />
   );
 }

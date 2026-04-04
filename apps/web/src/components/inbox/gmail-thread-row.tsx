@@ -1,13 +1,14 @@
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-} from "@g-spot/ui/components/avatar";
 import { TableCell, TableRow } from "@g-spot/ui/components/table";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@g-spot/ui/components/tooltip";
 import { cn } from "@g-spot/ui/lib/utils";
 import { Paperclip } from "lucide-react";
 
 import type { GmailThread } from "@/lib/gmail/types";
+import { GmailSenderAvatar } from "./gmail-sender-avatar";
 
 function formatDate(date: string): string {
   const d = new Date(date);
@@ -51,21 +52,28 @@ export function GmailThreadRow({ thread, isSelected, onClick }: GmailThreadRowPr
             ) : (
               <span className="size-1.5 shrink-0 rounded-full bg-transparent" />
             )}
-            <Avatar size="sm">
-              <AvatarImage src={thread.avatarUrl ?? undefined} alt={thread.from.name} />
-              <AvatarFallback>
-                {thread.from.name.slice(0, 2).toUpperCase()}
-              </AvatarFallback>
-            </Avatar>
+            <GmailSenderAvatar
+              size="sm"
+              name={thread.from.name}
+              email={thread.from.email}
+              avatarUrl={thread.avatarUrl}
+            />
           </div>
-          <span
-            className={cn(
-              "truncate text-sm",
-              thread.isUnread ? "font-medium" : "text-muted-foreground",
-            )}
-          >
-            {thread.from.name}
-          </span>
+          <Tooltip>
+            <TooltipTrigger render={
+              <span
+                className={cn(
+                  "truncate text-sm",
+                  thread.isUnread ? "font-medium" : "text-muted-foreground",
+                )}
+              >
+                {thread.from.name}
+              </span>
+            } />
+            <TooltipContent side="bottom" align="start">
+              {thread.from.name} &lt;{thread.from.email}&gt;
+            </TooltipContent>
+          </Tooltip>
         </div>
       </TableCell>
 

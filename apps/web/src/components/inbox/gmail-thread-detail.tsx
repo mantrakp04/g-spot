@@ -1,15 +1,10 @@
-import { useRef, useEffect, useCallback, useState } from "react";
+import { useRef, useEffect, useCallback, useMemo, useState } from "react";
 
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-} from "@g-spot/ui/components/avatar";
+import { Badge } from "@g-spot/ui/components/badge";
 import { Button } from "@g-spot/ui/components/button";
 import { Separator } from "@g-spot/ui/components/separator";
 import { Skeleton } from "@g-spot/ui/components/skeleton";
 import type { OAuthConnection } from "@stackframe/react";
-import { useQueryClient } from "@tanstack/react-query";
 import {
   Archive,
   Forward,
@@ -29,13 +24,18 @@ import {
   TooltipTrigger,
 } from "@g-spot/ui/components/tooltip";
 import {
-  archiveGmailThread,
-  trashGmailThread,
-  modifyGmailThreadLabels,
-} from "@/lib/gmail/api";
-import { useComposeState } from "@/hooks/use-compose-state";
+  useGmailComposeDraft,
+  useGmailThreadActions,
+  useGmailThreadDrafts,
+} from "@/hooks/use-gmail-actions";
+import { useDrafts } from "@/contexts/drafts-context";
 import { ComposeInline } from "./compose-inline";
-import type { GmailThread } from "@/lib/gmail/types";
+import { GmailSenderAvatar } from "./gmail-sender-avatar";
+import type {
+  ComposeMode,
+  GmailThread,
+  GmailFullMessage,
+} from "@/lib/gmail/types";
 import type { GmailThreadDetail as GmailThreadDetailType } from "@/lib/gmail/types";
 
 function formatFullDate(date: string): string {
@@ -50,16 +50,75 @@ function formatFullDate(date: string): string {
   });
 }
 
-function getSenderAvatarUrl(email: string): string | null {
-  const domain = email.split("@")[1]?.toLowerCase();
-  if (!domain) return null;
-  const personalDomains = new Set([
-    "gmail.com", "googlemail.com", "yahoo.com", "hotmail.com",
-    "outlook.com", "live.com", "aol.com", "icloud.com",
-    "protonmail.com", "proton.me",
-  ]);
-  if (personalDomains.has(domain)) return null;
-  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=128`;
+function parseRgbColor(value: string): [number, number, number] | null {
+  const match = value.match(/\d+(\.\d+)?/g);
+  if (!match || match.length < 3) return null;
+
+  return [
+    Number(match[0]),
+    Number(match[1]),
+    Number(match[2]),
+  ];
+}
+
+function relativeLuminance([r, g, b]: [number, number, number]): number {
+  const toLinear = (channel: number) => {
+    const normalized = channel / 255;
+    return normalized <= 0.03928
+      ? normalized / 12.92
+      : ((normalized + 0.055) / 1.055) ** 2.4;
+  };
+
+  const [lr, lg, lb] = [toLinear(r), toLinear(g), toLinear(b)];
+  return 0.2126 * lr + 0.7152 * lg + 0.0722 * lb;
+}
+
+function contrastRatio(
+  foreground: [number, number, number],
+  background: [number, number, number],
+): number {
+  const lighter = Math.max(
+    relativeLuminance(foreground),
+    relativeLuminance(background),
+  );
+  const darker = Math.min(
+    relativeLuminance(foreground),
+    relativeLuminance(background),
+  );
+
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+function stripHtmlTags(html: string): string {
+  const div = document.createElement("div");
+  div.innerHTML = html;
+  return div.textContent ?? "";
+}
+
+function buildQuotedText(msg: GmailFullMessage): string {
+  const content = msg.bodyText ?? (msg.bodyHtml ? stripHtmlTags(msg.bodyHtml) : "");
+  return content
+    .split("\n")
+    .map((line) => `> ${line}`)
+    .join("\n");
+}
+
+function prefixSubject(subject: string, prefix: "Re" | "Fwd"): string {
+  const re = new RegExp(`^${prefix}:\\s*`, "i");
+  if (re.test(subject)) return subject;
+  return `${prefix}: ${subject}`;
+}
+
+function filterOutEmail(addresses: string, exclude: string): string {
+  return addresses
+    .split(",")
+    .map((a) => a.trim())
+    .filter((a) => {
+      const match = a.match(/<(.+?)>/);
+      const email = match ? match[1] : a;
+      return email.toLowerCase() !== exclude.toLowerCase();
+    })
+    .join(", ");
 }
 
 function MessageBody({ html, text }: { html: string | null; text: string | null }) {
@@ -69,30 +128,45 @@ function MessageBody({ html, text }: { html: string | null; text: string | null 
     if (!html || !iframeRef.current) return;
     const doc = iframeRef.current.contentDocument;
     if (!doc) return;
+    const root = document.documentElement;
+    const rootStyles = getComputedStyle(root);
+    const isDark = root.classList.contains("dark");
 
     doc.open();
     doc.write(`
       <!DOCTYPE html>
       <html>
       <head>
+        <meta name="color-scheme" content="${isDark ? "dark" : "light"}">
         <style>
+          :root {
+            color-scheme: ${isDark ? "dark" : "light"};
+          }
+          html {
+            background: var(--background);
+            overflow: hidden;
+          }
           body {
             margin: 0;
             padding: 0;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             font-size: 14px;
             line-height: 1.6;
-            color: hsl(var(--foreground, 0 0% 3.9%));
+            background: var(--background);
+            color: var(--foreground);
             overflow-wrap: break-word;
             word-break: break-word;
+            overflow: hidden;
+            -webkit-font-smoothing: antialiased;
+            text-rendering: optimizeLegibility;
           }
           img { max-width: 100%; height: auto; }
-          a { color: hsl(var(--primary, 221.2 83.2% 53.3%)); }
+          a { color: var(--primary); }
           blockquote {
             margin: 8px 0;
             padding-left: 12px;
-            border-left: 3px solid hsl(var(--border, 214.3 31.8% 91.4%));
-            color: hsl(var(--muted-foreground, 215.4 16.3% 46.9%));
+            border-left: 3px solid var(--border);
+            color: var(--muted-foreground);
           }
         </style>
       </head>
@@ -101,10 +175,53 @@ function MessageBody({ html, text }: { html: string | null; text: string | null 
     `);
     doc.close();
 
+    doc.documentElement.className = root.className;
+
+    for (let i = 0; i < rootStyles.length; i += 1) {
+      const property = rootStyles.item(i);
+      if (!property.startsWith("--")) continue;
+
+      const value = rootStyles.getPropertyValue(property);
+      if (value) {
+        doc.documentElement.style.setProperty(property, value);
+      }
+    }
+
+    const themedBackground =
+      parseRgbColor(doc.defaultView?.getComputedStyle(doc.body).backgroundColor ?? "") ??
+      [255, 255, 255];
+
+    const elements = Array.from(doc.body.querySelectorAll<HTMLElement>("*"));
+    for (const element of elements) {
+      if (element.tagName === "A") continue;
+
+      const computedColor = doc.defaultView?.getComputedStyle(element).color;
+      if (!computedColor) continue;
+
+      const parsedColor = parseRgbColor(computedColor);
+      if (!parsedColor) continue;
+
+      const hasExplicitColor =
+        element.hasAttribute("color") ||
+        (element.getAttribute("style")?.toLowerCase().includes("color") ?? false);
+
+      if (!hasExplicitColor) continue;
+
+      if (contrastRatio(parsedColor, themedBackground) < 3) {
+        element.style.color = "var(--foreground)";
+      }
+    }
+
     // Auto-resize iframe to content height
     const resize = () => {
-      if (iframeRef.current && doc.body) {
-        iframeRef.current.style.height = `${doc.body.scrollHeight}px`;
+      if (iframeRef.current && doc.body && doc.documentElement) {
+        const nextHeight = Math.max(
+          doc.body.scrollHeight,
+          doc.documentElement.scrollHeight,
+          doc.body.offsetHeight,
+          doc.documentElement.offsetHeight,
+        );
+        iframeRef.current.style.height = `${nextHeight}px`;
       }
     };
     resize();
@@ -119,8 +236,9 @@ function MessageBody({ html, text }: { html: string | null; text: string | null 
       <iframe
         ref={iframeRef}
         title="Email content"
-        className="w-full border-0"
+        className="block w-full overflow-hidden border-0 bg-transparent"
         sandbox="allow-same-origin"
+        scrolling="no"
         style={{ minHeight: 100 }}
       />
     );
@@ -186,59 +304,220 @@ export function GmailThreadDetail({
   googleAccount,
   onClose,
 }: GmailThreadDetailProps) {
-  const queryClient = useQueryClient();
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const draftsCtx = useDrafts();
+  const composeAnchorRef = useRef<HTMLDivElement>(null);
+  const autoOpenedDraftIdRef = useRef<string | null>(null);
+  const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null);
+  const [pendingDraftToOpenId, setPendingDraftToOpenId] = useState<string | null>(null);
+  const accountId = googleAccount?.providerAccountId ?? null;
 
-  const getAccessToken = useCallback(async () => {
-    if (!googleAccount) throw new Error("No Google account connected");
-    const result = await googleAccount.getAccessToken();
-    if (result.status === "error") throw new Error("Failed to get access token");
-    return result.data.accessToken;
-  }, [googleAccount]);
+  const {
+    isRead,
+    isArchiving,
+    isTrashing,
+    isTogglingRead,
+    archive,
+    trash,
+    toggleRead,
+  } = useGmailThreadActions(thread, googleAccount, onClose);
 
-  const handleArchive = useCallback(async () => {
-    setActionLoading("archive");
-    try {
-      const token = await getAccessToken();
-      await archiveGmailThread(token, thread.threadId);
-      await queryClient.invalidateQueries({ queryKey: ["gmail"] });
-      onClose();
-    } catch {
-      // TODO: toast
-    } finally {
-      setActionLoading(null);
+  const { data: threadDrafts = [] } = useGmailThreadDrafts(
+    thread,
+    detail,
+    googleAccount,
+  );
+
+  const { data: draftCompose } = useGmailComposeDraft(
+    selectedDraftId,
+    googleAccount,
+  );
+
+  const orderedThreadDrafts = useMemo(() => {
+    const order = new Map(
+      (detail?.messages ?? []).map((message, index) => [message.id, index]),
+    );
+
+    return [...threadDrafts].sort(
+      (a, b) =>
+        (order.get(a.messageId) ?? Number.MAX_SAFE_INTEGER)
+        - (order.get(b.messageId) ?? Number.MAX_SAFE_INTEGER),
+    );
+  }, [detail?.messages, threadDrafts]);
+
+  const scrollComposerIntoView = useCallback(() => {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        composeAnchorRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "nearest",
+        });
+      });
+    });
+  }, []);
+
+  // Get the inline draft for this thread from the global store
+  const inlineDraft = useMemo(
+    () => {
+      if (!draftsCtx.inlineDraftId) return null;
+      const d = draftsCtx.getDraft(draftsCtx.inlineDraftId);
+      if (!d) return null;
+      // Only show inline if the draft belongs to this thread
+      if (d.form.threadId !== thread.threadId) return null;
+      return d;
+    },
+    [draftsCtx, thread.threadId],
+  );
+
+  // Reset auto-open tracking when thread changes
+  useEffect(() => {
+    autoOpenedDraftIdRef.current = null;
+    setSelectedDraftId(null);
+    setPendingDraftToOpenId(null);
+  }, [thread.threadId]);
+
+  // Auto-open latest draft for this thread
+  useEffect(() => {
+    if (orderedThreadDrafts.length === 0) return;
+    if (autoOpenedDraftIdRef.current) return;
+
+    // Don't auto-open if there's already an inline draft for this thread
+    if (inlineDraft) return;
+
+    const latestDraftId =
+      orderedThreadDrafts[orderedThreadDrafts.length - 1]?.draftId ?? null;
+    if (!latestDraftId) return;
+
+    autoOpenedDraftIdRef.current = latestDraftId;
+    setSelectedDraftId(latestDraftId);
+    setPendingDraftToOpenId(latestDraftId);
+  }, [orderedThreadDrafts, inlineDraft]);
+
+  // Open fetched draft in global store
+  useEffect(() => {
+    if (!draftCompose) return;
+    if (pendingDraftToOpenId !== draftCompose.draftId) return;
+
+    // Check if we already have this draft open in the store
+    const existing = draftsCtx.drafts.find(
+      (d) => d.gmailDraftId === draftCompose.draftId,
+    );
+    if (existing) {
+      draftsCtx.setInlineDraft(existing.id);
+      setPendingDraftToOpenId(null);
+      scrollComposerIntoView();
+      return;
     }
-  }, [getAccessToken, thread.threadId, queryClient, onClose]);
 
-  const handleTrash = useCallback(async () => {
-    setActionLoading("trash");
-    try {
-      const token = await getAccessToken();
-      await trashGmailThread(token, thread.threadId);
-      await queryClient.invalidateQueries({ queryKey: ["gmail"] });
-      onClose();
-    } catch {
-      // TODO: toast
-    } finally {
-      setActionLoading(null);
-    }
-  }, [getAccessToken, thread.threadId, queryClient, onClose]);
+    const id = draftsCtx.openDraftWithForm(
+      draftCompose.draftId,
+      draftCompose.form,
+      draftCompose.quotedContent,
+      accountId,
+      true, // inline
+    );
+    setPendingDraftToOpenId(null);
+    scrollComposerIntoView();
 
-  const handleMarkUnread = useCallback(async () => {
-    setActionLoading("unread");
-    try {
-      const token = await getAccessToken();
-      await modifyGmailThreadLabels(token, thread.threadId, ["UNREAD"]);
-      await queryClient.invalidateQueries({ queryKey: ["gmail"] });
-      onClose();
-    } catch {
-      // TODO: toast
-    } finally {
-      setActionLoading(null);
-    }
-  }, [getAccessToken, thread.threadId, queryClient, onClose]);
+    // Suppress unused variable warning — id is used by openDraftWithForm to register
+    void id;
+  }, [
+    draftCompose,
+    pendingDraftToOpenId,
+    draftsCtx,
+    accountId,
+    scrollComposerIntoView,
+  ]);
 
-  const compose = useComposeState(googleAccount);
+  const draftsByMessageId = useMemo(
+    () =>
+      new Map(
+        threadDrafts.map((draft) => [draft.messageId, draft]),
+      ),
+    [threadDrafts],
+  );
+
+  const editingDraftMessageId = useMemo(() => {
+    if (!inlineDraft?.gmailDraftId) return null;
+    return (
+      threadDrafts.find((draft) => draft.draftId === inlineDraft.gmailDraftId)?.messageId
+      ?? draftCompose?.messageId
+      ?? null
+    );
+  }, [inlineDraft?.gmailDraftId, draftCompose?.messageId, threadDrafts]);
+
+  const openComposeFromToolbar = useCallback(
+    (mode: ComposeMode) => {
+      setSelectedDraftId(null);
+      setPendingDraftToOpenId(null);
+
+      const msg = detail?.messages[detail.messages.length - 1];
+      const userEmail = ""; // Will be resolved by the panel's useGoogleProfile
+      let form: Record<string, string | null> = {
+        to: "",
+        cc: "",
+        bcc: "",
+        subject: "",
+        body: "",
+        inReplyTo: "",
+        references: "",
+        threadId: thread.threadId,
+      };
+      let quotedContent: string | null = null;
+      let label = "";
+
+      if (mode === "reply" && msg) {
+        form.to = msg.from.email;
+        form.subject = prefixSubject(detail?.subject ?? msg.subject, "Re");
+        form.inReplyTo = msg.messageId;
+        form.references = [msg.references, msg.messageId].filter(Boolean).join(" ");
+        quotedContent = buildQuotedText(msg);
+        label = `Re: ${detail?.subject ?? msg.subject}`;
+      } else if (mode === "reply-all" && msg) {
+        form.to = msg.from.email;
+        const allCc = [msg.to, msg.cc].filter(Boolean).join(", ");
+        form.cc = userEmail ? filterOutEmail(allCc, userEmail) : allCc;
+        form.subject = prefixSubject(detail?.subject ?? msg.subject, "Re");
+        form.inReplyTo = msg.messageId;
+        form.references = [msg.references, msg.messageId].filter(Boolean).join(" ");
+        quotedContent = buildQuotedText(msg);
+        label = `Re: ${detail?.subject ?? msg.subject}`;
+      } else if (mode === "forward" && msg) {
+        form.subject = prefixSubject(detail?.subject ?? msg.subject, "Fwd");
+        const content = msg.bodyText ?? (msg.bodyHtml ? stripHtmlTags(msg.bodyHtml) : "");
+        const header = [
+          "---------- Forwarded message ----------",
+          `From: ${msg.from.name} <${msg.from.email}>`,
+          `Date: ${msg.date}`,
+          `Subject: ${msg.subject}`,
+          `To: ${msg.to}`,
+          msg.cc ? `Cc: ${msg.cc}` : null,
+          "",
+        ]
+          .filter(Boolean)
+          .join("\n");
+        form.body = `${header}\n${content}`;
+        form.threadId = null;
+        label = `Fwd: ${detail?.subject ?? msg.subject}`;
+      }
+
+      // Close any existing inline draft for this thread first
+      if (inlineDraft) {
+        draftsCtx.setInlineDraft(null);
+      }
+
+      draftsCtx.openDraft({
+        mode,
+        form: form as Record<string, string> & { threadId: string | null },
+        quotedContent,
+        label,
+        accountId,
+        inline: true,
+      });
+
+      scrollComposerIntoView();
+    },
+    [detail, thread.threadId, accountId, draftsCtx, inlineDraft, scrollComposerIntoView],
+  );
 
   if (isLoading) {
     return <GmailThreadDetailSkeleton />;
@@ -257,10 +536,10 @@ export function GmailThreadDetail({
                 <Button
                   variant="ghost"
                   size="icon-sm"
-                  disabled={actionLoading !== null}
-                  onClick={handleArchive}
+                  disabled={isArchiving || isTrashing || isTogglingRead}
+                  onClick={() => void archive()}
                 >
-                  {actionLoading === "archive" ? (
+                  {isArchiving ? (
                     <Loader2 className="size-4 animate-spin" />
                   ) : (
                     <Archive className="size-4" />
@@ -274,10 +553,10 @@ export function GmailThreadDetail({
                 <Button
                   variant="ghost"
                   size="icon-sm"
-                  disabled={actionLoading !== null}
-                  onClick={handleTrash}
+                  disabled={isArchiving || isTrashing || isTogglingRead}
+                  onClick={() => void trash()}
                 >
-                  {actionLoading === "trash" ? (
+                  {isTrashing ? (
                     <Loader2 className="size-4 animate-spin" />
                   ) : (
                     <Trash2 className="size-4" />
@@ -291,17 +570,19 @@ export function GmailThreadDetail({
                 <Button
                   variant="ghost"
                   size="icon-sm"
-                  disabled={actionLoading !== null}
-                  onClick={handleMarkUnread}
+                  disabled={isArchiving || isTrashing || isTogglingRead}
+                  onClick={() => void toggleRead()}
                 >
-                  {actionLoading === "unread" ? (
+                  {isTogglingRead ? (
                     <Loader2 className="size-4 animate-spin" />
-                  ) : (
+                  ) : isRead ? (
                     <Mail className="size-4" />
+                  ) : (
+                    <MailOpen className="size-4" />
                   )}
                 </Button>
               } />
-              <TooltipContent>Mark as unread</TooltipContent>
+              <TooltipContent>{isRead ? "Mark as unread" : "Mark as read"}</TooltipContent>
             </Tooltip>
           </div>
           <div className="flex items-center gap-1">
@@ -310,7 +591,7 @@ export function GmailThreadDetail({
                 <Button
                   variant="ghost"
                   size="icon-sm"
-                  onClick={() => compose.openCompose("reply", detail)}
+                  onClick={() => openComposeFromToolbar("reply")}
                 >
                   <Reply className="size-4" />
                 </Button>
@@ -322,7 +603,7 @@ export function GmailThreadDetail({
                 <Button
                   variant="ghost"
                   size="icon-sm"
-                  onClick={() => compose.openCompose("reply-all", detail)}
+                  onClick={() => openComposeFromToolbar("reply-all")}
                 >
                   <ReplyAll className="size-4" />
                 </Button>
@@ -334,7 +615,7 @@ export function GmailThreadDetail({
                 <Button
                   variant="ghost"
                   size="icon-sm"
-                  onClick={() => compose.openCompose("forward", detail)}
+                  onClick={() => openComposeFromToolbar("forward")}
                 >
                   <Forward className="size-4" />
                 </Button>
@@ -363,43 +644,78 @@ export function GmailThreadDetail({
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto">
-        {messages.map((msg, idx) => (
+        {messages.map((msg, idx) => {
+          const draft = draftsByMessageId.get(msg.id);
+          const isEditingThisDraft = editingDraftMessageId === msg.id;
+
+          return (
           <div key={msg.id}>
             {idx > 0 && <Separator />}
             <div className="px-6 py-4">
               <div className="flex items-start gap-3">
-                <Avatar size="default">
-                  <AvatarImage
-                    src={getSenderAvatarUrl(msg.from.email) ?? undefined}
-                    alt={msg.from.name}
-                  />
-                  <AvatarFallback>
-                    {msg.from.name.slice(0, 2).toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
+                <GmailSenderAvatar
+                  name={msg.from.name}
+                  email={msg.from.email}
+                />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-baseline justify-between gap-2">
-                    <span className="truncate text-sm font-semibold">
-                      {msg.from.name}
-                    </span>
+                    <div className="flex min-w-0 items-baseline gap-1.5">
+                      <span className="shrink-0 text-sm font-semibold">
+                        {msg.from.name}
+                      </span>
+                      <span className="min-w-0 truncate text-xs text-muted-foreground">
+                        &lt;{msg.from.email}&gt;
+                      </span>
+                      {draft && (
+                        <Badge variant="outline" className="h-5 shrink-0 px-1.5 text-[10px] uppercase">
+                          Draft
+                        </Badge>
+                      )}
+                    </div>
                     <span className="shrink-0 text-xs text-muted-foreground">
                       {formatFullDate(msg.date)}
                     </span>
                   </div>
-                  <p className="truncate text-xs text-muted-foreground">
-                    To: {msg.to}
-                  </p>
+                  <div className="mt-1 flex items-center justify-between gap-3">
+                    <p className="truncate text-xs text-muted-foreground">
+                      To: {msg.to}
+                    </p>
+                    {draft && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="xs"
+                        className="shrink-0 text-xs"
+                        onClick={() => {
+                          setSelectedDraftId(draft.draftId);
+                          setPendingDraftToOpenId(draft.draftId);
+                        }}
+                      >
+                        {isEditingThisDraft ? "Editing below" : "Edit draft"}
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </div>
-              <div className="mt-4">
-                <MessageBody html={msg.bodyHtml} text={msg.bodyText} />
-              </div>
+              {!isEditingThisDraft && (
+                <div className="mt-4">
+                  <MessageBody html={msg.bodyHtml} text={msg.bodyText} />
+                </div>
+              )}
             </div>
           </div>
-        ))}
+          );
+        })}
 
         {/* Inline compose for reply/reply-all/forward */}
-        <ComposeInline compose={compose} />
+        <div ref={composeAnchorRef} className="scroll-mt-2">
+          {inlineDraft && (
+            <ComposeInline
+              draft={inlineDraft}
+              googleAccount={googleAccount}
+            />
+          )}
+        </div>
       </div>
     </div>
   );

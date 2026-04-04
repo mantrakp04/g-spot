@@ -1,4 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
+import { useQueries } from "@tanstack/react-query";
+import { Octokit } from "octokit";
 
 import {
   Avatar,
@@ -26,20 +28,24 @@ import {
 import { Separator } from "@g-spot/ui/components/separator";
 import { Plus, Trash2, X, Github, Mail } from "lucide-react";
 import { cn } from "@g-spot/ui/lib/utils";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useUser } from "@stackframe/react";
 
-import type { FilterCondition } from "@g-spot/api/schemas/section-filters";
-import type { SectionSource } from "@g-spot/api/schemas/section-filters";
-import { getFieldConfig } from "@/lib/filter-fields";
-import { trpcClient } from "@/utils/trpc";
+import type { FilterCondition, SectionSource } from "@g-spot/types/filters";
+import {
+  useCreateSectionMutation,
+  useDeleteSectionMutation,
+  useUpdateSectionMutation,
+} from "@/hooks/use-sections";
 import {
   useGitHubRepoSearch,
   useGitHubLabels,
-  useGitHubUsers,
   useGitHubProfile,
 } from "@/hooks/use-github-options";
 import { useGmailLabels, useGoogleProfile } from "@/hooks/use-gmail-options";
+import { useSectionFilterSuggestions } from "@/hooks/use-filter-suggestions";
+import { getInitials, getOAuthToken } from "@/lib/oauth";
+import { githubKeys, googleKeys } from "@/lib/query-keys";
+import { persistedStaleWhileRevalidateQueryOptions } from "@/utils/query-defaults";
 import { FilterConditionRow } from "./filter-condition-row";
 import { RepoSearchInput } from "./repo-search-input";
 
@@ -68,7 +74,8 @@ function parseJson<T>(json: string, fallback: T): T {
 }
 
 const SOURCE_LABELS: Record<SectionSource, string> = {
-  github_pr: "GitHub Pull Requests",
+  github_pr: "GitHub PRs",
+  github_issue: "GitHub Issues",
   gmail: "Gmail",
 };
 
@@ -78,7 +85,6 @@ export function SectionBuilder({
   section,
 }: SectionBuilderProps) {
   const isEdit = !!section;
-  const queryClient = useQueryClient();
   const user = useUser();
   const accounts = user?.useConnectedAccounts() ?? [];
 
@@ -86,16 +92,20 @@ export function SectionBuilder({
   const [name, setName] = useState("");
   const [source, setSource] = useState<SectionSource>("github_pr");
   const [filters, setFilters] = useState<FilterCondition[]>([]);
+  const [filterSearchQueries, setFilterSearchQueries] = useState<string[]>([]);
   const [repos, setRepos] = useState<string[]>([]);
   const [accountId, setAccountId] = useState<string | null>(null);
   const [showBadge, setShowBadge] = useState(true);
+  const isGitHubSource = source === "github_pr" || source === "github_issue";
 
   // Reset form when dialog opens
   useEffect(() => {
     if (open) {
+      const nextFilters = section ? parseJson<FilterCondition[]>(section.filters, []) : [];
       setName(section?.name ?? "");
       setSource(section?.source ?? "github_pr");
-      setFilters(section ? parseJson(section.filters, []) : []);
+      setFilters(nextFilters);
+      setFilterSearchQueries(Array.from({ length: nextFilters.length }, () => ""));
       setRepos(section ? parseJson(section.repos, []) : []);
       setAccountId(section?.accountId ?? null);
       setShowBadge(section?.showBadge ?? true);
@@ -109,13 +119,13 @@ export function SectionBuilder({
   // Auto-select the first account if none selected
   useEffect(() => {
     if (!accountId) {
-      if (source === "github_pr" && githubAccounts.length > 0) {
+      if (isGitHubSource && githubAccounts.length > 0) {
         setAccountId(githubAccounts[0].providerAccountId);
       } else if (source === "gmail" && googleAccounts.length > 0) {
         setAccountId(googleAccounts[0].providerAccountId);
       }
     }
-  }, [source, githubAccounts, googleAccounts, accountId]);
+  }, [source, githubAccounts, googleAccounts, accountId, isGitHubSource]);
 
   // Get the selected connected account object
   const selectedAccount = useMemo(() => {
@@ -123,13 +133,65 @@ export function SectionBuilder({
     return accounts.find((a) => a.providerAccountId === accountId) ?? null;
   }, [accounts, accountId]);
 
-  // Fetch profile info for display
+  // Fetch profile info for the selected account (avatar display)
   const { data: githubProfile } = useGitHubProfile(
-    source === "github_pr" ? selectedAccount : null,
+    isGitHubSource ? selectedAccount : null,
   );
   const { data: googleProfile } = useGoogleProfile(
     source === "gmail" ? selectedAccount : null,
   );
+
+  // Fetch profile labels for ALL relevant accounts so the dropdown shows names, not IDs.
+  // Uses the same queryKey + return shape as useGitHubProfile / useGoogleProfile to share cache.
+  const relevantAccountsList = isGitHubSource ? githubAccounts : googleAccounts;
+  const profileQueries = useQueries({
+    queries: relevantAccountsList.map((a) =>
+      isGitHubSource
+        ? {
+            queryKey: githubKeys.profile(a.providerAccountId),
+            queryFn: async () => {
+              const token = await getOAuthToken(a);
+              const octokit = new Octokit({ auth: token });
+              const { data } = await octokit.rest.users.getAuthenticated();
+              return { login: data.login, avatarUrl: data.avatar_url, name: data.name };
+            },
+            enabled: true,
+            ...persistedStaleWhileRevalidateQueryOptions,
+          }
+        : {
+            queryKey: googleKeys.profile(a.providerAccountId),
+            queryFn: async () => {
+              const token = await getOAuthToken(a);
+              const res = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              if (!res.ok) throw new Error("Failed to fetch Google profile");
+              const data = await res.json() as { name?: string; email?: string; picture?: string };
+              return {
+                name: data.name ?? data.email ?? "Google Account",
+                email: data.email ?? "",
+                picture: data.picture ?? "",
+              };
+            },
+            enabled: true,
+            ...persistedStaleWhileRevalidateQueryOptions,
+          },
+    ),
+  });
+
+  const profileLabelMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (let i = 0; i < relevantAccountsList.length; i++) {
+      const account = relevantAccountsList[i];
+      const q = profileQueries[i];
+      if (!q?.data) continue;
+      const d = q.data as Record<string, string>;
+      // GitHub profiles have `login`, Google profiles have `email`
+      const label = d.login ?? d.email ?? d.name ?? account.providerAccountId;
+      map.set(account.providerAccountId, label);
+    }
+    return map;
+  }, [profileQueries, relevantAccountsList]);
 
   // Repo search with dynamic query + infinite pagination
   const [repoQuery, setRepoQuery] = useState("");
@@ -139,7 +201,7 @@ export function SectionBuilder({
     hasNextPage: hasMoreRepos,
     isFetchingNextPage: fetchingMoreRepos,
     fetchNextPage: fetchMoreRepos,
-  } = useGitHubRepoSearch(source === "github_pr" ? selectedAccount : null, repoQuery);
+  } = useGitHubRepoSearch(isGitHubSource ? selectedAccount : null, repoQuery);
 
   const repoSearchResults = useMemo(
     () => repoSearchData?.pages.flatMap((p) => p.repos) ?? [],
@@ -148,104 +210,56 @@ export function SectionBuilder({
 
   // Other options
   const { data: labelOptions, isLoading: loadingLabels } =
-    useGitHubLabels(source === "github_pr" ? selectedAccount : null, repos);
-  const { data: userOptions, isLoading: loadingUsers } =
-    useGitHubUsers(source === "github_pr" ? selectedAccount : null, "");
+    useGitHubLabels(isGitHubSource ? selectedAccount : null, repos);
   const { data: gmailLabelOptions, isLoading: loadingGmailLabels } =
     useGmailLabels(source === "gmail" ? selectedAccount : null);
-
-  function getOptionsForCondition(condition: FilterCondition) {
-    const fieldConfig = getFieldConfig(source, condition.field);
-    if (!fieldConfig?.optionsKey) return { options: undefined, loading: false };
-
-    switch (fieldConfig.optionsKey) {
-      case "repos":
-        return { options: repoSearchResults.map((r) => ({ value: r.value, label: r.label })), loading: loadingRepos };
-      case "labels":
-        return { options: labelOptions, loading: loadingLabels };
-      case "users":
-        return { options: userOptions, loading: loadingUsers };
-      case "gmail_labels":
-        return { options: gmailLabelOptions, loading: loadingGmailLabels };
-      default:
-        return { options: undefined, loading: false };
-    }
-  }
-
-  // Mutations
-  const invalidate = (sectionId?: string, source?: SectionSource) => {
-    queryClient.invalidateQueries({ queryKey: [["sections", "list"]] });
-    if (sectionId) {
-      const dataKey =
-        source === "github_pr"
-          ? ["github", "prs", sectionId]
-          : ["gmail", "threads", sectionId];
-      queryClient.invalidateQueries({ queryKey: dataKey });
-    }
-  };
-
-  const createMutation = useMutation({
-    mutationFn: (input: {
-      name: string;
-      source: SectionSource;
-      filters: FilterCondition[];
-      repos: string[];
-      accountId: string | null;
-      showBadge: boolean;
-    }) => trpcClient.sections.create.mutate(input),
-    onSuccess: () => {
-      invalidate();
-      onOpenChange(false);
-    },
+  const suggestionStates = useSectionFilterSuggestions({
+    source,
+    account: selectedAccount,
+    filters,
+    repos,
+    searchQueries: filterSearchQueries,
+    repoOptions: repoSearchResults.map((repo) => ({
+      value: repo.value,
+      label: repo.label,
+    })),
+    githubLabelOptions: labelOptions,
+    gmailLabelOptions,
   });
 
-  const updateMutation = useMutation({
-    mutationFn: (input: {
-      id: string;
-      name?: string;
-      filters?: FilterCondition[];
-      repos?: string[];
-      accountId?: string | null;
-      showBadge?: boolean;
-    }) => trpcClient.sections.update.mutate(input),
-    onSuccess: () => {
-      invalidate(section?.id, section?.source);
-      onOpenChange(false);
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => trpcClient.sections.delete.mutate({ id }),
-    onSuccess: () => {
-      invalidate(section?.id, section?.source);
-      onOpenChange(false);
-    },
-  });
+  const createMutation = useCreateSectionMutation();
+  const updateMutation = useUpdateSectionMutation();
+  const deleteMutation = useDeleteSectionMutation();
 
   function addCondition() {
-    const defaultField = source === "github_pr" ? "status" : "from";
+    const defaultField = source === "gmail" ? "from" : "status";
     setFilters((prev) => [
       ...prev,
       { field: defaultField, operator: "is" as const, value: "", logic: "and" as const },
     ]);
+    setFilterSearchQueries((prev) => [...prev, ""]);
   }
 
   function updateCondition(index: number, updated: FilterCondition) {
     setFilters((prev) => prev.map((c, i) => (i === index ? updated : c)));
+    setFilterSearchQueries((prev) =>
+      prev.map((query, i) => (i === index ? "" : query)),
+    );
   }
 
   function removeCondition(index: number) {
     setFilters((prev) => prev.filter((_, i) => i !== index));
+    setFilterSearchQueries((prev) => prev.filter((_, i) => i !== index));
   }
 
-  function handleSave() {
+  async function handleSave() {
     const trimmedName = name.trim();
     if (!trimmedName) return;
 
     const validFilters = filters.filter((f) => f.value.trim() !== "");
 
     if (isEdit && section) {
-      updateMutation.mutate({
+      await updateMutation.mutateAsync({
         id: section.id,
         name: trimmedName,
         filters: validFilters,
@@ -254,7 +268,7 @@ export function SectionBuilder({
         showBadge,
       });
     } else {
-      createMutation.mutate({
+      await createMutation.mutateAsync({
         name: trimmedName,
         source,
         filters: validFilters,
@@ -263,21 +277,23 @@ export function SectionBuilder({
         showBadge,
       });
     }
+
+    onOpenChange(false);
+  }
+
+  async function handleDelete() {
+    if (!section) return;
+    await deleteMutation.mutateAsync(section.id);
+    onOpenChange(false);
   }
 
   const isSaving = createMutation.isPending || updateMutation.isPending;
   const relevantAccounts =
-    source === "github_pr" ? githubAccounts : googleAccounts;
+    isGitHubSource ? githubAccounts : googleAccounts;
 
   // Account display name
   function getAccountLabel(providerAccountId: string): string {
-    if (source === "github_pr" && githubProfile && selectedAccount?.providerAccountId === providerAccountId) {
-      return githubProfile.login;
-    }
-    if (source === "gmail" && googleProfile && selectedAccount?.providerAccountId === providerAccountId) {
-      return googleProfile.email || googleProfile.name;
-    }
-    return providerAccountId;
+    return profileLabelMap.get(providerAccountId) ?? providerAccountId;
   }
 
   return (
@@ -316,13 +332,14 @@ export function SectionBuilder({
                     if (!v) return;
                     setSource(v as SectionSource);
                     setFilters([]);
+                    setFilterSearchQueries([]);
                     setRepos([]);
                     setAccountId(null);
                   }}
                 >
                   <SelectTrigger className="h-9">
                     <div className="flex items-center gap-2">
-                      {source === "github_pr" ? (
+                      {isGitHubSource ? (
                         <Github className="size-3.5" />
                       ) : (
                         <Mail className="size-3.5" />
@@ -333,7 +350,11 @@ export function SectionBuilder({
                   <SelectContent>
                     <SelectItem value="github_pr">
                       <Github className="size-3.5" />
-                      GitHub Pull Requests
+                      GitHub PRs
+                    </SelectItem>
+                    <SelectItem value="github_issue">
+                      <Github className="size-3.5" />
+                      GitHub Issues
                     </SelectItem>
                     <SelectItem value="gmail">
                       <Mail className="size-3.5" />
@@ -358,13 +379,13 @@ export function SectionBuilder({
                         <Avatar className="size-4">
                           <AvatarImage
                             src={
-                              source === "github_pr"
+                              isGitHubSource
                                 ? githubProfile?.avatarUrl
                                 : googleProfile?.picture
                             }
                           />
                           <AvatarFallback className="text-[8px]">
-                            {getAccountLabel(accountId ?? "").slice(0, 2).toUpperCase()}
+                            {getInitials(getAccountLabel(accountId ?? ""))}
                           </AvatarFallback>
                         </Avatar>
                       )}
@@ -393,7 +414,7 @@ export function SectionBuilder({
           </div>
 
           {/* Repositories (GitHub only) */}
-          {source === "github_pr" && selectedAccount && (
+          {isGitHubSource && selectedAccount && (
             <div className="space-y-1.5">
               <Label className="text-xs font-medium text-muted-foreground">Repositories</Label>
 
@@ -450,7 +471,12 @@ export function SectionBuilder({
 
             <div className="space-y-0">
               {filters.map((condition, index) => {
-                const { options, loading } = getOptionsForCondition(condition);
+                const { options, isLoading } = suggestionStates[index] ?? {};
+                const supportsTypedSuggestions =
+                  (source === "github_pr"
+                    && ["author", "reviewer", "assignee", "mentions", "involves"].includes(condition.field))
+                  || (source === "github_issue"
+                    && ["author", "assignee", "mentions", "involves"].includes(condition.field));
                 return (
                   <FilterConditionRow
                     key={index}
@@ -458,9 +484,24 @@ export function SectionBuilder({
                     source={isEdit ? section!.source : source}
                     index={index}
                     onChange={(updated) => updateCondition(index, updated)}
+                    onSearchChange={
+                      supportsTypedSuggestions
+                        ? (query) =>
+                            setFilterSearchQueries((prev) =>
+                              prev.map((current, currentIndex) =>
+                                currentIndex === index ? query : current,
+                              ),
+                            )
+                        : undefined
+                    }
                     onRemove={() => removeCondition(index)}
                     dynamicOptions={options}
-                    isLoadingOptions={loading}
+                    isLoadingOptions={
+                      isLoading
+                      || (isGitHubSource && condition.field === "label" && loadingLabels)
+                      || (source === "gmail" && condition.field === "label" && loadingGmailLabels)
+                      || (isGitHubSource && condition.field === "repo" && loadingRepos)
+                    }
                   />
                 );
               })}
@@ -500,7 +541,7 @@ export function SectionBuilder({
               variant="ghost"
               size="sm"
               className="gap-1.5 text-destructive hover:text-destructive"
-              onClick={() => section && deleteMutation.mutate(section.id)}
+              onClick={() => void handleDelete()}
               disabled={deleteMutation.isPending}
             >
               <Trash2 className="size-3.5" />
@@ -521,7 +562,7 @@ export function SectionBuilder({
             <Button
               type="button"
               size="sm"
-              onClick={handleSave}
+              onClick={() => void handleSave()}
               disabled={isSaving || !name.trim()}
             >
               {isSaving ? "Saving..." : "Save"}

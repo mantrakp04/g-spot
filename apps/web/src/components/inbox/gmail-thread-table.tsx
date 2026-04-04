@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 
-import type { FilterCondition } from "@g-spot/api/schemas/section-filters";
+import type { FilterCondition } from "@g-spot/types/filters";
 import { Skeleton } from "@g-spot/ui/components/skeleton";
 import {
   Table,
@@ -10,6 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from "@g-spot/ui/components/table";
+import { TooltipProvider } from "@g-spot/ui/components/tooltip";
 import { useUser } from "@stackframe/react";
 import { Loader2 } from "lucide-react";
 
@@ -68,11 +69,12 @@ export function GmailThreadTable({ sectionId, filters, accountId, sortAsc, onCou
   const { data, isLoading, isError, error, hasNextPage, fetchNextPage, isFetchingNextPage } =
     useGmailThreads(sectionId, filters, googleAccount);
 
-  // Report actual loaded thread count to parent
+  // Report the filtered total estimate from Gmail rather than just loaded rows.
   const loadedCount = data?.pages.reduce((sum, p) => sum + p.threads.length, 0) ?? 0;
+  const estimatedTotalCount = data?.pages[0]?.resultSizeEstimate ?? loadedCount;
   useEffect(() => {
-    onCountChange?.(loadedCount, hasNextPage ?? false);
-  }, [loadedCount, hasNextPage, onCountChange]);
+    onCountChange?.(estimatedTotalCount, false);
+  }, [estimatedTotalCount, onCountChange]);
 
   const [scrollContainer, setScrollContainer] = useState<HTMLElement | null>(null);
   const sentinelRef = useInfiniteScroll({
@@ -121,6 +123,7 @@ export function GmailThreadTable({ sectionId, filters, accountId, sortAsc, onCou
   }
 
   return (
+    <TooltipProvider>
     <div ref={setScrollContainer} className="max-h-[28rem] overflow-y-auto [&_[data-slot=table-container]]:overflow-visible">
       <Table>
         <TableHeader className="sticky top-0 z-10 bg-card">
@@ -151,5 +154,6 @@ export function GmailThreadTable({ sectionId, filters, accountId, sortAsc, onCou
         </div>
       )}
     </div>
+    </TooltipProvider>
   );
 }

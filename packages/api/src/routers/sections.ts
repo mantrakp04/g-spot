@@ -1,10 +1,10 @@
 import { z } from "zod";
-
-import { authedProcedure, router } from "../index";
 import {
   sectionFiltersSchema,
   sectionSourceSchema,
-} from "../schemas/section-filters";
+} from "@g-spot/types/filters";
+
+import { authedProcedure, router } from "../index";
 import {
   createSection,
   deleteSection,

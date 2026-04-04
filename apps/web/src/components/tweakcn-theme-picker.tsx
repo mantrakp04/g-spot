@@ -229,7 +229,7 @@ export function ThemePicker({
   return (
     <DropdownMenu open={isOpen} onOpenChange={setIsOpen}>
       <DropdownMenuTrigger
-        render={<Button variant={compact ? "ghost" : "outline"} size="lg" className={cn(compact ? "h-auto w-full justify-start gap-2 px-2 py-1.5" : "gap-2", className)} />}
+        render={<Button variant={compact ? "ghost" : "outline"} size="sm" className={cn(compact ? "h-auto w-full justify-start gap-2 px-2 py-1.5" : "gap-2", className)} />}
       >
         <Palette className="h-4 w-4 shrink-0" />
         <span className="truncate">{currentTheme ? formatThemeName(currentTheme.name) : compact ? "Theme" : "Choose TweakCN Theme"}</span>

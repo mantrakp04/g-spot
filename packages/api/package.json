@@ -13,6 +13,7 @@
   "dependencies": {
     "@g-spot/db": "workspace:*",
     "@g-spot/env": "workspace:*",
+    "@g-spot/types": "workspace:*",
     "@trpc/client": "catalog:",
     "@trpc/server": "catalog:",
     "dotenv": "catalog:",

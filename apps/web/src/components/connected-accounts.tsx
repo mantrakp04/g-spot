@@ -2,15 +2,20 @@ import { Badge } from "@g-spot/ui/components/badge";
 import { Button } from "@g-spot/ui/components/button";
 import { cn } from "@g-spot/ui/lib/utils";
 import { useUser } from "@stackframe/react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Github, Minus, Plus } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { GoogleAccountRow } from "@/components/google-account-row";
 import { OpenAIConnectDialog } from "@/components/openai-connect-dialog";
+import { useRemoveConnectionMutation } from "@/hooks/use-connections";
+import {
+  useDisconnectOpenAIMutation,
+  useInitiateOpenAIOAuthMutation,
+  useOpenAIStatus,
+  useRefreshOpenAIStatus,
+} from "@/hooks/use-openai";
 import { GOOGLE_OAUTH_SCOPES } from "@/stack/google-oauth-scopes";
-import { trpcClient } from "@/utils/trpc";
 
 type ProviderId = "google" | "github";
 
@@ -56,7 +61,6 @@ function ScopeTag({ children }: { children: string }) {
 export function ConnectedAccounts() {
   const user = useUser({ or: "redirect" });
   const accounts = user.useConnectedAccounts();
-  const queryClient = useQueryClient();
 
   const googleAccounts = accounts.filter((a) => a.provider === "google");
   const githubAccounts = accounts.filter((a) => a.provider === "github");
@@ -65,12 +69,11 @@ export function ConnectedAccounts() {
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
   const [apiKeyDialogOpen, setApiKeyDialogOpen] = useState(false);
   const popupRef = useRef<Window | null>(null);
-
-  const openaiStatus = useQuery({
-    queryKey: ["openai-status"],
-    queryFn: () => trpcClient.openai.status.query(),
-    staleTime: 30_000,
-  });
+  const openaiStatus = useOpenAIStatus();
+  const refreshOpenAIStatus = useRefreshOpenAIStatus();
+  const initiateOpenAIOAuthMutation = useInitiateOpenAIOAuthMutation();
+  const disconnectOpenAIMutation = useDisconnectOpenAIMutation();
+  const removeConnectionMutation = useRemoveConnectionMutation();
 
   // Listen for postMessage from OAuth popup
   const handleOAuthMessage = useCallback(
@@ -79,12 +82,12 @@ export function ConnectedAccounts() {
       if (data?.type !== "openai-oauth") return;
       if (data.status === "success") {
         toast.success("OpenAI connected");
-        queryClient.invalidateQueries({ queryKey: ["openai-status"] });
+        void refreshOpenAIStatus();
       } else {
         toast.error("OpenAI connection failed");
       }
     },
-    [queryClient],
+    [refreshOpenAIStatus],
   );
 
   useEffect(() => {
@@ -108,7 +111,7 @@ export function ConnectedAccounts() {
 
   async function connectOpenai() {
     try {
-      const { url } = await trpcClient.openai.initiateAuth.mutate();
+      const { url } = await initiateOpenAIOAuthMutation.mutateAsync();
       const w = 500;
       const h = 700;
       const left = window.screenX + (window.outerWidth - w) / 2;
@@ -128,7 +131,7 @@ export function ConnectedAccounts() {
   async function removeAccount(provider: string, providerAccountId: string) {
     setDisconnecting(providerAccountId);
     try {
-      await trpcClient.connections.remove.mutate({ provider, providerAccountId });
+      await removeConnectionMutation.mutateAsync({ provider, providerAccountId });
       toast.success("Account removed");
       // Stack Auth SDK will re-fetch connected accounts automatically
     } catch (e) {
@@ -143,8 +146,7 @@ export function ConnectedAccounts() {
   async function disconnectOpenai() {
     setDisconnecting("openai");
     try {
-      await trpcClient.openai.disconnect.mutate();
-      await queryClient.invalidateQueries({ queryKey: ["openai-status"] });
+      await disconnectOpenAIMutation.mutateAsync();
       toast.success("OpenAI disconnected");
     } catch (e) {
       toast.error(
@@ -376,9 +378,7 @@ export function ConnectedAccounts() {
       <OpenAIConnectDialog
         open={apiKeyDialogOpen}
         onOpenChange={setApiKeyDialogOpen}
-        onConnected={() =>
-          queryClient.invalidateQueries({ queryKey: ["openai-status"] })
-        }
+        onConnected={() => void refreshOpenAIStatus()}
       />
     </div>
   );

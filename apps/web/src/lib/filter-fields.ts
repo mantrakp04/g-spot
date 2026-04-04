@@ -15,10 +15,36 @@ export type FieldConfig = {
   group?: string;
 };
 
+// ─── Shared GitHub Field Configs ─────────────────────────────────────────────
+
+const githubPeopleFields: Record<string, FieldConfig> = {
+  author: { label: "Author", valueType: "combobox", optionsKey: "users", group: "People" },
+  assignee: { label: "Assignee", valueType: "combobox", optionsKey: "users", group: "People" },
+  mentions: { label: "Mentions", valueType: "combobox", optionsKey: "users", group: "People" },
+  involves: { label: "Involves", valueType: "combobox", optionsKey: "users", group: "People" },
+};
+
+const githubRepoFields: Record<string, FieldConfig> = {
+  repo: { label: "Repository", valueType: "combobox", optionsKey: "repos", group: "Repository" },
+  label: { label: "Label", valueType: "combobox", optionsKey: "labels", group: "Repository" },
+  milestone: { label: "Milestone", valueType: "combobox", group: "Repository" },
+  language: { label: "Language", valueType: "combobox", placeholder: "e.g. typescript", group: "Repository" },
+};
+
+const githubDateFields: Record<string, FieldConfig> = {
+  created: { label: "Created", valueType: "date", operators: ["gt", "lt", "gte", "lte", "between"], placeholder: "YYYY-MM-DD", group: "Date" },
+  updated: { label: "Updated", valueType: "date", operators: ["gt", "lt", "gte", "lte", "between"], placeholder: "YYYY-MM-DD", group: "Date" },
+  closed: { label: "Closed", valueType: "date", operators: ["gt", "lt", "gte", "lte", "between"], placeholder: "YYYY-MM-DD", group: "Date" },
+};
+
+const githubActivityFields: Record<string, FieldConfig> = {
+  comments: { label: "Comments", valueType: "text", operators: ["gt", "lt", "gte", "lte"], placeholder: "e.g. >5", group: "Activity" },
+  interactions: { label: "Interactions", valueType: "text", operators: ["gt", "lt", "gte", "lte"], placeholder: "e.g. >10", group: "Activity" },
+};
+
 // ─── GitHub PR Filters ──────────────────────────────────────────────────────
 
 export const githubPrFieldConfig: Record<string, FieldConfig> = {
-  // ── Status ──
   status: {
     label: "PR status",
     valueType: "select",
@@ -30,12 +56,7 @@ export const githubPrFieldConfig: Record<string, FieldConfig> = {
     operators: ["is", "is_not"],
     group: "Status",
   },
-  draft: {
-    label: "Draft",
-    valueType: "boolean",
-    operators: ["is"],
-    group: "Status",
-  },
+  draft: { label: "Draft", valueType: "boolean", operators: ["is"], group: "Status" },
   review_status: {
     label: "Review status",
     valueType: "select",
@@ -48,129 +69,34 @@ export const githubPrFieldConfig: Record<string, FieldConfig> = {
     operators: ["is", "is_not"],
     group: "Status",
   },
+  ...githubPeopleFields,
+  reviewer: { label: "Reviewer", valueType: "combobox", optionsKey: "users", group: "People" },
+  team_reviewer: { label: "Team reviewer", valueType: "combobox", optionsKey: "users", group: "People" },
+  ...githubRepoFields,
+  head: { label: "Head branch", valueType: "combobox", placeholder: "e.g. feature/my-branch", group: "Branches" },
+  base: { label: "Base branch", valueType: "combobox", placeholder: "e.g. main", group: "Branches" },
+  ...githubDateFields,
+  merged: { label: "Merged", valueType: "date", operators: ["gt", "lt", "gte", "lte", "between"], placeholder: "YYYY-MM-DD", group: "Date" },
+  ...githubActivityFields,
+};
 
-  // ── People ──
-  author: {
-    label: "Author",
-    valueType: "combobox",
-    optionsKey: "users",
-    group: "People",
-  },
-  reviewer: {
-    label: "Reviewer",
-    valueType: "combobox",
-    optionsKey: "users",
-    group: "People",
-  },
-  team_reviewer: {
-    label: "Team reviewer",
-    valueType: "combobox",
-    optionsKey: "users",
-    group: "People",
-  },
-  assignee: {
-    label: "Assignee",
-    valueType: "combobox",
-    optionsKey: "users",
-    group: "People",
-  },
-  mentions: {
-    label: "Mentions",
-    valueType: "combobox",
-    optionsKey: "users",
-    group: "People",
-  },
-  involves: {
-    label: "Involves",
-    valueType: "combobox",
-    optionsKey: "users",
-    group: "People",
-  },
+// ─── GitHub Issue Filters ───────────────────────────────────────────────────
 
-  // ── Repository ──
-  repo: {
-    label: "Repository",
-    valueType: "combobox",
-    optionsKey: "repos",
-    group: "Repository",
+export const githubIssueFieldConfig: Record<string, FieldConfig> = {
+  status: {
+    label: "Issue status",
+    valueType: "select",
+    options: [
+      { value: "open", label: "Open" },
+      { value: "closed", label: "Closed" },
+    ],
+    operators: ["is", "is_not"],
+    group: "Status",
   },
-  label: {
-    label: "Label",
-    valueType: "combobox",
-    optionsKey: "labels",
-    group: "Repository",
-  },
-  milestone: {
-    label: "Milestone",
-    valueType: "combobox",
-    group: "Repository",
-  },
-  language: {
-    label: "Language",
-    valueType: "combobox",
-    placeholder: "e.g. typescript",
-    group: "Repository",
-  },
-
-  // ── Branches ──
-  head: {
-    label: "Head branch",
-    valueType: "combobox",
-    placeholder: "e.g. feature/my-branch",
-    group: "Branches",
-  },
-  base: {
-    label: "Base branch",
-    valueType: "combobox",
-    placeholder: "e.g. main",
-    group: "Branches",
-  },
-
-  // ── Date / Time ──
-  created: {
-    label: "Created",
-    valueType: "date",
-    operators: ["gt", "lt", "gte", "lte", "between"],
-    placeholder: "YYYY-MM-DD",
-    group: "Date",
-  },
-  updated: {
-    label: "Updated",
-    valueType: "date",
-    operators: ["gt", "lt", "gte", "lte", "between"],
-    placeholder: "YYYY-MM-DD",
-    group: "Date",
-  },
-  merged: {
-    label: "Merged",
-    valueType: "date",
-    operators: ["gt", "lt", "gte", "lte", "between"],
-    placeholder: "YYYY-MM-DD",
-    group: "Date",
-  },
-  closed: {
-    label: "Closed",
-    valueType: "date",
-    operators: ["gt", "lt", "gte", "lte", "between"],
-    placeholder: "YYYY-MM-DD",
-    group: "Date",
-  },
-
-  // ── Activity ──
-  comments: {
-    label: "Comments",
-    valueType: "text",
-    operators: ["gt", "lt", "gte", "lte"],
-    placeholder: "e.g. >5",
-    group: "Activity",
-  },
-  interactions: {
-    label: "Interactions",
-    valueType: "text",
-    operators: ["gt", "lt", "gte", "lte"],
-    placeholder: "e.g. >10",
-    group: "Activity",
-  },
+  ...githubPeopleFields,
+  ...githubRepoFields,
+  ...githubDateFields,
+  ...githubActivityFields,
 };
 
 // ─── Gmail Filters ──────────────────────────────────────────────────────────
@@ -381,10 +307,14 @@ export const gmailFieldConfig: Record<string, FieldConfig> = {
 };
 
 export function getFieldConfig(
-  source: "github_pr" | "gmail",
+  source: "github_pr" | "github_issue" | "gmail",
   field: string,
 ): FieldConfig | undefined {
   const config =
-    source === "github_pr" ? githubPrFieldConfig : gmailFieldConfig;
+    source === "github_pr"
+      ? githubPrFieldConfig
+      : source === "github_issue"
+        ? githubIssueFieldConfig
+        : gmailFieldConfig;
   return config[field];
 }

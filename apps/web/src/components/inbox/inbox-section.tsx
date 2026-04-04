@@ -8,7 +8,7 @@ import { ChevronDown, ChevronRight, ArrowUpDown, Settings } from "lucide-react";
 export type InboxSectionData = {
   id: string;
   name: string;
-  source: "github_pr" | "gmail";
+  source: "github_pr" | "github_issue" | "gmail";
   filters: string;
   collapsed: boolean;
   showBadge: boolean;
@@ -53,6 +53,16 @@ export function InboxSection({
           <span className="min-w-0 flex-1 truncate text-sm font-medium">
             {section.name}
           </span>
+          <Badge
+            variant="outline"
+            className="h-4 shrink-0 px-1.5 text-[10px] uppercase text-muted-foreground"
+          >
+            {section.source === "github_pr"
+              ? "PR"
+              : section.source === "github_issue"
+                ? "Issue"
+                : "Gmail"}
+          </Badge>
           {section.showBadge && itemCount > 0 && (
             <Badge
               variant="secondary"

@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { env } from "@g-spot/env/server";
 
-import { authedProcedure, publicProcedure, router } from "../index";
+import { authedProcedure, router } from "../index";
 import {
   getServerMetadata,
   patchServerMetadata,
@@ -37,7 +37,7 @@ async function sha256Base64Url(plain: string): Promise<string> {
 }
 
 // In-memory pending OAuth states, keyed by `state`.
-const pendingOAuth = new Map<
+export const pendingOAuth = new Map<
   string,
   { codeVerifier: string; userId: string; redirectUri: string; createdAt: number }
 >();
@@ -50,8 +50,81 @@ function cleanupPendingOAuth() {
 }
 
 const AUTH_URL = "https://auth.openai.com/oauth/authorize";
-const TOKEN_URL = "https://auth.openai.com/oauth/token";
-const CALLBACK_PATH = "/auth/openai/callback";
+export const TOKEN_URL = "https://auth.openai.com/oauth/token";
+
+function popupHtml(status: "success" | "error", message: string): string {
+  return `<!DOCTYPE html><html><head><title>OpenAI Auth</title></head><body>
+  <p>${status === "success" ? "Connected!" : `Error: ${message}`}</p>
+  <script>
+  if (window.opener) {
+    window.opener.postMessage({ type: "openai-oauth", status: "${status}" }, "*");
+  }
+  window.close();
+  </script>
+  </body></html>`;
+}
+
+/** HTTP handler for GET /auth/callback — served on port 1455 to match the Codex CLI's registered redirect URI. */
+export async function handleOpenAIOAuthCallback(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  const code = url.searchParams.get("code");
+  const state = url.searchParams.get("state");
+  const oauthError = url.searchParams.get("error");
+  const errorDescription = url.searchParams.get("error_description");
+
+  const headers = { "content-type": "text/html; charset=utf-8" };
+
+  if (oauthError) {
+    const msg = [oauthError, errorDescription].filter(Boolean).join(": ");
+    return new Response(popupHtml("error", msg), { headers });
+  }
+
+  if (!code || !state || !pendingOAuth.has(state)) {
+    return new Response(popupHtml("error", "Invalid or expired OAuth state"), {
+      headers,
+    });
+  }
+
+  const pending = pendingOAuth.get(state)!;
+  pendingOAuth.delete(state);
+
+  const tokenRes = await fetch(TOKEN_URL, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+      client_id: env.OPENAI_CLIENT_ID,
+      redirect_uri: pending.redirectUri,
+      code_verifier: pending.codeVerifier,
+    }).toString(),
+  });
+
+  if (!tokenRes.ok) {
+    const text = await tokenRes.text();
+    console.error("OpenAI token exchange failed:", tokenRes.status, text);
+    return new Response(
+      popupHtml("error", `Token exchange failed (${tokenRes.status})`),
+      { headers },
+    );
+  }
+
+  const tokens = (await tokenRes.json()) as {
+    access_token: string;
+    refresh_token?: string;
+    expires_in?: number;
+  };
+
+  await patchServerMetadata(pending.userId, {
+    openaiAccessToken: tokens.access_token,
+    openaiRefreshToken: tokens.refresh_token ?? null,
+    openaiTokenExpiresAt: tokens.expires_in
+      ? Date.now() + tokens.expires_in * 1000
+      : null,
+  });
+
+  return new Response(popupHtml("success", "OpenAI connected"), { headers });
+}
 
 export const openaiRouter = router({
   status: authedProcedure.query(async ({ ctx }) => {
@@ -65,14 +138,14 @@ export const openaiRouter = router({
     };
   }),
 
-  /** Generates PKCE params, returns the OAuth authorize URL. */
   initiateAuth: authedProcedure.mutation(async ({ ctx }) => {
     cleanupPendingOAuth();
 
     const state = generateState();
     const codeVerifier = generateCodeVerifier();
     const codeChallenge = await sha256Base64Url(codeVerifier);
-    const redirectUri = `${env.CORS_ORIGIN.replace(/\/$/, "")}${CALLBACK_PATH}`;
+
+    const redirectUri = env.OPENAI_REDIRECT_URI;
 
     pendingOAuth.set(state, {
       codeVerifier,
@@ -91,64 +164,13 @@ export const openaiRouter = router({
       code_challenge_method: "S256",
       id_token_add_organizations: "true",
       codex_cli_simplified_flow: "true",
-      originator: "g-spot",
+      // Must match the value Codex CLI / reference OAuth clients use for this client_id.
+      originator: "opencode",
     });
 
     return { url: `${AUTH_URL}?${params.toString()}` };
   }),
 
-  /** Frontend sends code+state after redirect; server exchanges for tokens. */
-  exchangeCode: publicProcedure
-    .input(z.object({ code: z.string(), state: z.string() }))
-    .mutation(async ({ input }) => {
-      const pending = pendingOAuth.get(input.state);
-      if (!pending) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Invalid or expired OAuth state",
-        });
-      }
-      pendingOAuth.delete(input.state);
-
-      const tokenRes = await fetch(TOKEN_URL, {
-        method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          grant_type: "authorization_code",
-          code: input.code,
-          client_id: env.OPENAI_CLIENT_ID,
-          redirect_uri: pending.redirectUri,
-          code_verifier: pending.codeVerifier,
-        }).toString(),
-      });
-
-      if (!tokenRes.ok) {
-        const text = await tokenRes.text();
-        console.error("OpenAI token exchange failed:", tokenRes.status, text);
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: `Token exchange failed (${tokenRes.status})`,
-        });
-      }
-
-      const tokens = (await tokenRes.json()) as {
-        access_token: string;
-        refresh_token?: string;
-        expires_in?: number;
-      };
-
-      await patchServerMetadata(pending.userId, {
-        openaiAccessToken: tokens.access_token,
-        openaiRefreshToken: tokens.refresh_token ?? null,
-        openaiTokenExpiresAt: tokens.expires_in
-          ? Date.now() + tokens.expires_in * 1000
-          : null,
-      });
-
-      return { connected: true };
-    }),
-
-  /** API key fallback. */
   saveKey: authedProcedure
     .input(z.object({ apiKey: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {

@@ -1,15 +1,18 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 
+import type { OAuthConnection } from "@stackframe/react";
+
 import type { ComposeFormState } from "@/lib/gmail/types";
 import { buildRfc2822Message, encodeRfc2822ToBase64Url } from "@/lib/gmail/rfc2822";
-import { createGmailDraft, updateGmailDraft } from "@/lib/gmail/api";
+import { useSaveGmailDraftMutation } from "@/hooks/use-gmail-actions";
 
 type UseAutoSaveDraftOptions = {
   form: ComposeFormState;
   fromEmail: string;
   draftId: string | null;
-  getAccessToken: () => Promise<string>;
+  googleAccount: OAuthConnection | null;
   enabled: boolean;
+  onDraftIdChange?: (draftId: string) => void;
 };
 
 type UseAutoSaveDraftReturn = {
@@ -27,8 +30,9 @@ export function useAutoSaveDraft({
   form,
   fromEmail,
   draftId: initialDraftId,
-  getAccessToken,
+  googleAccount,
   enabled,
+  onDraftIdChange,
 }: UseAutoSaveDraftOptions): UseAutoSaveDraftReturn {
   const [draftId, setDraftId] = useState<string | null>(initialDraftId);
   const [isSaving, setIsSaving] = useState(false);
@@ -39,11 +43,23 @@ export function useAutoSaveDraft({
   const lastSavedRef = useRef<string>("");
   const draftIdRef = useRef<string | null>(initialDraftId);
   const dirtyRef = useRef(false);
+  const prevInitialDraftIdRef = useRef<string | null>(initialDraftId);
+  const saveDraftMutation = useSaveGmailDraftMutation(googleAccount);
 
   // Keep draftIdRef in sync
   useEffect(() => {
     draftIdRef.current = draftId;
   }, [draftId]);
+
+  useEffect(() => {
+    if (prevInitialDraftIdRef.current === initialDraftId) return;
+
+    prevInitialDraftIdRef.current = initialDraftId;
+    setDraftId(initialDraftId);
+    draftIdRef.current = initialDraftId;
+    dirtyRef.current = false;
+    lastSavedRef.current = serializeForm(form);
+  }, [initialDraftId, form]);
 
   const cancelPendingSave = useCallback(() => {
     if (timerRef.current) {
@@ -51,7 +67,15 @@ export function useAutoSaveDraft({
       timerRef.current = null;
     }
     abortRef.current?.abort();
+    setIsSaving(false);
   }, []);
+
+  useEffect(() => {
+    if (enabled) return;
+
+    dirtyRef.current = false;
+    lastSavedRef.current = serializeForm(form);
+  }, [enabled, form]);
 
   useEffect(() => {
     if (!enabled || !fromEmail) return;
@@ -92,15 +116,11 @@ export function useAutoSaveDraft({
 
       setIsSaving(true);
       try {
-        const token = await getAccessToken();
-        if (controller.signal.aborted) return;
-
-        let result;
-        if (draftIdRef.current) {
-          result = await updateGmailDraft(token, draftIdRef.current, raw, form.threadId);
-        } else {
-          result = await createGmailDraft(token, raw, form.threadId);
-        }
+        const result = await saveDraftMutation.mutateAsync({
+          draftId: draftIdRef.current,
+          raw,
+          threadId: form.threadId,
+        });
 
         if (controller.signal.aborted) return;
 
@@ -108,6 +128,7 @@ export function useAutoSaveDraft({
         draftIdRef.current = result.id;
         lastSavedRef.current = serialized;
         setLastSavedAt(new Date());
+        onDraftIdChange?.(result.id);
       } catch {
         // Silently fail — will retry on next change
       } finally {
@@ -120,7 +141,7 @@ export function useAutoSaveDraft({
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [form.to, form.cc, form.bcc, form.subject, form.body, enabled, fromEmail, getAccessToken, form.inReplyTo, form.references, form.threadId]);
+  }, [form.to, form.cc, form.bcc, form.subject, form.body, enabled, fromEmail, saveDraftMutation, form.inReplyTo, form.references, form.threadId]);
 
   // Cleanup on unmount
   useEffect(() => {

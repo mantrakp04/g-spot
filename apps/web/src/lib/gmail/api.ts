@@ -1,9 +1,18 @@
-import type { FilterCondition } from "@g-spot/api/schemas/section-filters";
-import type { GmailThread, GmailThreadPage, GmailFullMessage, GmailThreadDetail, GmailDraft } from "./types";
+import type { FilterCondition } from "@g-spot/types/filters";
+import type {
+  ComposeFormState,
+  GmailDraft,
+  GmailFullMessage,
+  GmailThreadDraft,
+  GmailThread,
+  GmailThreadDetail,
+  GmailThreadPage,
+} from "./types";
+import { getGmailSenderAvatarUrl } from "./avatar";
 
 const GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me";
 
-function buildGmailQuery(filters: FilterCondition[]): string {
+export function buildGmailSearchQuery(filters: FilterCondition[]): string {
   const parts: string[] = [];
 
   for (const filter of filters) {
@@ -144,30 +153,18 @@ function buildGmailQuery(filters: FilterCondition[]): string {
 }
 
 function parseFromHeader(raw: string): { name: string; email: string } {
-  // Handles "Name <email@example.com>" and plain "email@example.com"
-  const match = raw.match(/^(.+?)\s*<(.+?)>$/);
-  if (match) {
-    return { name: match[1].trim().replace(/^"|"$/g, ""), email: match[2] };
+  // "Name <email@example.com>"
+  const namedMatch = raw.match(/^(.+?)\s*<(.+?)>$/);
+  if (namedMatch) {
+    return { name: namedMatch[1].trim().replace(/^"|"$/g, ""), email: namedMatch[2] };
   }
+  // "<email@example.com>" (no display name)
+  const bareAngle = raw.match(/^<(.+?)>$/);
+  if (bareAngle) {
+    return { name: bareAngle[1].split("@")[0], email: bareAngle[1] };
+  }
+  // Plain "email@example.com"
   return { name: raw, email: raw };
-}
-
-/** Personal email providers — show initials instead of brand logo */
-const PERSONAL_DOMAINS = new Set([
-  "gmail.com", "googlemail.com",
-  "yahoo.com", "yahoo.co.uk", "ymail.com",
-  "hotmail.com", "outlook.com", "live.com", "msn.com",
-  "aol.com", "icloud.com", "me.com", "mac.com",
-  "protonmail.com", "proton.me", "pm.me",
-  "mail.com", "zoho.com", "gmx.com", "gmx.net",
-  "yandex.com", "yandex.ru", "tutanota.com", "tuta.io",
-]);
-
-/** BIMI-like avatar: brand logo from favicon for business domains, null for personal email */
-function getSenderAvatarUrl(email: string): string | null {
-  const domain = email.split("@")[1]?.toLowerCase();
-  if (!domain || PERSONAL_DOMAINS.has(domain)) return null;
-  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=128`;
 }
 
 type GmailListResponse = {
@@ -226,7 +223,7 @@ export async function searchGmailThreads(
   filters: FilterCondition[],
   pageToken?: string | null,
 ): Promise<GmailThreadPage> {
-  const query = buildGmailQuery(filters);
+  const query = buildGmailSearchQuery(filters);
 
   const params = new URLSearchParams({ maxResults: "7" });
   if (query) params.set("q", query);
@@ -270,7 +267,7 @@ export async function searchGmailThreads(
       isUnread: labels.includes("UNREAD"),
       labels,
       hasAttachment,
-      avatarUrl: getSenderAvatarUrl(from.email),
+      avatarUrl: getGmailSenderAvatarUrl(from.email),
     };
   });
 
@@ -314,6 +311,109 @@ function getHeaderFromPart(part: GmailPayloadPart, name: string): string {
       (h) => h.name.toLowerCase() === name.toLowerCase(),
     )?.value ?? ""
   );
+}
+
+function htmlToPlainText(html: string): string {
+  const div = document.createElement("div");
+  div.innerHTML = html;
+  return div.textContent ?? "";
+}
+
+/** Walk draft pages and collect drafts that belong to this thread. */
+export async function listGmailDraftsForThread(
+  accessToken: string,
+  threadId: string,
+  messageIds: string[] = [],
+): Promise<GmailThreadDraft[]> {
+  let pageToken: string | undefined;
+  const messageIdSet = new Set(messageIds);
+  const drafts: GmailThreadDraft[] = [];
+
+  for (let page = 0; page < 50; page++) {
+    const params = new URLSearchParams({ maxResults: "100" });
+    if (pageToken) params.set("pageToken", pageToken);
+
+    const data = await fetchGmailJson<{
+      drafts?: Array<{ id: string; message: { id: string; threadId: string } }>;
+      nextPageToken?: string;
+    }>(`${GMAIL_API}/drafts?${params.toString()}`, accessToken);
+
+    for (const draft of data.drafts ?? []) {
+      if (
+        draft.message.threadId === threadId
+        || messageIdSet.has(draft.message.id)
+      ) {
+        drafts.push({
+          draftId: draft.id,
+          messageId: draft.message.id,
+          threadId: draft.message.threadId,
+        });
+      }
+    }
+
+    pageToken = data.nextPageToken;
+    if (!pageToken) return drafts;
+  }
+
+  return drafts;
+}
+
+export async function findGmailDraftIdForThread(
+  accessToken: string,
+  threadId: string,
+  messageIds: string[] = [],
+): Promise<string | null> {
+  const drafts = await listGmailDraftsForThread(accessToken, threadId, messageIds);
+  return drafts[0]?.draftId ?? null;
+}
+
+type GmailDraftFullResponse = {
+  id: string;
+  message: GmailMessageResponse;
+};
+
+export async function fetchGmailComposeDraft(
+  accessToken: string,
+  draftId: string,
+): Promise<{
+  draftId: string;
+  messageId: string;
+  form: ComposeFormState;
+  quotedContent: null;
+}> {
+  const data = await fetchGmailJson<GmailDraftFullResponse>(
+    `${GMAIL_API}/drafts/${encodeURIComponent(draftId)}?format=full`,
+    accessToken,
+  );
+  const payload = data.message.payload;
+
+  if (!payload) {
+    throw new Error("Draft message has no payload");
+  }
+
+  const { html, text } = extractBody(payload);
+  const bodyPlain =
+    text?.trim() !== undefined && text.trim() !== ""
+      ? text.trim()
+      : html
+        ? htmlToPlainText(html).trim()
+        : "";
+
+  return {
+    draftId: data.id,
+    messageId: data.message.id,
+    form: {
+      to: getHeaderFromPart(payload, "To"),
+      cc: getHeaderFromPart(payload, "Cc"),
+      bcc: getHeaderFromPart(payload, "Bcc"),
+      subject: getHeaderFromPart(payload, "Subject"),
+      body: bodyPlain,
+      inReplyTo: getHeaderFromPart(payload, "In-Reply-To"),
+      references: getHeaderFromPart(payload, "References"),
+      threadId: data.message.threadId,
+    },
+    quotedContent: null,
+  };
 }
 
 export async function archiveGmailThread(
@@ -375,6 +475,7 @@ export async function fetchGmailThreadDetail(
 
     return {
       id: msg.id,
+      isDraft: (msg.labelIds ?? []).includes("DRAFT"),
       from,
       to: getHeaderFromPart(payload, "To"),
       cc: getHeaderFromPart(payload, "Cc"),

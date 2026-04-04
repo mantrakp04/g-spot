@@ -8,8 +8,9 @@ import { Skeleton } from "@g-spot/ui/components/skeleton";
 import { cn } from "@g-spot/ui/lib/utils";
 import { useUser } from "@stackframe/react";
 import { Link } from "@tanstack/react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { LogIn, Plus, GripVertical } from "lucide-react";
+import { LogIn, Plus, GripVertical, Pencil } from "lucide-react";
+import { useDrafts } from "@/contexts/drafts-context";
+import { useSectionCounts } from "@/contexts/section-counts-context";
 import {
   DndContext,
   closestCenter,
@@ -29,12 +30,14 @@ import { Logo } from "./logo";
 import { NavUser } from "./nav-user";
 import { ThemePicker } from "./tweakcn-theme-picker";
 import { SectionBuilder } from "./inbox/section-builder";
-import { trpc, trpcClient } from "@/utils/trpc";
+import { useReorderSectionsMutation, useSections } from "@/hooks/use-sections";
 
 function SortableSectionItem({
   section,
+  count,
 }: {
   section: { id: string; name: string; showBadge: boolean };
+  count: number | undefined;
 }) {
   const {
     attributes,
@@ -72,12 +75,12 @@ function SortableSectionItem({
         <GripVertical className="size-3" />
       </button>
       <span className="min-w-0 flex-1 truncate">{section.name}</span>
-      {section.showBadge && (
+      {section.showBadge && count !== undefined && (
         <Badge
           variant="secondary"
           className="h-4 min-w-[1.25rem] shrink-0 px-1 text-[10px] tabular-nums"
         >
-          &mdash;
+          {count}
         </Badge>
       )}
     </a>
@@ -86,18 +89,20 @@ function SortableSectionItem({
 
 export function AppSidebar() {
   const user = useUser();
-  const queryClient = useQueryClient();
-  const { data: sections, isLoading } = useQuery(
-    trpc.sections.list.queryOptions(),
-  );
+  const { data: sections, isLoading } = useSections();
   const [builderOpen, setBuilderOpen] = useState(false);
+  const reorderMutation = useReorderSectionsMutation();
+  const { drafts, openDraft } = useDrafts();
+  const { counts: sectionCounts } = useSectionCounts();
+  const accounts = user?.useConnectedAccounts();
 
-  const reorderMutation = useMutation({
-    mutationFn: (orderedIds: string[]) =>
-      trpcClient.sections.reorder.mutate({ orderedIds }),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: [["sections", "list"]] }),
-  });
+  const handleCompose = useCallback(() => {
+    const googleAccount = accounts?.find((a) => a.provider === "google");
+    openDraft({
+      mode: "new",
+      accountId: googleAccount?.providerAccountId ?? null,
+    });
+  }, [accounts, openDraft]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -115,15 +120,12 @@ export function AppSidebar() {
 
       const reordered = arrayMove(sections, oldIndex, newIndex);
 
-      // Optimistic update
-      queryClient.setQueryData(
-        trpc.sections.list.queryOptions().queryKey,
-        reordered,
-      );
-
-      reorderMutation.mutate(reordered.map((s) => s.id));
+      reorderMutation.mutate({
+        orderedIds: reordered.map((section) => section.id),
+        nextSections: reordered,
+      });
     },
-    [sections, queryClient, reorderMutation],
+    [sections, reorderMutation],
   );
 
   return (
@@ -135,8 +137,29 @@ export function AppSidebar() {
           className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm font-semibold tracking-tight text-sidebar-foreground hover:bg-sidebar-accent"
         >
           <Logo className="size-5" />
-          <span>Inbox</span>
+          <span>g-spot</span>
         </Link>
+      </div>
+
+      {/* Compose button */}
+      <div className="border-b border-sidebar-border p-2">
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full justify-start gap-2"
+          onClick={handleCompose}
+        >
+          <Pencil className="size-3.5" />
+          <span>Compose</span>
+          {drafts.length > 0 && (
+            <Badge
+              variant="secondary"
+              className="ml-auto h-4 min-w-[1.25rem] px-1 text-[10px] tabular-nums"
+            >
+              {drafts.length}
+            </Badge>
+          )}
+        </Button>
       </div>
 
       {/* Section list */}
@@ -161,7 +184,7 @@ export function AppSidebar() {
                 strategy={verticalListSortingStrategy}
               >
                 {sections.map((section) => (
-                  <SortableSectionItem key={section.id} section={section} />
+                  <SortableSectionItem key={section.id} section={section} count={sectionCounts[section.id]} />
                 ))}
               </SortableContext>
             </DndContext>
@@ -188,7 +211,7 @@ export function AppSidebar() {
 
       {/* Footer */}
       <div className="border-t border-sidebar-border p-2">
-        <ThemePicker side="right" sideOffset={4} />
+        <ThemePicker compact side="right" sideOffset={4} />
         {user ? (
           <NavUser />
         ) : (

@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import {
   Avatar,
@@ -48,49 +48,50 @@ export function RepoSearchInput({
 
   const filtered = useMemo(() => {
     if (!search) return repoOptions;
+
     const lower = search.toLowerCase();
     return repoOptions.filter(
-      (opt) =>
-        opt.label.toLowerCase().includes(lower) ||
-        opt.value.toLowerCase().includes(lower),
+      (repo) =>
+        repo.label.toLowerCase().includes(lower)
+        || repo.value.toLowerCase().includes(lower),
     );
   }, [repoOptions, search]);
 
   return (
     <Popover
       open={open}
-      onOpenChange={(o) => {
-        setOpen(o);
-        if (!o) {
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen) {
           setSearch("");
           onSearchChange("");
         }
       }}
     >
       <PopoverTrigger
-        render={
+        render={(
           <Button
             variant="outline"
             size="sm"
             className="h-8 w-full justify-start gap-2 px-2.5 font-normal text-xs text-muted-foreground"
           />
-        }
+        )}
       >
         <Plus className="size-3 shrink-0" />
         <span>Search repositories...</span>
       </PopoverTrigger>
       <PopoverContent
-        className="w-[var(--anchor-width)] min-w-[300px] max-h-[var(--available-height,400px)] flex flex-col overflow-hidden p-0"
+        className="flex max-h-[min(var(--available-height,400px),320px)] min-w-[300px] w-[var(--anchor-width)] flex-col overflow-hidden p-0"
         align="start"
       >
-        {/* Search bar — fixed */}
-        <div className="flex items-center gap-2 border-b border-border px-3 py-2 shrink-0">
+        <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
           <Search className="size-3.5 shrink-0 text-muted-foreground" />
           <input
             value={search}
             onChange={(e) => {
-              setSearch(e.target.value);
-              onSearchChange(e.target.value);
+              const nextQuery = e.target.value;
+              setSearch(nextQuery);
+              onSearchChange(nextQuery);
             }}
             placeholder='Search repos... try "org/" for all org repos'
             className="flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
@@ -101,10 +102,9 @@ export function RepoSearchInput({
           )}
         </div>
 
-        {/* Results — scrollable */}
         <div
           ref={setScrollContainer}
-          className="flex-1 min-h-0 overflow-y-auto p-1"
+          className="min-h-0 flex-1 overflow-y-auto p-1"
         >
           {!isLoading && filtered.length === 0 && !search && (
             <div className="px-2 py-4 text-center text-xs text-muted-foreground">
@@ -154,7 +154,6 @@ export function RepoSearchInput({
             </button>
           ))}
 
-          {/* Infinite scroll sentinel */}
           {hasNextPage && <div ref={sentinelRef} className="h-1" />}
 
           {isFetchingNextPage && (
@@ -163,8 +162,7 @@ export function RepoSearchInput({
             </div>
           )}
 
-          {/* Custom repo option */}
-          {search && search.includes("/") && !filtered.some((r) => r.value === search) && (
+          {search && search.includes("/") && !filtered.some((repo) => repo.value === search) && (
             <>
               {filtered.length > 0 && (
                 <div className="mx-1 my-1 border-t border-border" />

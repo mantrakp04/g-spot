@@ -1,6 +1,5 @@
 import { useState, useCallback } from "react";
 
-import { useQueryClient } from "@tanstack/react-query";
 import type { OAuthConnection } from "@stackframe/react";
 import { toast } from "sonner";
 
@@ -12,11 +11,9 @@ import type {
 } from "@/lib/gmail/types";
 import { buildRfc2822Message, encodeRfc2822ToBase64Url } from "@/lib/gmail/rfc2822";
 import {
-  deleteGmailDraft,
-  sendGmailDraft,
-  sendGmailMessage,
-  updateGmailDraft,
-} from "@/lib/gmail/api";
+  useDeleteGmailDraftMutation,
+  useSendGmailMessageMutation,
+} from "@/hooks/use-gmail-actions";
 import { useGoogleProfile } from "@/hooks/use-gmail-options";
 import { useAutoSaveDraft } from "@/hooks/use-auto-save-draft";
 
@@ -95,6 +92,11 @@ export type ComposeState = {
     detail?: GmailThreadDetail | null,
     message?: GmailFullMessage | null,
   ) => void;
+  openComposeWithDraft: (
+    draftId: string,
+    form: ComposeFormState,
+    quotedContent: string | null,
+  ) => void;
   closeCompose: () => void;
   discardDraft: () => void;
   updateField: (field: keyof ComposeFormState, value: string) => void;
@@ -105,7 +107,6 @@ export type ComposeState = {
 export function useComposeState(
   googleAccount: OAuthConnection | null,
 ): ComposeState {
-  const queryClient = useQueryClient();
   const { data: profile } = useGoogleProfile(googleAccount);
   const userEmail = profile?.email ?? "";
 
@@ -113,23 +114,17 @@ export function useComposeState(
   const [mode, setMode] = useState<ComposeMode>("new");
   const [form, setForm] = useState<ComposeFormState>(EMPTY_FORM);
   const [quotedContent, setQuotedContent] = useState<string | null>(null);
-  const [isSending, setIsSending] = useState(false);
   const [externalDraftId, setExternalDraftId] = useState<string | null>(null);
-
-  const getAccessToken = useCallback(async () => {
-    if (!googleAccount) throw new Error("No Google account connected");
-    const result = await googleAccount.getAccessToken();
-    if (result.status === "error") throw new Error("Failed to get access token");
-    return result.data.accessToken;
-  }, [googleAccount]);
 
   const { draftId, isSaving, lastSavedAt, cancelPendingSave } = useAutoSaveDraft({
     form,
     fromEmail: userEmail,
     draftId: externalDraftId,
-    getAccessToken,
+    googleAccount,
     enabled: isOpen && !!userEmail,
   });
+  const deleteDraftMutation = useDeleteGmailDraftMutation(googleAccount);
+  const sendMessageMutation = useSendGmailMessageMutation(googleAccount);
 
   const openCompose = useCallback(
     (
@@ -172,6 +167,21 @@ export function useComposeState(
     [userEmail],
   );
 
+  const openComposeWithDraft = useCallback(
+    (
+      nextDraftId: string,
+      nextForm: ComposeFormState,
+      nextQuotedContent: string | null,
+    ) => {
+      setForm(nextForm);
+      setQuotedContent(nextQuotedContent);
+      setMode("new");
+      setExternalDraftId(nextDraftId);
+      setIsOpen(true);
+    },
+    [],
+  );
+
   const closeCompose = useCallback(() => {
     cancelPendingSave();
     setIsOpen(false);
@@ -184,14 +194,16 @@ export function useComposeState(
     cancelPendingSave();
     if (draftId) {
       try {
-        const token = await getAccessToken();
-        await deleteGmailDraft(token, draftId);
+        await deleteDraftMutation.mutateAsync({
+          draftId,
+          threadId: form.threadId,
+        });
       } catch {
         // Best effort
       }
     }
     closeCompose();
-  }, [draftId, getAccessToken, cancelPendingSave, closeCompose]);
+  }, [draftId, form.threadId, deleteDraftMutation, cancelPendingSave, closeCompose]);
 
   const updateField = useCallback(
     (field: keyof ComposeFormState, value: string) => {
@@ -201,12 +213,9 @@ export function useComposeState(
   );
 
   const send = useCallback(async () => {
-    setIsSending(true);
     cancelPendingSave();
 
     try {
-      const token = await getAccessToken();
-
       // Build quoted content into the body for reply modes
       let fullBody = form.body.replace(/\n/g, "<br>");
       if (quotedContent && (mode === "reply" || mode === "reply-all")) {
@@ -226,20 +235,16 @@ export function useComposeState(
         }),
       );
 
-      if (draftId) {
-        await updateGmailDraft(token, draftId, raw, form.threadId);
-        await sendGmailDraft(token, draftId);
-      } else {
-        await sendGmailMessage(token, raw);
-      }
+      await sendMessageMutation.mutateAsync({
+        draftId,
+        raw,
+        threadId: form.threadId,
+      });
 
       toast.success("Email sent");
-      await queryClient.invalidateQueries({ queryKey: ["gmail"] });
       closeCompose();
     } catch {
       toast.error("Failed to send email");
-    } finally {
-      setIsSending(false);
     }
   }, [
     form,
@@ -247,8 +252,7 @@ export function useComposeState(
     mode,
     draftId,
     userEmail,
-    getAccessToken,
-    queryClient,
+    sendMessageMutation,
     cancelPendingSave,
     closeCompose,
   ]);
@@ -258,12 +262,13 @@ export function useComposeState(
     mode,
     form,
     quotedContent,
-    isSending,
+    isSending: sendMessageMutation.isPending,
     isSaving,
     lastSavedAt,
     draftId,
     userEmail,
     openCompose,
+    openComposeWithDraft,
     closeCompose,
     discardDraft,
     updateField,

@@ -11,7 +11,7 @@ import { Input } from "@g-spot/ui/components/input";
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { trpcClient } from "@/utils/trpc";
+import { useSaveOpenAIApiKeyMutation } from "@/hooks/use-openai";
 
 export function OpenAIConnectDialog({
   open,
@@ -23,16 +23,16 @@ export function OpenAIConnectDialog({
   onConnected: () => void;
 }) {
   const [apiKey, setApiKey] = useState("");
-  const [loading, setLoading] = useState(false);
+  const saveOpenAIApiKeyMutation = useSaveOpenAIApiKeyMutation();
+  const loading = saveOpenAIApiKeyMutation.isPending;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const key = apiKey.trim();
     if (!key) return;
 
-    setLoading(true);
     try {
-      await trpcClient.openai.saveKey.mutate({ apiKey: key });
+      await saveOpenAIApiKeyMutation.mutateAsync(key);
       toast.success("OpenAI connected via API key");
       setApiKey("");
       onConnected();
@@ -41,8 +41,6 @@ export function OpenAIConnectDialog({
       toast.error(
         err instanceof Error ? err.message : "Failed to validate API key",
       );
-    } finally {
-      setLoading(false);
     }
   }
 

@@ -16,7 +16,7 @@ export async function createSection(
   userId: string,
   input: {
     name: string;
-    source: "github_pr" | "gmail";
+    source: "github_pr" | "github_issue" | "gmail";
     filters: Array<{ field: string; operator: string; value: string; logic?: string }>;
     showBadge: boolean;
     repos: string[];

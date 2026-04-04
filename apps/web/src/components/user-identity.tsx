@@ -4,6 +4,7 @@ import {
   AvatarImage,
 } from "@g-spot/ui/components/avatar";
 import { cn } from "@g-spot/ui/lib/utils";
+import { getInitials } from "@/lib/oauth";
 
 export type UserIdentityUser = {
   displayName: string | null;
@@ -12,18 +13,14 @@ export type UserIdentityUser = {
 };
 
 export function userIdentityInitials(user: UserIdentityUser) {
-  const name = user.displayName?.trim();
-  if (name) {
-    const parts = name.split(/\s+/);
-    if (parts.length >= 2) {
-      const a = parts[0]?.[0];
-      const b = parts[parts.length - 1]?.[0];
-      return `${a ?? ""}${b ?? ""}`.toUpperCase();
-    }
-    return name.slice(0, 2).toUpperCase();
-  }
-  if (user.primaryEmail) return user.primaryEmail.slice(0, 2).toUpperCase();
-  return "?";
+  return getInitials(user.displayName, user.primaryEmail);
+}
+
+function maskEmail(email: string): string {
+  const [local, domain] = email.split("@");
+  if (!local || !domain) return email;
+  const visible = local.slice(0, Math.min(3, local.length));
+  return `${visible}***@${domain}`;
 }
 
 function linesForUser(user: UserIdentityUser) {
@@ -31,7 +28,7 @@ function linesForUser(user: UserIdentityUser) {
   const primary =
     user.displayName?.trim() || user.primaryEmail || "Account";
   const secondary =
-    hasDisplayName && user.primaryEmail ? user.primaryEmail : null;
+    hasDisplayName && user.primaryEmail ? maskEmail(user.primaryEmail) : null;
   return { primary, secondary };
 }
 

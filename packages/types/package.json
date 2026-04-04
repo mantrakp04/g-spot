@@ -1,0 +1,30 @@
+{
+  "name": "@g-spot/types",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "default": "./src/index.ts"
+    },
+    "./filters": {
+      "default": "./src/filters.ts"
+    },
+    "./gmail": {
+      "default": "./src/gmail.ts"
+    },
+    "./github": {
+      "default": "./src/github.ts"
+    }
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@g-spot/config": "workspace:*",
+    "typescript": "^6"
+  }
+}

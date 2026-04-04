@@ -7,7 +7,7 @@ export const sections = sqliteTable(
     id: text("id").primaryKey(),
     userId: text("user_id").notNull(),
     name: text("name").notNull(),
-    source: text("source", { enum: ["github_pr", "gmail"] }).notNull(),
+    source: text("source", { enum: ["github_pr", "github_issue", "gmail"] }).notNull(),
     filters: text("filters").notNull().default("[]"),
     repos: text("repos").notNull().default("[]"),
     accountId: text("account_id"),

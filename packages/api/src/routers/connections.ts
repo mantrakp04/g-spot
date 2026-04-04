@@ -37,9 +37,10 @@ export const connectionsRouter = router({
         { headers: serverHeaders() },
       );
       if (!listRes.ok) {
+        const text = await listRes.text().catch(() => "");
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
-          message: "Failed to list providers",
+          message: `Failed to list providers: ${listRes.status} ${text}`,
         });
       }
       const body = (await listRes.json()) as {
@@ -54,18 +55,20 @@ export const connectionsRouter = router({
       if (!entry) {
         throw new TRPCError({
           code: "NOT_FOUND",
-          message: "Connected account not found",
+          message: `Connected account not found (provider=${input.provider}, accountId=${input.providerAccountId}, found ${body.items.length} entries)`,
         });
       }
 
+      const { "content-type": _, ...delHeaders } = serverHeaders();
       const delRes = await fetch(
         `${STACK_API}/oauth-providers/${ctx.userId}/${entry.id}`,
-        { method: "DELETE", headers: serverHeaders() },
+        { method: "DELETE", headers: delHeaders },
       );
       if (!delRes.ok) {
+        const text = await delRes.text().catch(() => "");
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
-          message: "Failed to remove account",
+          message: `Failed to remove account: ${delRes.status} ${text}`,
         });
       }
 

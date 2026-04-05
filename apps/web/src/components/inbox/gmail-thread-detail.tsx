@@ -163,12 +163,19 @@ function MessageBody({ html, text }: { html: string | null; text: string | null 
             color-scheme: ${isDark ? "dark" : "light"};
           }
           html {
+            box-sizing: border-box;
+            width: 100%;
+            max-width: 100%;
             background: var(--background);
-            overflow: hidden;
+            overflow-x: hidden;
+            overflow-y: hidden;
           }
           body {
             margin: 0;
             padding: 0;
+            box-sizing: border-box;
+            width: 100%;
+            max-width: 100%;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             font-size: 14px;
             line-height: 1.6;
@@ -176,11 +183,26 @@ function MessageBody({ html, text }: { html: string | null; text: string | null 
             color: var(--foreground);
             overflow-wrap: break-word;
             word-break: break-word;
-            overflow: hidden;
+            overflow-x: hidden;
+            overflow-y: hidden;
             -webkit-font-smoothing: antialiased;
             text-rendering: optimizeLegibility;
           }
-          img { max-width: 100%; height: auto; }
+          *, *::before, *::after {
+            box-sizing: border-box;
+          }
+          img, video, canvas, svg, table, iframe {
+            max-width: 100%;
+          }
+          img { height: auto; }
+          pre {
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+          }
+          table {
+            width: auto !important;
+            border-collapse: collapse;
+          }
           a { color: var(--primary); cursor: pointer; }
           blockquote {
             margin: 8px 0;
@@ -250,6 +272,17 @@ function MessageBody({ html, text }: { html: string | null; text: string | null 
     doc.addEventListener("click", handleLinkClick);
 
     // Auto-resize iframe to content height
+    let frameId: number | null = null;
+    const scheduleResize = () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null;
+        resize();
+      });
+    };
+
     const resize = () => {
       if (iframeRef.current && doc.body && doc.documentElement) {
         const nextHeight = Math.max(
@@ -261,12 +294,37 @@ function MessageBody({ html, text }: { html: string | null; text: string | null 
         iframeRef.current.style.height = `${nextHeight}px`;
       }
     };
-    resize();
-    // Re-check after images load
-    const observer = new MutationObserver(resize);
+    scheduleResize();
+
+    const imageLoadCleanup = Array.from(doc.images).map((image) => {
+      image.addEventListener("load", scheduleResize);
+      image.addEventListener("error", scheduleResize);
+      return () => {
+        image.removeEventListener("load", scheduleResize);
+        image.removeEventListener("error", scheduleResize);
+      };
+    });
+
+    // Re-check after DOM changes and host panel resizes.
+    const observer = new MutationObserver(scheduleResize);
     observer.observe(doc.body, { childList: true, subtree: true });
+    const resizeObserver = new ResizeObserver(scheduleResize);
+    resizeObserver.observe(doc.documentElement);
+    resizeObserver.observe(doc.body);
+    if (iframeRef.current) {
+      resizeObserver.observe(iframeRef.current);
+    }
+    window.addEventListener("resize", scheduleResize);
     return () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+      for (const cleanup of imageLoadCleanup) {
+        cleanup();
+      }
       observer.disconnect();
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", scheduleResize);
       doc.removeEventListener("click", handleLinkClick);
     };
   }, [html]);

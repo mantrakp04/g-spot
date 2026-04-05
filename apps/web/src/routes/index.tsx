@@ -52,6 +52,19 @@ type SelectedThreadState = {
   threads: GmailThread[];
 } | null;
 
+function dedupeThreadsByThreadId(threads: GmailThread[]): GmailThread[] {
+  const seen = new Set<string>();
+  const uniqueThreads: GmailThread[] = [];
+
+  for (const thread of threads) {
+    if (seen.has(thread.threadId)) continue;
+    seen.add(thread.threadId);
+    uniqueThreads.push(thread);
+  }
+
+  return uniqueThreads;
+}
+
 function InboxPage() {
   const queryClient = useQueryClient();
   const { data: sections, isLoading } = useSections();
@@ -99,7 +112,11 @@ function InboxPage() {
   const accounts = user?.useConnectedAccounts();
 
   const handleSelectThread = useCallback((thread: GmailThread, accountId: string | null, threads: GmailThread[]) => {
-    setSelectedThread({ thread: { ...thread, isUnread: false }, accountId, threads });
+    setSelectedThread({
+      thread: { ...thread, isUnread: false },
+      accountId,
+      threads: dedupeThreadsByThreadId(threads),
+    });
 
     if (thread.isUnread) {
       const account = accountId

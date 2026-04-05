@@ -9,14 +9,27 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as ChatRouteImport } from './routes/chat'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ChatIndexRouteImport } from './routes/chat/index'
 import { Route as SettingsConnectionsRouteImport } from './routes/settings/connections'
 import { Route as HandlerSplatRouteImport } from './routes/handler/$'
+import { Route as ChatChatIdRouteImport } from './routes/chat/$chatId'
 
+const ChatRoute = ChatRouteImport.update({
+  id: '/chat',
+  path: '/chat',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const ChatIndexRoute = ChatIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => ChatRoute,
 } as any)
 const SettingsConnectionsRoute = SettingsConnectionsRouteImport.update({
   id: '/settings/connections',
@@ -28,45 +41,86 @@ const HandlerSplatRoute = HandlerSplatRouteImport.update({
   path: '/handler/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ChatChatIdRoute = ChatChatIdRouteImport.update({
+  id: '/$chatId',
+  path: '/$chatId',
+  getParentRoute: () => ChatRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/chat': typeof ChatRouteWithChildren
+  '/chat/$chatId': typeof ChatChatIdRoute
   '/handler/$': typeof HandlerSplatRoute
   '/settings/connections': typeof SettingsConnectionsRoute
+  '/chat/': typeof ChatIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/chat/$chatId': typeof ChatChatIdRoute
   '/handler/$': typeof HandlerSplatRoute
   '/settings/connections': typeof SettingsConnectionsRoute
+  '/chat': typeof ChatIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/chat': typeof ChatRouteWithChildren
+  '/chat/$chatId': typeof ChatChatIdRoute
   '/handler/$': typeof HandlerSplatRoute
   '/settings/connections': typeof SettingsConnectionsRoute
+  '/chat/': typeof ChatIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/handler/$' | '/settings/connections'
+  fullPaths:
+    | '/'
+    | '/chat'
+    | '/chat/$chatId'
+    | '/handler/$'
+    | '/settings/connections'
+    | '/chat/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/handler/$' | '/settings/connections'
-  id: '__root__' | '/' | '/handler/$' | '/settings/connections'
+  to: '/' | '/chat/$chatId' | '/handler/$' | '/settings/connections' | '/chat'
+  id:
+    | '__root__'
+    | '/'
+    | '/chat'
+    | '/chat/$chatId'
+    | '/handler/$'
+    | '/settings/connections'
+    | '/chat/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ChatRoute: typeof ChatRouteWithChildren
   HandlerSplatRoute: typeof HandlerSplatRoute
   SettingsConnectionsRoute: typeof SettingsConnectionsRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/chat': {
+      id: '/chat'
+      path: '/chat'
+      fullPath: '/chat'
+      preLoaderRoute: typeof ChatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/chat/': {
+      id: '/chat/'
+      path: '/'
+      fullPath: '/chat/'
+      preLoaderRoute: typeof ChatIndexRouteImport
+      parentRoute: typeof ChatRoute
     }
     '/settings/connections': {
       id: '/settings/connections'
@@ -82,11 +136,31 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof HandlerSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/chat/$chatId': {
+      id: '/chat/$chatId'
+      path: '/$chatId'
+      fullPath: '/chat/$chatId'
+      preLoaderRoute: typeof ChatChatIdRouteImport
+      parentRoute: typeof ChatRoute
+    }
   }
 }
 
+interface ChatRouteChildren {
+  ChatChatIdRoute: typeof ChatChatIdRoute
+  ChatIndexRoute: typeof ChatIndexRoute
+}
+
+const ChatRouteChildren: ChatRouteChildren = {
+  ChatChatIdRoute: ChatChatIdRoute,
+  ChatIndexRoute: ChatIndexRoute,
+}
+
+const ChatRouteWithChildren = ChatRoute._addFileChildren(ChatRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ChatRoute: ChatRouteWithChildren,
   HandlerSplatRoute: HandlerSplatRoute,
   SettingsConnectionsRoute: SettingsConnectionsRoute,
 }

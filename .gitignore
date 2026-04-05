@@ -50,3 +50,4 @@ coverage
 tmp
 temp
 local.db
+local-storage

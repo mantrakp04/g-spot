@@ -1,3 +1,4 @@
+import { ChatPreferences } from "@/components/chat/chat-preferences";
 import { createFileRoute } from "@tanstack/react-router";
 
 import { ConnectedAccounts } from "@/components/connected-accounts";
@@ -8,7 +9,7 @@ export const Route = createFileRoute("/settings/connections")({
 
 function ConnectionsPage() {
   return (
-    <div className="container mx-auto max-w-xl px-4 py-12">
+    <div className="container mx-auto max-w-xl space-y-6 px-4 py-12">
       <header className="mb-10">
         <h1 className="font-semibold text-lg tracking-tight">Connections</h1>
         <p className="mt-1 text-muted-foreground text-[13px] leading-relaxed">
@@ -17,6 +18,7 @@ function ConnectionsPage() {
         </p>
       </header>
       <ConnectedAccounts />
+      <ChatPreferences />
     </div>
   );
 }

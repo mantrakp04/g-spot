@@ -80,7 +80,7 @@ export const VoiceSelector = ({
 
   const [open, setOpen] = useControllableState({
     defaultProp: defaultOpen,
-    onChange: onOpenChange,
+    onChange: onOpenChange as ((value: boolean) => void) | undefined,
     prop: openProp,
   });
 
@@ -91,7 +91,7 @@ export const VoiceSelector = ({
 
   return (
     <VoiceSelectorContext.Provider value={voiceSelectorContext}>
-      <Dialog onOpenChange={setOpen} open={open} {...props}>
+      <Dialog onOpenChange={setOpen as any} open={open} {...props}>
         {children}
       </Dialog>
     </VoiceSelectorContext.Provider>

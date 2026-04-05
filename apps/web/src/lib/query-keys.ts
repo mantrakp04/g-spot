@@ -10,6 +10,13 @@ export const openaiKeys = {
   status: () => ["openai-status"] as const,
 };
 
+export const chatKeys = {
+  list: (input?: { limit?: number }) =>
+    input ? (["chat", "list", input] as const) : (["chat", "list"] as const),
+  detail: (chatId: string) => ["chat", "detail", chatId] as const,
+  messages: (chatId: string) => ["chat", "messages", chatId] as const,
+};
+
 export const googleKeys = {
   profile: (accountId: string | null | undefined) =>
     ["google", "profile", accountId ?? null] as const,

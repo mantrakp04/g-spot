@@ -45,7 +45,7 @@ const getHandleCoordsByPosition = (
   const handleType = handlePosition === Position.Left ? "target" : "source";
 
   const handle = node.internals.handleBounds?.[handleType]?.find(
-    (h) => h.position === handlePosition
+    (h: any) => h.position === handlePosition
   );
 
   if (!handle) {
@@ -106,8 +106,8 @@ const getEdgeParams = (
 };
 
 const Animated = ({ id, source, target, markerEnd, style }: EdgeProps) => {
-  const sourceNode = useInternalNode(source);
-  const targetNode = useInternalNode(target);
+  const sourceNode = useInternalNode(source as string);
+  const targetNode = useInternalNode(target as string);
 
   if (!(sourceNode && targetNode)) {
     return null;

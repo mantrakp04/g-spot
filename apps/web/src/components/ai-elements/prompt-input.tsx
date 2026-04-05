@@ -421,7 +421,7 @@ export const PromptInputActionAddAttachments = ({
   const attachments = usePromptInputAttachments();
 
   const handleSelect = useCallback(
-    (e: Event) => {
+    (e: { preventDefault: () => void }) => {
       e.preventDefault();
       attachments.openFileDialog();
     },
@@ -429,7 +429,7 @@ export const PromptInputActionAddAttachments = ({
   );
 
   return (
-    <DropdownMenuItem {...props} onSelect={handleSelect}>
+    <DropdownMenuItem {...props} onSelect={handleSelect as any}>
       <ImageIcon className="mr-2 size-4" /> {label}
     </DropdownMenuItem>
   );
@@ -449,8 +449,8 @@ export const PromptInputActionAddScreenshot = ({
   const attachments = usePromptInputAttachments();
 
   const handleSelect = useCallback(
-    async (event: Event) => {
-      onSelect?.(event);
+    async (event: { preventDefault: () => void; defaultPrevented: boolean }) => {
+      (onSelect as any)?.(event);
       if (event.defaultPrevented) {
         return;
       }
@@ -474,7 +474,7 @@ export const PromptInputActionAddScreenshot = ({
   );
 
   return (
-    <DropdownMenuItem {...props} onSelect={handleSelect}>
+    <DropdownMenuItem {...props} onSelect={handleSelect as any}>
       <Monitor className="mr-2 size-4" />
       {label}
     </DropdownMenuItem>
@@ -860,15 +860,23 @@ export const PromptInput = ({
       }
 
       try {
-        // Convert blob URLs to data URLs asynchronously
+        // Upload files to the server (content-addressed storage)
+        const { uploadFile } = await import("@/utils/file-upload");
         const convertedFiles: FileUIPart[] = await Promise.all(
           files.map(async ({ id: _id, ...item }) => {
             if (item.url?.startsWith("blob:")) {
-              const dataUrl = await convertBlobUrlToDataUrl(item.url);
-              // If conversion failed, keep the original blob URL
+              const response = await fetch(item.url);
+              const blob = await response.blob();
+              const file = new File(
+                [blob],
+                item.filename ?? "attachment",
+                { type: item.mediaType },
+              );
+              const uploaded = await uploadFile(file);
               return {
                 ...item,
-                url: dataUrl ?? item.url,
+                url: uploaded.url,
+                filename: uploaded.filename,
               };
             }
             return item;
@@ -1155,7 +1163,17 @@ export const PromptInputButton = ({
 
   return (
     <Tooltip>
-      <TooltipTrigger>{button}</TooltipTrigger>
+      <TooltipTrigger
+        render={
+          <InputGroupButton
+            className={cn(className)}
+            size={newSize}
+            type="button"
+            variant={variant}
+            {...props}
+          />
+        }
+      />
       <TooltipContent side={side}>
         {tooltipContent}
         {shortcut && (
@@ -1232,13 +1250,13 @@ export const PromptInputSubmit = ({
   }
 
   const handleClick = useCallback(
-    (e: React.MouseEvent<HTMLButtonElement>) => {
+    (e: React.MouseEvent<HTMLButtonElement> & { preventBaseUIHandler?: () => void }) => {
       if (isGenerating && onStop) {
         e.preventDefault();
         onStop();
         return;
       }
-      onClick?.(e);
+      onClick?.(e as any);
     },
     [isGenerating, onStop, onClick]
   );

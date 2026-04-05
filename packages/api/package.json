@@ -11,17 +11,22 @@
   },
   "scripts": {},
   "dependencies": {
+    "@ai-sdk/openai": "^3.0.49",
     "@g-spot/db": "workspace:*",
     "@g-spot/env": "workspace:*",
     "@g-spot/types": "workspace:*",
     "@trpc/client": "catalog:",
     "@trpc/server": "catalog:",
+    "ai": "^6.0.141",
     "dotenv": "catalog:",
+    "nanoid": "^5.1.7",
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@aws-sdk/client-s3": "^3.1019.0",
     "@g-spot/config": "workspace:*",
     "elysia": "catalog:",
+    "mock-aws-s3-v3": "^6.1.12",
     "typescript": "^6"
   }
 }

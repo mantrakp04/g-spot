@@ -1,16 +1,20 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 
 import { Badge } from "@g-spot/ui/components/badge";
 import { Button } from "@g-spot/ui/components/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@g-spot/ui/components/collapsible";
 import { ScrollArea } from "@g-spot/ui/components/scroll-area";
 import { Separator } from "@g-spot/ui/components/separator";
 import { Skeleton } from "@g-spot/ui/components/skeleton";
 import { cn } from "@g-spot/ui/lib/utils";
 import { useUser } from "@stackframe/react";
-import { Link } from "@tanstack/react-router";
-import { LogIn, Plus, GripVertical, Pencil } from "lucide-react";
+import { Link, useNavigate, useParams, useRouterState } from "@tanstack/react-router";
+import { LogIn, Plus, GripVertical, Pencil, BotIcon, ChevronRight, Trash2 } from "lucide-react";
 import { useDrafts } from "@/contexts/drafts-context";
 import { useSectionCounts } from "@/contexts/section-counts-context";
+import { ChatSidebarSettings } from "@/components/chat/chat-sidebar-settings";
+import { useChats, useDeleteChatMutation } from "@/hooks/use-chat-data";
+import { useInfiniteScroll } from "@/hooks/use-infinite-scroll";
 import {
   DndContext,
   closestCenter,
@@ -100,6 +104,35 @@ export function AppSidebar() {
   const { counts: sectionCounts } = useSectionCounts();
   const accounts = user?.useConnectedAccounts();
 
+  const {
+    data: chatsData,
+    isLoading: chatsLoading,
+    hasNextPage: hasMoreChats,
+    fetchNextPage: fetchMoreChats,
+    isFetchingNextPage: isFetchingMoreChats,
+  } = useChats();
+  const deleteChat = useDeleteChatMutation();
+  const navigate = useNavigate();
+  const routerState = useRouterState();
+  const isOnChat = routerState.location.pathname.startsWith("/chat");
+  const [chatListOpen, setChatListOpen] = useState(isOnChat);
+  const [chatScrollContainer, setChatScrollContainer] = useState<HTMLDivElement | null>(null);
+  const params = useParams({ strict: false }) as { chatId?: string };
+  const activeChatId = params.chatId;
+  const chats = chatsData?.pages.flatMap((page) => page.chats) ?? [];
+  const chatSentinelRef = useInfiniteScroll({
+    hasNextPage: hasMoreChats ?? false,
+    isFetchingNextPage: isFetchingMoreChats,
+    fetchNextPage: () => void fetchMoreChats(),
+    root: chatScrollContainer,
+  });
+
+  useEffect(() => {
+    if (isOnChat) {
+      setChatListOpen(true);
+    }
+  }, [isOnChat]);
+
   const handleCompose = useCallback(() => {
     const googleAccount = accounts?.find((a) => a.provider === "google");
     openDraft({
@@ -107,6 +140,22 @@ export function AppSidebar() {
       accountId: googleAccount?.providerAccountId ?? null,
     });
   }, [accounts, openDraft]);
+
+  const handleNewChat = useCallback(() => {
+    navigate({ to: "/chat" });
+  }, [navigate]);
+
+  const handleDeleteChat = useCallback(
+    (e: React.MouseEvent, chatId: string) => {
+      e.preventDefault();
+      e.stopPropagation();
+      deleteChat.mutate(chatId);
+      if (activeChatId === chatId) {
+        navigate({ to: "/chat" });
+      }
+    },
+    [activeChatId, deleteChat, navigate],
+  );
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -133,7 +182,7 @@ export function AppSidebar() {
   );
 
   return (
-    <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
+    <div className="flex h-full min-h-0 flex-col bg-sidebar text-sidebar-foreground">
       {/* Header */}
       <div className="border-b border-sidebar-border p-2">
         <Link
@@ -166,52 +215,123 @@ export function AppSidebar() {
         </Button>
       </div>
 
-      {/* Section list */}
-      <ScrollArea className="flex-1">
-        <nav className="flex flex-col gap-0.5 p-2">
-          {isLoading && (
-            <>
-              <Skeleton className="h-7 w-full rounded-md" />
-              <Skeleton className="h-7 w-full rounded-md" />
-              <Skeleton className="h-7 w-full rounded-md" />
-            </>
-          )}
+      {/* Section list + Chat list */}
+      <div className="flex min-h-0 flex-1 flex-col">
+        <ScrollArea className="shrink-0">
+          <nav className="flex flex-col gap-0.5 p-2">
+            {isLoading && (
+              <>
+                <Skeleton className="h-7 w-full rounded-md" />
+                <Skeleton className="h-7 w-full rounded-md" />
+                <Skeleton className="h-7 w-full rounded-md" />
+              </>
+            )}
 
-          {sections && sections.length > 0 && (
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleDragEnd}
-            >
-              <SortableContext
-                items={sections.map((s) => s.id)}
-                strategy={verticalListSortingStrategy}
+            {sections && sections.length > 0 && (
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleDragEnd}
               >
-                {sections.map((section) => (
-                  <SortableSectionItem key={section.id} section={section} count={sectionCounts[section.id]} />
-                ))}
-              </SortableContext>
-            </DndContext>
-          )}
+                <SortableContext
+                  items={sections.map((s) => s.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  {sections.map((section) => (
+                    <SortableSectionItem key={section.id} section={section} count={sectionCounts[section.id]} />
+                  ))}
+                </SortableContext>
+              </DndContext>
+            )}
 
-          {!isLoading && (
-            <>
-              {sections && sections.length > 0 && (
-                <Separator className="my-1" />
-              )}
+            {!isLoading && (
+              <>
+                {sections && sections.length > 0 && (
+                  <Separator className="my-1" />
+                )}
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  className="justify-start gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                  onClick={() => setBuilderOpen(true)}
+                >
+                  <Plus className="size-3" />
+                  Add section
+                </Button>
+              </>
+            )}
+          </nav>
+        </ScrollArea>
+
+        <Separator className="mx-2 shrink-0" />
+
+        {/* Collapsible chat list */}
+        <div className={cn("p-2", chatListOpen && "min-h-0 flex-1")}>
+          <Collapsible
+            open={chatListOpen}
+            onOpenChange={setChatListOpen}
+            className={cn("flex flex-col", chatListOpen && "h-full min-h-0")}
+          >
+            <div className="flex items-center gap-1">
+              <CollapsibleTrigger className="group flex min-w-0 flex-1 items-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground">
+                <ChevronRight className="size-3 shrink-0 transition-transform group-data-[panel-open]:rotate-90" />
+                <BotIcon className="size-3 shrink-0" />
+                <span>AI Chat</span>
+              </CollapsibleTrigger>
               <Button
                 variant="ghost"
-                size="xs"
-                className="justify-start gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-                onClick={() => setBuilderOpen(true)}
+                size="icon"
+                className="size-6 shrink-0 text-muted-foreground hover:text-foreground"
+                onClick={handleNewChat}
               >
                 <Plus className="size-3" />
-                Add section
               </Button>
-            </>
-          )}
-        </nav>
-      </ScrollArea>
+              <ChatSidebarSettings />
+            </div>
+
+            <CollapsibleContent className="min-h-0 flex-1 pt-0.5">
+              <div
+                ref={setChatScrollContainer}
+                className="flex h-full min-h-0 flex-col gap-0.5 overflow-y-auto"
+              >
+                {chatsLoading &&
+                  Array.from({ length: 3 }).map((_, i) => (
+                    <Skeleton key={`chat-skel-${i}`} className="h-7 w-full rounded-md" />
+                  ))}
+
+                {chats.map((chat) => (
+                  <Link
+                    key={chat.id}
+                    to="/chat/$chatId"
+                    params={{ chatId: chat.id }}
+                    className={cn(
+                      "group flex min-w-0 items-center gap-1 rounded-md px-2 py-1.5 pl-7 text-xs transition-colors hover:bg-sidebar-accent",
+                      activeChatId === chat.id && "bg-sidebar-accent",
+                    )}
+                  >
+                    <span className="min-w-0 flex-1 truncate">{chat.title}</span>
+                    <button
+                      type="button"
+                      className="shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
+                      onClick={(e) => handleDeleteChat(e, chat.id)}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  </Link>
+                ))}
+
+                {!chatsLoading && chats.length === 0 && (
+                  <p className="px-2 py-2 text-center text-xs text-muted-foreground">
+                    No chats yet
+                  </p>
+                )}
+
+                {hasMoreChats && <div ref={chatSentinelRef} className="h-1 shrink-0" />}
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
+        </div>
+      </div>
 
       {/* Footer */}
       <div className="border-t border-sidebar-border p-2">

@@ -275,7 +275,7 @@ export function RecipientInput({
   return (
     <div
       ref={wrapperRef}
-      className="relative flex min-h-7 flex-1 flex-wrap items-center gap-1 rounded-md border border-input bg-transparent px-1.5 py-0.5 transition-colors focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50"
+      className="relative flex min-h-7 flex-1 flex-wrap items-center gap-1 rounded-md border border-input bg-transparent p-0.5 transition-colors focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50"
       onClick={() => inputRef.current?.focus()}
     >
       {/* Recipient badges */}
@@ -372,9 +372,13 @@ function RecipientBadge({
   return (
     <Tooltip>
       <TooltipTrigger
-        className={cn(
-          "group/badge inline-flex h-6 max-w-[180px] items-center gap-1 rounded-md bg-muted px-1 text-xs transition-colors hover:bg-muted/80",
-        )}
+        render={
+          <span
+            className={cn(
+              "group/badge inline-flex h-6 max-w-[180px] cursor-default items-center gap-1 rounded-md bg-muted px-1 text-xs transition-colors hover:bg-muted/80",
+            )}
+          />
+        }
       >
         <Avatar size="sm" className="!size-4">
           <AvatarImage

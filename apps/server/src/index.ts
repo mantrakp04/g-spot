@@ -1,4 +1,6 @@
 import { cors } from "@elysiajs/cors";
+import { handleChatStream } from "@g-spot/api/chat-stream";
+import { handleFileUpload, handleFileDownload } from "@g-spot/api/file-handler";
 import { createContext } from "@g-spot/api/context";
 import { appRouter } from "@g-spot/api/routers/index";
 import { handleOpenAIOAuthCallback } from "@g-spot/api/routers/openai";
@@ -71,6 +73,9 @@ export const app = new Elysia()
       },
     });
   })
+  .post("/api/chat", ({ request }) => handleChatStream(request))
+  .post("/api/files/upload", ({ request }) => handleFileUpload(request))
+  .get("/api/files/:fileId", ({ params }) => handleFileDownload(params.fileId))
   .get("/", () => "OK")
   .listen(3000, () => {
     console.log("Server is running on http://localhost:3000");

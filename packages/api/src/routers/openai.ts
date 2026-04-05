@@ -158,7 +158,7 @@ export const openaiRouter = router({
       response_type: "code",
       client_id: env.OPENAI_CLIENT_ID,
       redirect_uri: redirectUri,
-      scope: "openid profile email offline_access",
+      scope: "openid profile email offline_access api.connectors.read api.connectors.invoke",
       state,
       code_challenge: codeChallenge,
       code_challenge_method: "S256",

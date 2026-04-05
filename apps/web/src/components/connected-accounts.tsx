@@ -336,8 +336,8 @@ export function ConnectedAccounts() {
                 )}
               </div>
               <div className="mt-1 flex flex-wrap gap-1">
+                <ScopeTag>model.request</ScopeTag>
                 <ScopeTag>codex</ScopeTag>
-                <ScopeTag>chat</ScopeTag>
               </div>
             </div>
           </div>

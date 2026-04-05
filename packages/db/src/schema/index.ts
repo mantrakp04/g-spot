@@ -1,6 +1,9 @@
 import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 
+export { chats, chatMessages } from "./chat";
+export { fileHashes, fileMetadata } from "./files";
+
 export const sections = sqliteTable(
   "sections",
   {

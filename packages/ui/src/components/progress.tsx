@@ -1,5 +1,3 @@
-"use client"
-
 import { Progress as ProgressPrimitive } from "@base-ui/react/progress"
 
 import { cn } from "@g-spot/ui/lib/utils"
@@ -29,7 +27,7 @@ function ProgressTrack({ className, ...props }: ProgressPrimitive.Track.Props) {
   return (
     <ProgressPrimitive.Track
       className={cn(
-        "relative flex h-1 w-full items-center overflow-x-hidden rounded-md bg-muted",
+        "relative flex h-1 w-full items-center overflow-x-hidden rounded-none bg-muted",
         className
       )}
       data-slot="progress-track"

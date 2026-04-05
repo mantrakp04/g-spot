@@ -1,4 +1,4 @@
-import type { FilterCondition } from "@g-spot/types/filters";
+import type { FilterCondition, ColumnConfig } from "@g-spot/types/filters";
 
 import type { GmailThread } from "@/lib/gmail/types";
 import { GmailThreadTable } from "./gmail-thread-table";
@@ -10,7 +10,8 @@ type GmailMailViewProps = {
   sortAsc?: boolean;
   onCountChange?: (count: number, hasMore: boolean) => void;
   selectedThreadId?: string | null;
-  onSelectThread?: (thread: GmailThread, accountId: string | null) => void;
+  onSelectThread?: (thread: GmailThread, accountId: string | null, threads: GmailThread[]) => void;
+  columns?: ColumnConfig[];
 };
 
 export function GmailMailView({
@@ -21,6 +22,7 @@ export function GmailMailView({
   onCountChange,
   selectedThreadId,
   onSelectThread,
+  columns,
 }: GmailMailViewProps) {
   return (
     <GmailThreadTable
@@ -32,9 +34,10 @@ export function GmailMailView({
       selectedThreadId={selectedThreadId}
       onSelectThread={
         onSelectThread
-          ? (thread) => onSelectThread(thread, accountId ?? null)
+          ? (thread, threads) => onSelectThread(thread, accountId ?? null, threads)
           : undefined
       }
+      columns={columns}
     />
   );
 }

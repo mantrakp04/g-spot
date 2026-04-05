@@ -3,6 +3,7 @@ export type {
   GitHubIssuePage,
   GitHubItem,
   GitHubItemPage,
+  GitHubLabel,
   GitHubPR,
   GitHubPRPage,
   GitHubPullRequest,

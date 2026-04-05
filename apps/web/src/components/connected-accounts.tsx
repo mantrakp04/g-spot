@@ -15,6 +15,7 @@ import {
   useOpenAIStatus,
   useRefreshOpenAIStatus,
 } from "@/hooks/use-openai";
+import { GITHUB_OAUTH_SCOPES } from "@/stack/github-oauth-scopes";
 import { GOOGLE_OAUTH_SCOPES } from "@/stack/google-oauth-scopes";
 
 type ProviderId = "google" | "github";
@@ -267,7 +268,8 @@ export function ConnectedAccounts() {
                 )}
               </div>
               <div className="mt-1 flex flex-wrap gap-1">
-                <ScopeTag>repos</ScopeTag>
+                <ScopeTag>repo</ScopeTag>
+                <ScopeTag>read:org</ScopeTag>
                 <ScopeTag>profile</ScopeTag>
               </div>
             </div>
@@ -294,7 +296,7 @@ export function ConnectedAccounts() {
               variant="ghost"
               size="xs"
               className="shrink-0 text-muted-foreground text-xs hover:text-foreground"
-              onClick={() => void connectOAuth("github")}
+              onClick={() => void connectOAuth("github", GITHUB_OAUTH_SCOPES)}
             >
               {githubLinked ? "Reconnect" : "Connect"}
             </Button>

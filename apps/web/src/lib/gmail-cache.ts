@@ -7,12 +7,29 @@ type GmailThreadsSnapshot = Array<
   [QueryKey, InfiniteData<GmailThreadPage> | undefined]
 >;
 
+function isGmailThreadsInfiniteData(
+  data: unknown,
+): data is InfiniteData<GmailThreadPage> {
+  if (!data || typeof data !== "object") return false;
+
+  const candidate = data as {
+    pages?: unknown[];
+    pageParams?: unknown[];
+  };
+
+  return Array.isArray(candidate.pages) && Array.isArray(candidate.pageParams);
+}
+
 export function getGmailThreadsSnapshot(
   queryClient: QueryClient,
 ): GmailThreadsSnapshot {
-  return queryClient.getQueriesData<InfiniteData<GmailThreadPage>>({
-    queryKey: gmailKeys.threadsRoot(),
-  });
+  return queryClient
+    .getQueriesData<InfiniteData<GmailThreadPage> | unknown>({
+      queryKey: gmailKeys.threadsRoot(),
+    })
+    .filter((entry): entry is [QueryKey, InfiniteData<GmailThreadPage> | undefined] =>
+      entry[1] === undefined || isGmailThreadsInfiniteData(entry[1]),
+    );
 }
 
 export function restoreGmailThreadsSnapshot(
@@ -31,7 +48,7 @@ export function removeGmailThreadFromLists(
   queryClient.setQueriesData<InfiniteData<GmailThreadPage>>(
     { queryKey: gmailKeys.threadsRoot() },
     (old) => {
-      if (!old) return old;
+      if (!isGmailThreadsInfiniteData(old)) return old;
       return {
         ...old,
         pages: old.pages.map((page) => ({
@@ -51,7 +68,7 @@ export function setGmailThreadUnreadState(
   queryClient.setQueriesData<InfiniteData<GmailThreadPage>>(
     { queryKey: gmailKeys.threadsRoot() },
     (old) => {
-      if (!old) return old;
+      if (!isGmailThreadsInfiniteData(old)) return old;
       return {
         ...old,
         pages: old.pages.map((page) => ({

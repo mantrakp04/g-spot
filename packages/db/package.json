@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@g-spot/env": "workspace:*",
+    "@g-spot/types": "workspace:*",
     "@libsql/client": "catalog:",
     "dotenv": "catalog:",
     "drizzle-orm": "^0.45.2",

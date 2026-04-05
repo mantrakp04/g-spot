@@ -1,6 +1,6 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 
-import type { FilterCondition, SectionSource } from "@g-spot/types/filters";
+import type { FilterCondition, SectionSource, ColumnConfig } from "@g-spot/types/filters";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -8,6 +8,7 @@ import {
 } from "@g-spot/ui/components/resizable";
 import { Skeleton } from "@g-spot/ui/components/skeleton";
 import { useUser } from "@stackframe/react";
+import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { Inbox } from "lucide-react";
 
@@ -19,10 +20,11 @@ import {
 import { InboxSection } from "@/components/inbox/inbox-section";
 import { SectionBuilder } from "@/components/inbox/section-builder";
 import { useMarkGmailThreadReadMutation } from "@/hooks/use-gmail-actions";
-import { useGmailThread } from "@/hooks/use-gmail-thread";
+import { useGmailThread, usePrefetchGmailThread } from "@/hooks/use-gmail-thread";
 import { useSections, useUpdateSectionMutation } from "@/hooks/use-sections";
 import { useSectionCounts } from "@/contexts/section-counts-context";
 import type { GmailThread } from "@/lib/gmail/types";
+import { gmailKeys, githubKeys } from "@/lib/query-keys";
 
 export const Route = createFileRoute("/")({
   component: InboxPage,
@@ -47,10 +49,13 @@ function parseJson<T>(json: string, fallback: T): T {
 type SelectedThreadState = {
   thread: GmailThread;
   accountId: string | null;
+  threads: GmailThread[];
 } | null;
 
 function InboxPage() {
+  const queryClient = useQueryClient();
   const { data: sections, isLoading } = useSections();
+  const [refreshing, setRefreshing] = useState<Record<string, boolean>>({});
 
   const [editingSection, setEditingSection] = useState<{
     id: string;
@@ -58,9 +63,12 @@ function InboxPage() {
     source: SectionSource;
     filters: string;
     repos: string;
+    columns: string;
     accountId: string | null;
     showBadge: boolean;
   } | null>(null);
+
+  const updateSectionMutation = useUpdateSectionMutation();
 
   // Per-section collapse overrides (optimistic, local-first)
   const [collapseState, setCollapseState] = useState<Record<string, boolean>>({});
@@ -84,15 +92,14 @@ function InboxPage() {
 
   // Lifted selected thread state for the right detail panel
   const [selectedThread, setSelectedThread] = useState<SelectedThreadState>(null);
-  const updateSectionMutation = useUpdateSectionMutation();
   const markThreadReadMutation = useMarkGmailThreadReadMutation();
 
   // Resolve Google account for the detail panel
   const user = useUser();
   const accounts = user?.useConnectedAccounts();
 
-  const handleSelectThread = useCallback((thread: GmailThread, accountId: string | null) => {
-    setSelectedThread({ thread: { ...thread, isUnread: false }, accountId });
+  const handleSelectThread = useCallback((thread: GmailThread, accountId: string | null, threads: GmailThread[]) => {
+    setSelectedThread({ thread: { ...thread, isUnread: false }, accountId, threads });
 
     if (thread.isUnread) {
       const account = accountId
@@ -108,6 +115,20 @@ function InboxPage() {
     }
   }, [accounts, markThreadReadMutation]);
 
+  const handleRefresh = useCallback(async (sectionId: string, source: string) => {
+    setRefreshing((prev) => ({ ...prev, [sectionId]: true }));
+    try {
+      const queryKey = source === "gmail"
+        ? gmailKeys.threadsSection(sectionId)
+        : source === "github_pr"
+          ? githubKeys.prsSection(sectionId)
+          : githubKeys.issuesSection(sectionId);
+      await queryClient.refetchQueries({ queryKey });
+    } finally {
+      setRefreshing((prev) => ({ ...prev, [sectionId]: false }));
+    }
+  }, [queryClient]);
+
   const handleCloseThread = useCallback(() => {
     setSelectedThread(null);
   }, []);
@@ -117,10 +138,52 @@ function InboxPage() {
       ? accounts?.find((a) => a.provider === "google") ?? null
       : null;
 
+  // Thread navigation (prev/next)
+  const currentIndex = useMemo(() => {
+    if (!selectedThread) return -1;
+    return selectedThread.threads.findIndex(
+      (t) => t.threadId === selectedThread.thread.threadId,
+    );
+  }, [selectedThread]);
+
+  const hasPrev = currentIndex > 0;
+  const hasNext = selectedThread != null && currentIndex < selectedThread.threads.length - 1;
+
+  const handleNavigateThread = useCallback(
+    (direction: -1 | 1) => {
+      if (!selectedThread) return;
+      const nextIdx = currentIndex + direction;
+      const nextThread = selectedThread.threads[nextIdx];
+      if (!nextThread) return;
+      handleSelectThread(nextThread, selectedThread.accountId, selectedThread.threads);
+    },
+    [selectedThread, currentIndex, handleSelectThread],
+  );
+
   const { data: threadDetail, isLoading: isDetailLoading } = useGmailThread(
     selectedThread?.thread.threadId ?? null,
     googleAccount ?? null,
   );
+
+  // Prefetch ±2 threads around the selected one
+  const prefetch = usePrefetchGmailThread();
+  const prefetchedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!selectedThread || !googleAccount || currentIndex < 0) return;
+    const threadId = selectedThread.thread.threadId;
+    if (prefetchedRef.current === threadId) return;
+    prefetchedRef.current = threadId;
+
+    const nearby = selectedThread.threads.slice(
+      Math.max(0, currentIndex - 2),
+      currentIndex + 3,
+    );
+    for (const t of nearby) {
+      if (t.threadId !== threadId) {
+        prefetch(t.threadId, googleAccount);
+      }
+    }
+  }, [selectedThread, googleAccount, currentIndex, prefetch]);
 
   if (isLoading) {
     return (
@@ -154,6 +217,7 @@ function InboxPage() {
               const isSortAsc = sortState[section.id] ?? false;
               const collapsed =
                 collapseState[section.id] ?? section.collapsed;
+              const columns = parseJson<ColumnConfig[]>(section.columns, []);
 
               return (
                 <div key={section.id} id={`section-${section.id}`}>
@@ -186,6 +250,8 @@ function InboxPage() {
                         collapsed: newCollapsed,
                       });
                     }}
+                    onRefresh={() => handleRefresh(section.id, section.source)}
+                    isRefreshing={refreshing[section.id] ?? false}
                     onEdit={() =>
                       setEditingSection({
                         id: section.id,
@@ -193,6 +259,7 @@ function InboxPage() {
                         source: section.source as SectionSource,
                         filters: section.filters,
                         repos: section.repos,
+                        columns: section.columns,
                         accountId: section.accountId,
                         showBadge: section.showBadge,
                       })
@@ -207,6 +274,7 @@ function InboxPage() {
                         accountId={section.accountId}
                         sortAsc={isSortAsc}
                         onCountChange={(count) => handleCountChange(section.id, count)}
+                        columns={columns}
                       />
                     ) : (
                       <GmailMailView
@@ -217,6 +285,7 @@ function InboxPage() {
                         onCountChange={(count, hasMore) => handleCountChange(section.id, count, hasMore)}
                         selectedThreadId={selectedThread?.thread.threadId}
                         onSelectThread={handleSelectThread}
+                        columns={columns}
                       />
                     )}
                   </InboxSection>
@@ -248,6 +317,10 @@ function InboxPage() {
               isLoading={isDetailLoading}
               googleAccount={googleAccount ?? null}
               onClose={handleCloseThread}
+              hasPrev={hasPrev}
+              hasNext={hasNext}
+              onPrev={() => handleNavigateThread(-1)}
+              onNext={() => handleNavigateThread(1)}
             />
           </ResizablePanel>
         </>

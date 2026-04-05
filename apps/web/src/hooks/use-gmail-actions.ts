@@ -4,7 +4,6 @@ import type { OAuthConnection } from "@stackframe/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
-  archiveGmailThread,
   createGmailDraft,
   deleteGmailDraft,
   fetchGmailComposeDraft,
@@ -24,6 +23,7 @@ import {
   restoreGmailThreadsSnapshot,
   setGmailThreadUnreadState,
 } from "@/lib/gmail-cache";
+import { getOAuthToken } from "@/lib/oauth";
 import { gmailKeys } from "@/lib/query-keys";
 import type {
   GmailThread,
@@ -31,17 +31,10 @@ import type {
   GmailThreadDraft,
 } from "@/lib/gmail/types";
 
-async function getGoogleAccessToken(account: OAuthConnection): Promise<string> {
-  const result = await account.getAccessToken();
-  if (result.status !== "ok") {
-    throw new Error(result.error?.message ?? "Failed to get Google access token");
-  }
-  return result.data.accessToken;
-}
-
 type ThreadMutationInput = {
   account: OAuthConnection;
   threadId: string;
+  markRead?: boolean;
 };
 
 type SetUnreadInput = ThreadMutationInput & {
@@ -65,7 +58,7 @@ export function useMarkGmailThreadReadMutation() {
 
   return useMutation({
     mutationFn: async ({ account, threadId }: ThreadMutationInput) => {
-      const token = await getGoogleAccessToken(account);
+      const token = await getOAuthToken(account);
       await modifyGmailThreadLabels(token, threadId, undefined, ["UNREAD"]);
     },
     onMutate: async ({ threadId }) => {
@@ -91,7 +84,7 @@ export function useGmailThreadDrafts(
   return useQuery({
     queryKey: gmailKeys.threadDrafts(thread.threadId, accountId),
     queryFn: async () => {
-      const token = await getGoogleAccessToken(googleAccount!);
+      const token = await getOAuthToken(googleAccount!);
       return listGmailDraftsForThread(
         token,
         thread.threadId,
@@ -112,7 +105,7 @@ export function useGmailComposeDraft(
   return useQuery({
     queryKey: gmailKeys.draftCompose(draftId, accountId),
     queryFn: async () => {
-      const token = await getGoogleAccessToken(googleAccount!);
+      const token = await getOAuthToken(googleAccount!);
       return fetchGmailComposeDraft(token, draftId!);
     },
     enabled: !!draftId && !!googleAccount,
@@ -134,9 +127,14 @@ export function useGmailThreadActions(
   }, [thread.threadId, thread.isUnread]);
 
   const archiveMutation = useMutation({
-    mutationFn: async ({ account, threadId }: ThreadMutationInput) => {
-      const token = await getGoogleAccessToken(account);
-      await archiveGmailThread(token, threadId);
+    mutationFn: async ({ account, threadId, markRead }: ThreadMutationInput) => {
+      const token = await getOAuthToken(account);
+      await modifyGmailThreadLabels(
+        token,
+        threadId,
+        undefined,
+        markRead ? ["INBOX", "UNREAD"] : ["INBOX"],
+      );
     },
     onMutate: async ({ threadId }) => {
       const snapshot = getGmailThreadsSnapshot(queryClient);
@@ -148,20 +146,20 @@ export function useGmailThreadActions(
         restoreGmailThreadsSnapshot(queryClient, context.snapshot);
       }
     },
-    onSuccess: async (_data, variables) => {
+    onSuccess: (_data, variables) => {
       clearGmailThreadDetail(queryClient, variables.threadId, accountId);
       clearGmailDraftQueries(queryClient, {
         accountId,
         threadId: variables.threadId,
       });
       onClose();
-      await invalidateGmailThreads(queryClient);
+      invalidateGmailThreads(queryClient);
     },
   });
 
   const trashMutation = useMutation({
     mutationFn: async ({ account, threadId }: ThreadMutationInput) => {
-      const token = await getGoogleAccessToken(account);
+      const token = await getOAuthToken(account);
       await trashGmailThread(token, threadId);
     },
     onMutate: async ({ threadId }) => {
@@ -174,20 +172,20 @@ export function useGmailThreadActions(
         restoreGmailThreadsSnapshot(queryClient, context.snapshot);
       }
     },
-    onSuccess: async (_data, variables) => {
+    onSuccess: (_data, variables) => {
       clearGmailThreadDetail(queryClient, variables.threadId, accountId);
       clearGmailDraftQueries(queryClient, {
         accountId,
         threadId: variables.threadId,
       });
       onClose();
-      await invalidateGmailThreads(queryClient);
+      invalidateGmailThreads(queryClient);
     },
   });
 
   const unreadMutation = useMutation({
     mutationFn: async ({ account, threadId, isUnread }: SetUnreadInput) => {
-      const token = await getGoogleAccessToken(account);
+      const token = await getOAuthToken(account);
       if (isUnread) {
         await modifyGmailThreadLabels(token, threadId, ["UNREAD"]);
       } else {
@@ -208,8 +206,13 @@ export function useGmailThreadActions(
         setIsRead(context.previousIsRead);
       }
     },
-    onSettled: async () => {
-      await invalidateGmailThreads(queryClient);
+    onSettled: (_data, _error, variables) => {
+      // Only refetch this thread's detail — the optimistic update already
+      // reflects the correct read/unread state in the thread lists.
+      queryClient.invalidateQueries({
+        queryKey: gmailKeys.thread(variables.threadId, accountId),
+        exact: true,
+      });
     },
   });
 
@@ -225,6 +228,7 @@ export function useGmailThreadActions(
       return archiveMutation.mutateAsync({
         account: googleAccount,
         threadId: thread.threadId,
+        markRead: isRead,
       });
     },
     trash: () => {
@@ -261,7 +265,7 @@ export function useSaveGmailDraftMutation(
         throw new Error("No Google account connected");
       }
 
-      const token = await getGoogleAccessToken(googleAccount);
+      const token = await getOAuthToken(googleAccount);
       return draftId
         ? updateGmailDraft(token, draftId, raw, threadId)
         : createGmailDraft(token, raw, threadId);
@@ -304,11 +308,11 @@ export function useDeleteGmailDraftMutation(
         throw new Error("No Google account connected");
       }
 
-      const token = await getGoogleAccessToken(googleAccount);
+      const token = await getOAuthToken(googleAccount);
       await deleteGmailDraft(token, input.draftId);
       return input;
     },
-    onSuccess: async (input) => {
+    onSuccess: (input) => {
       if (input.threadId) {
         queryClient.setQueryData<GmailThreadDraft[]>(
           gmailKeys.threadDrafts(input.threadId, accountId),
@@ -324,13 +328,13 @@ export function useDeleteGmailDraftMutation(
       });
 
       if (input.threadId) {
-        await queryClient.invalidateQueries({
+        queryClient.invalidateQueries({
           queryKey: gmailKeys.thread(input.threadId, accountId),
           exact: true,
         });
       }
 
-      await invalidateGmailThreads(queryClient);
+      invalidateGmailThreads(queryClient);
     },
   });
 }
@@ -347,7 +351,7 @@ export function useSendGmailMessageMutation(
         throw new Error("No Google account connected");
       }
 
-      const token = await getGoogleAccessToken(googleAccount);
+      const token = await getOAuthToken(googleAccount);
 
       if (draftId) {
         await updateGmailDraft(token, draftId, raw, threadId);
@@ -358,7 +362,7 @@ export function useSendGmailMessageMutation(
 
       return { draftId, threadId };
     },
-    onSuccess: async ({ draftId, threadId }) => {
+    onSuccess: ({ draftId, threadId }) => {
       if (draftId && threadId) {
         queryClient.setQueryData<GmailThreadDraft[]>(
           gmailKeys.threadDrafts(threadId, accountId),
@@ -374,13 +378,13 @@ export function useSendGmailMessageMutation(
       });
 
       if (threadId) {
-        await queryClient.invalidateQueries({
+        queryClient.invalidateQueries({
           queryKey: gmailKeys.thread(threadId, accountId),
           exact: true,
         });
       }
 
-      await invalidateGmailThreads(queryClient);
+      invalidateGmailThreads(queryClient);
     },
   });
 }

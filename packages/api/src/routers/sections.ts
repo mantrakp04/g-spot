@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   sectionFiltersSchema,
   sectionSourceSchema,
+  sectionColumnsSchema,
 } from "@g-spot/types/filters";
 
 import { authedProcedure, router } from "../index";
@@ -27,6 +28,7 @@ export const sectionsRouter = router({
         showBadge: z.boolean().default(true),
         repos: z.array(z.string()).default([]),
         accountId: z.string().nullable().default(null),
+        columns: sectionColumnsSchema.optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -43,6 +45,7 @@ export const sectionsRouter = router({
         collapsed: z.boolean().optional(),
         repos: z.array(z.string()).optional(),
         accountId: z.string().nullable().optional(),
+        columns: sectionColumnsSchema.optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {

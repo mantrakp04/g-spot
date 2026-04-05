@@ -167,6 +167,12 @@ function parseFromHeader(raw: string): { name: string; email: string } {
   return { name: raw, email: raw };
 }
 
+function decodeHtmlEntities(text: string): string {
+  const textarea = document.createElement("textarea");
+  textarea.innerHTML = text;
+  return textarea.value;
+}
+
 type GmailListResponse = {
   messages?: Array<{ id: string; threadId: string }>;
   nextPageToken?: string;
@@ -262,7 +268,7 @@ export async function searchGmailThreads(
       threadId: msg.threadId,
       subject: getHeader(msg, "Subject") || "(no subject)",
       from,
-      snippet: msg.snippet ?? "",
+      snippet: decodeHtmlEntities(msg.snippet ?? ""),
       date: getHeader(msg, "Date"),
       isUnread: labels.includes("UNREAD"),
       labels,

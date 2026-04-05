@@ -67,10 +67,19 @@ export const gmailKeys = {
       filters: FilterCondition[];
     },
   ) => ["gmail", "threads", sectionId, input] as const,
+  threadCount: (
+    sectionId: string,
+    input: {
+      accountId: string | null;
+      filters: FilterCondition[];
+    },
+  ) => ["gmail", "threads", sectionId, "count", input] as const,
   thread: (threadId: string | null, accountId: string | null | undefined) =>
     ["gmail", "thread", threadId, accountId ?? null] as const,
   labels: (accountId: string | null | undefined) =>
     ["gmail", "labels", accountId ?? null] as const,
+  labelsCatalog: (accountId: string | null | undefined) =>
+    ["gmail", "labels-catalog", accountId ?? null] as const,
   filterSuggestions: (
     accountId: string | null | undefined,
     field: string,

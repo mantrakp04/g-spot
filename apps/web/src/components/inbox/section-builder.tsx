@@ -1,5 +1,20 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback, type ReactNode } from "react";
 import { useQueries } from "@tanstack/react-query";
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  type DragEndEvent,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 import { Octokit } from "octokit";
 
 import {
@@ -7,6 +22,12 @@ import {
   AvatarFallback,
   AvatarImage,
 } from "@g-spot/ui/components/avatar";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@g-spot/ui/components/accordion";
 import { Badge } from "@g-spot/ui/components/badge";
 import { Button } from "@g-spot/ui/components/button";
 import { Checkbox } from "@g-spot/ui/components/checkbox";
@@ -26,11 +47,55 @@ import {
   SelectTrigger,
 } from "@g-spot/ui/components/select";
 import { Separator } from "@g-spot/ui/components/separator";
-import { Plus, Trash2, X, Github, Mail } from "lucide-react";
+import { Slider } from "@g-spot/ui/components/slider";
+import {
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
+  ArrowDown,
+  ArrowUp,
+  Eye,
+  EyeOff,
+  Github,
+  GripVertical,
+  Mail,
+  Plus,
+  RotateCcw,
+  Ruler,
+  Trash2,
+  Type,
+  X,
+} from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@g-spot/ui/components/tooltip";
 import { cn } from "@g-spot/ui/lib/utils";
 import { useUser } from "@stackframe/react";
 
-import type { FilterCondition, SectionSource } from "@g-spot/types/filters";
+import type {
+  ColumnAlignment,
+  ColumnConfig,
+  ColumnMeta,
+  ColumnSizing,
+  ColumnTruncation,
+  FilterCondition,
+  SectionSource,
+} from "@g-spot/types/filters";
+import {
+  clampColumnWidth,
+  getDefaultColumns,
+  getColumnContentAlign,
+  getColumnHeaderAlign,
+  getColumnLabel,
+  getColumnMeta,
+  getColumnSizing,
+  getColumnTruncation,
+  getColumnWidthBounds,
+  normalizeColumns,
+} from "@g-spot/types/filters";
 import {
   useCreateSectionMutation,
   useDeleteSectionMutation,
@@ -55,6 +120,7 @@ type SectionData = {
   source: SectionSource;
   filters: string;
   repos: string;
+  columns: string;
   accountId: string | null;
   showBadge: boolean;
 };
@@ -79,6 +145,132 @@ const SOURCE_LABELS: Record<SectionSource, string> = {
   gmail: "Gmail",
 };
 
+const ALIGNMENT_OPTIONS: Array<{
+  value: ColumnAlignment;
+  label: string;
+  Icon: typeof AlignLeft;
+}> = [
+  { value: "left", label: "Align left", Icon: AlignLeft },
+  { value: "center", label: "Align center", Icon: AlignCenter },
+  { value: "right", label: "Align right", Icon: AlignRight },
+];
+
+const TRUNCATION_OPTIONS: Array<{
+  value: ColumnTruncation;
+  label: string;
+}> = [
+  { value: "middle", label: "Middle" },
+  { value: "end", label: "End" },
+];
+
+const SIZING_OPTIONS: Array<{
+  value: ColumnSizing;
+  label: string;
+}> = [
+  { value: "fill", label: "Fill" },
+  { value: "fit", label: "Fit" },
+  { value: "fixed", label: "Fixed" },
+];
+
+const COLUMN_BOUND_SLIDER_MIN = 40;
+const COLUMN_BOUND_SLIDER_MAX = 1600;
+
+function clampSliderValue(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, Math.round(value)));
+}
+
+function getColumnBoundSliderRange(meta: ColumnMeta, column: ColumnConfig) {
+  const bounds = getColumnWidthBounds(meta, column);
+  const candidates = [
+    COLUMN_BOUND_SLIDER_MIN,
+    COLUMN_BOUND_SLIDER_MAX,
+    bounds.min ?? COLUMN_BOUND_SLIDER_MIN,
+    bounds.max ?? COLUMN_BOUND_SLIDER_MAX,
+    column.width ?? 0,
+    meta.width ?? 0,
+  ];
+
+  const min = Math.max(1, Math.min(...candidates.filter((value) => value > 0)));
+  const max = Math.max(
+    COLUMN_BOUND_SLIDER_MAX,
+    ...candidates,
+    min,
+  );
+
+  return { min, max };
+}
+
+function summarizeColumnWidth(meta: ColumnMeta, column: ColumnConfig): string {
+  const sizing = getColumnSizing(meta, column);
+  const width = clampColumnWidth(meta, column.width, column);
+  const bounds = getColumnWidthBounds(meta, column);
+  const parts: string[] = [sizing];
+
+  if (width != null) {
+    parts.push(`${width}px`);
+  } else if (meta.width != null) {
+    parts.push(`${meta.width}px default`);
+  } else {
+    parts.push("auto");
+  }
+
+  parts.push(bounds.min != null ? `min ${bounds.min}px` : "no min");
+  parts.push(bounds.max != null ? `max ${bounds.max}px` : "no max");
+
+  return parts.join(" · ");
+}
+
+function hasColumnOverrides(column: ColumnConfig): boolean {
+  return Boolean(
+    column.sizing
+    || column.minWidth != null
+    || column.maxWidth != null
+    || column.label?.trim()
+    || column.width != null
+    || column.align
+    || column.headerAlign
+    || column.truncation,
+  );
+}
+
+function SortableColumnItem({
+  id,
+  children,
+}: {
+  id: string;
+  children: (args: {
+    attributes: ReturnType<typeof useSortable>["attributes"];
+    listeners: ReturnType<typeof useSortable>["listeners"];
+    isDragging: boolean;
+  }) => ReactNode;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id });
+
+  const style = {
+    transform: transform
+      ? `translate3d(${transform.x}px, ${transform.y}px, 0)`
+      : undefined,
+    transition,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn(isDragging && "z-50 opacity-60")}
+    >
+      {children({ attributes, listeners, isDragging })}
+    </div>
+  );
+}
+
 export function SectionBuilder({
   open,
   onOpenChange,
@@ -96,19 +288,29 @@ export function SectionBuilder({
   const [repos, setRepos] = useState<string[]>([]);
   const [accountId, setAccountId] = useState<string | null>(null);
   const [showBadge, setShowBadge] = useState(true);
+  const [columns, setColumns] = useState<ColumnConfig[]>([]);
+  const [openColumnIds, setOpenColumnIds] = useState<string[]>([]);
   const isGitHubSource = source === "github_pr" || source === "github_issue";
+  const columnSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor),
+  );
 
   // Reset form when dialog opens
   useEffect(() => {
     if (open) {
       const nextFilters = section ? parseJson<FilterCondition[]>(section.filters, []) : [];
+      const nextSource = section?.source ?? "github_pr";
       setName(section?.name ?? "");
-      setSource(section?.source ?? "github_pr");
+      setSource(nextSource);
       setFilters(nextFilters);
       setFilterSearchQueries(Array.from({ length: nextFilters.length }, () => ""));
       setRepos(section ? parseJson(section.repos, []) : []);
       setAccountId(section?.accountId ?? null);
       setShowBadge(section?.showBadge ?? true);
+      const savedColumns = section ? parseJson<ColumnConfig[]>(section.columns, []) : [];
+      setColumns(normalizeColumns(nextSource, savedColumns));
+      setOpenColumnIds([]);
     }
   }, [open, section]);
 
@@ -252,6 +454,24 @@ export function SectionBuilder({
     setFilterSearchQueries((prev) => prev.filter((_, i) => i !== index));
   }
 
+  function updateColumn(id: string, updater: (column: ColumnConfig) => ColumnConfig) {
+    setColumns((prev) => prev.map((column) => (
+      column.id === id ? updater(column) : column
+    )));
+  }
+
+  const handleColumnDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    setColumns((prev) => {
+      const oldIndex = prev.findIndex((column) => column.id === active.id);
+      const newIndex = prev.findIndex((column) => column.id === over.id);
+      if (oldIndex === -1 || newIndex === -1) return prev;
+      return arrayMove(prev, oldIndex, newIndex);
+    });
+  }, []);
+
   async function handleSave() {
     const trimmedName = name.trim();
     if (!trimmedName) return;
@@ -266,6 +486,7 @@ export function SectionBuilder({
         repos,
         accountId,
         showBadge,
+        columns: normalizeColumns(source, columns),
       });
     } else {
       await createMutation.mutateAsync({
@@ -275,6 +496,7 @@ export function SectionBuilder({
         repos,
         accountId,
         showBadge,
+        columns: normalizeColumns(source, columns),
       });
     }
 
@@ -330,11 +552,13 @@ export function SectionBuilder({
                   value={source}
                   onValueChange={(v) => {
                     if (!v) return;
-                    setSource(v as SectionSource);
+                    const newSource = v as SectionSource;
+                    setSource(newSource);
                     setFilters([]);
                     setFilterSearchQueries([]);
                     setRepos([]);
                     setAccountId(null);
+                    setColumns(getDefaultColumns(newSource));
                   }}
                 >
                   <SelectTrigger className="h-9">
@@ -518,6 +742,505 @@ export function SectionBuilder({
               Add condition
             </Button>
           </div>
+
+          {/* Columns */}
+          {columns.length > 0 && (
+            <>
+              <Separator />
+              <div className="space-y-1">
+                <Label className="text-xs font-medium text-muted-foreground">Columns</Label>
+                <p className="text-xs text-muted-foreground/60">
+                  Toggle columns, then open each one to adjust the header label, alignment, width, and truncation.
+                </p>
+                <TooltipProvider delay={150}>
+                  <DndContext
+                    sensors={columnSensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={handleColumnDragEnd}
+                  >
+                    <SortableContext
+                      items={columns.map((column) => column.id)}
+                      strategy={verticalListSortingStrategy}
+                    >
+                      <Accordion
+                        multiple
+                        value={openColumnIds}
+                        onValueChange={(value) => setOpenColumnIds(value as string[])}
+                        className="rounded-lg border border-border/60 bg-muted/15"
+                      >
+                        {columns.map((col, index) => {
+                          const meta = getColumnMeta(source, col.id);
+                          if (!meta) return null;
+
+                          const widthBounds = getColumnWidthBounds(meta, col);
+                          const sliderRange = getColumnBoundSliderRange(meta, col);
+                          const sliderMinValue = clampSliderValue(
+                            col.minWidth ?? meta.minWidth ?? sliderRange.min,
+                            sliderRange.min,
+                            sliderRange.max,
+                          );
+                          const sliderMaxValue = clampSliderValue(
+                            col.maxWidth ?? meta.maxWidth ?? sliderRange.max,
+                            sliderMinValue,
+                            sliderRange.max,
+                          );
+                          const displayLabel = getColumnLabel(meta, col) || "(no label)";
+                          const itemAlign = getColumnContentAlign(meta, col) ?? "left";
+                          const headerAlign = getColumnHeaderAlign(meta, col) ?? "left";
+                          const truncation = getColumnTruncation(meta, col);
+                          const showReset = hasColumnOverrides(col) && openColumnIds.includes(col.id);
+
+                          return (
+                            <SortableColumnItem key={col.id} id={col.id}>
+                              {({ attributes, listeners, isDragging }) => (
+                                <AccordionItem
+                                  value={col.id}
+                                  className={cn("border-border/60 px-2", isDragging && "rounded-md bg-background/80 shadow-sm")}
+                                >
+                                  <AccordionTrigger className="items-center gap-3 px-1 py-2 hover:no-underline">
+                                    <div className="flex min-w-0 flex-1 items-center gap-2">
+                                      <button
+                                        type="button"
+                                        className="shrink-0 cursor-grab touch-none rounded-sm p-0.5 text-muted-foreground/40 transition-colors hover:text-foreground/70 active:cursor-grabbing"
+                                        {...attributes}
+                                        {...listeners}
+                                        onClick={(e) => {
+                                          e.preventDefault();
+                                          e.stopPropagation();
+                                        }}
+                                      >
+                                        <GripVertical className="size-3" />
+                                      </button>
+                                      <div className="min-w-0 flex-1">
+                                        <div className="flex min-w-0 items-center gap-2">
+                                          <span className="truncate text-xs font-medium">{displayLabel}</span>
+                                          {!col.visible && (
+                                            <Badge variant="outline" className="h-5 px-1.5 text-[10px]">
+                                              Hidden
+                                            </Badge>
+                                          )}
+                                          {hasColumnOverrides(col) && (
+                                            <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
+                                              Custom
+                                            </Badge>
+                                          )}
+                                        </div>
+                                        <p className="truncate text-[11px] text-muted-foreground/65">
+                                          {meta.label || "Untitled"} · {summarizeColumnWidth(meta, col)} · header {headerAlign} · items {itemAlign} · truncate {truncation}
+                                        </p>
+                                      </div>
+                                    </div>
+
+                                    <div
+                                      className="flex shrink-0 items-center gap-1"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <Tooltip>
+                                        <TooltipTrigger render={
+                                          <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon-xs"
+                                            className="text-muted-foreground hover:text-foreground"
+                                            disabled={index === 0}
+                                            onClick={() => {
+                                              setColumns((prev) => {
+                                                const next = [...prev];
+                                                [next[index - 1], next[index]] = [next[index], next[index - 1]];
+                                                return next;
+                                              });
+                                            }}
+                                          >
+                                            <ArrowUp className="size-3" />
+                                          </Button>
+                                        } />
+                                        <TooltipContent>Move up</TooltipContent>
+                                      </Tooltip>
+
+                                      <Tooltip>
+                                        <TooltipTrigger render={
+                                          <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon-xs"
+                                            className="text-muted-foreground hover:text-foreground"
+                                            disabled={index === columns.length - 1}
+                                            onClick={() => {
+                                              setColumns((prev) => {
+                                                const next = [...prev];
+                                                [next[index], next[index + 1]] = [next[index + 1], next[index]];
+                                                return next;
+                                              });
+                                            }}
+                                          >
+                                            <ArrowDown className="size-3" />
+                                          </Button>
+                                        } />
+                                        <TooltipContent>Move down</TooltipContent>
+                                      </Tooltip>
+
+                                      <Tooltip>
+                                        <TooltipTrigger render={
+                                          <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon-xs"
+                                            className="text-muted-foreground hover:text-foreground"
+                                            onClick={() => updateColumn(col.id, (column) => ({
+                                              ...column,
+                                              visible: !column.visible,
+                                            }))}
+                                          >
+                                            {col.visible ? <Eye className="size-3" /> : <EyeOff className="size-3" />}
+                                          </Button>
+                                        } />
+                                        <TooltipContent>{col.visible ? "Hide column" : "Show column"}</TooltipContent>
+                                      </Tooltip>
+
+                                      {showReset && (
+                                        <Tooltip>
+                                          <TooltipTrigger render={
+                                            <Button
+                                              type="button"
+                                              variant="ghost"
+                                              size="icon-xs"
+                                              className="text-muted-foreground hover:text-foreground"
+                                              onClick={() => updateColumn(col.id, (column) => ({
+                                                ...column,
+                                                width: null,
+                                                label: null,
+                                                headerAlign: null,
+                                                align: null,
+                                                truncation: null,
+                                              }))}
+                                            >
+                                              <RotateCcw className="size-3" />
+                                            </Button>
+                                          } />
+                                          <TooltipContent>Reset overrides</TooltipContent>
+                                        </Tooltip>
+                                      )}
+
+                                    </div>
+                                  </AccordionTrigger>
+
+                                  <AccordionContent className="px-1">
+                                    <div className="grid gap-3 rounded-md border border-border/60 bg-background/80 p-3 md:grid-cols-2">
+                                      <div className="space-y-1.5">
+                                        <Label className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+                                          <Type className="size-3" />
+                                          Header label
+                                        </Label>
+                                        <Input
+                                          value={col.label ?? ""}
+                                          onChange={(e) => {
+                                            const value = e.target.value;
+                                            updateColumn(col.id, (column) => ({
+                                              ...column,
+                                              label: value.trim() ? value.slice(0, 32) : null,
+                                            }));
+                                          }}
+                                          placeholder={meta.label || "No label"}
+                                          className="h-8 text-xs"
+                                        />
+                                        <p className="text-[11px] text-muted-foreground/65">
+                                          Leave blank to use the default label.
+                                        </p>
+                                      </div>
+
+                                      <div className="space-y-1.5">
+                                        <Label className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+                                          <Ruler className="size-3" />
+                                          Sizing
+                                        </Label>
+                                        <Select
+                                          value={col.sizing ?? "__default"}
+                                          onValueChange={(value) => updateColumn(col.id, (column) => ({
+                                            ...column,
+                                            sizing: value === "__default" ? undefined : value as ColumnSizing,
+                                          }))}
+                                        >
+                                          <SelectTrigger className="h-8 text-xs">
+                                            <span className="truncate">
+                                              {col.sizing ?? `${meta.sizing} (default)`}
+                                            </span>
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            <SelectItem value="__default">{meta.sizing} (default)</SelectItem>
+                                            {SIZING_OPTIONS.map((option) => (
+                                              <SelectItem key={option.value} value={option.value}>
+                                                {option.label}
+                                              </SelectItem>
+                                            ))}
+                                          </SelectContent>
+                                        </Select>
+                                        <p className="text-[11px] text-muted-foreground/65">
+                                          `fixed` locks a column, `fit` shrink-wraps it, `fill` takes leftover space.
+                                        </p>
+                                      </div>
+
+                                      <div className="space-y-1.5">
+                                        <Label className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+                                          <Ruler className="size-3" />
+                                          Width
+                                        </Label>
+                                        <Input
+                                          type="number"
+                                          inputMode="numeric"
+                                          min={widthBounds.min}
+                                          step={1}
+                                          value={col.width ?? ""}
+                                          onChange={(e) => {
+                                            const nextValue = e.target.value;
+                                            updateColumn(col.id, (column) => ({
+                                              ...column,
+                                              width: nextValue === ""
+                                                ? null
+                                                : clampColumnWidth(meta, Number(nextValue), column),
+                                            }));
+                                          }}
+                                          placeholder={meta.width != null ? `${meta.width}` : "auto"}
+                                          className="h-8 text-xs"
+                                        />
+                                        <p className="text-[11px] text-muted-foreground/65">
+                                          {widthBounds.min != null ? `Min ${widthBounds.min}px` : "No minimum"}
+                                          {widthBounds.max != null ? ` · Max ${widthBounds.max}px` : " · No maximum"}
+                                        </p>
+                                      </div>
+
+                                      <div className="space-y-2 md:col-span-2">
+                                        <div className="flex items-center justify-between gap-3">
+                                          <Label className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+                                            <Ruler className="size-3" />
+                                            Width range
+                                          </Label>
+                                          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/75">
+                                            <Badge variant="outline" className="h-5 px-1.5 text-[10px]">
+                                              min {col.minWidth != null ? `${col.minWidth}px` : "none"}
+                                            </Badge>
+                                            <Badge variant="outline" className="h-5 px-1.5 text-[10px]">
+                                              max {col.maxWidth != null ? `${col.maxWidth}px` : "none"}
+                                            </Badge>
+                                          </div>
+                                        </div>
+
+                                        <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-3">
+                                          <Slider
+                                            min={sliderRange.min}
+                                            max={sliderRange.max}
+                                            step={1}
+                                            value={[sliderMinValue, sliderMaxValue]}
+                                            onValueChange={(value) => {
+                                              const nextValues = Array.isArray(value)
+                                                ? value
+                                                : [value, sliderMaxValue];
+                                              const [nextMinRaw, nextMaxRaw] = nextValues;
+                                              const nextMin = clampSliderValue(nextMinRaw ?? sliderRange.min, sliderRange.min, sliderRange.max);
+                                              const nextMax = clampSliderValue(nextMaxRaw ?? sliderRange.max, nextMin, sliderRange.max);
+
+                                              updateColumn(col.id, (column) => ({
+                                                ...column,
+                                                minWidth: nextMin,
+                                                maxWidth: nextMax,
+                                                width: column.width != null
+                                                  ? clampColumnWidth(meta, column.width, {
+                                                    ...column,
+                                                    minWidth: nextMin,
+                                                    maxWidth: nextMax,
+                                                  })
+                                                  : null,
+                                              }));
+                                            }}
+                                          />
+
+                                          <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                                            <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                                              <Checkbox
+                                                checked={col.minWidth == null}
+                                                onCheckedChange={(checked) => updateColumn(col.id, (column) => ({
+                                                  ...column,
+                                                  minWidth: checked ? undefined : sliderMinValue,
+                                                  width: checked
+                                                    ? column.width
+                                                    : clampColumnWidth(meta, column.width, {
+                                                      ...column,
+                                                      minWidth: sliderMinValue,
+                                                    }),
+                                                }))}
+                                              />
+                                              No min
+                                            </label>
+
+                                            <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                                              <Checkbox
+                                                checked={col.maxWidth == null}
+                                                onCheckedChange={(checked) => updateColumn(col.id, (column) => ({
+                                                  ...column,
+                                                  maxWidth: checked ? undefined : sliderMaxValue,
+                                                  width: checked
+                                                    ? column.width
+                                                    : clampColumnWidth(meta, column.width, {
+                                                      ...column,
+                                                      maxWidth: sliderMaxValue,
+                                                    }),
+                                                }))}
+                                              />
+                                              No max
+                                            </label>
+                                          </div>
+                                        </div>
+
+                                        <p className="text-[11px] text-muted-foreground/65">
+                                          Drag both handles like a price range. Turn a side off if this section shouldn&apos;t override that bound.
+                                        </p>
+                                      </div>
+
+                                      <div className="space-y-1.5">
+                                        <Label className="text-[11px] font-medium text-muted-foreground">
+                                          Header placement
+                                        </Label>
+                                        <div className="flex items-center gap-1">
+                                          {ALIGNMENT_OPTIONS.map(({ value, label, Icon }) => {
+                                            const active = (col.headerAlign ?? col.align ?? meta.align ?? "left") === value;
+                                            return (
+                                              <Tooltip key={`header-${value}`}>
+                                                <TooltipTrigger render={
+                                                  <Button
+                                                    type="button"
+                                                    variant={active ? "outline" : "ghost"}
+                                                    size="icon-xs"
+                                                    className={cn(active && "border-border bg-muted")}
+                                                    onClick={() => updateColumn(col.id, (column) => ({
+                                                      ...column,
+                                                      headerAlign: value,
+                                                    }))}
+                                                  >
+                                                    <Icon className="size-3" />
+                                                  </Button>
+                                                } />
+                                                <TooltipContent>{label}</TooltipContent>
+                                              </Tooltip>
+                                            );
+                                          })}
+                                          <Tooltip>
+                                            <TooltipTrigger render={
+                                              <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="icon-xs"
+                                                onClick={() => updateColumn(col.id, (column) => ({
+                                                  ...column,
+                                                  headerAlign: null,
+                                                }))}
+                                              >
+                                                <RotateCcw className="size-3" />
+                                              </Button>
+                                            } />
+                                            <TooltipContent>Use default header placement</TooltipContent>
+                                          </Tooltip>
+                                        </div>
+                                      </div>
+
+                                      <div className="space-y-1.5">
+                                        <Label className="text-[11px] font-medium text-muted-foreground">
+                                          Item placement
+                                        </Label>
+                                        <div className="flex items-center gap-1">
+                                          {ALIGNMENT_OPTIONS.map(({ value, label, Icon }) => {
+                                            const active = (col.align ?? meta.align ?? "left") === value;
+                                            return (
+                                              <Tooltip key={`items-${value}`}>
+                                                <TooltipTrigger render={
+                                                  <Button
+                                                    type="button"
+                                                    variant={active ? "outline" : "ghost"}
+                                                    size="icon-xs"
+                                                    className={cn(active && "border-border bg-muted")}
+                                                    onClick={() => updateColumn(col.id, (column) => ({
+                                                      ...column,
+                                                      align: value,
+                                                    }))}
+                                                  >
+                                                    <Icon className="size-3" />
+                                                  </Button>
+                                                } />
+                                                <TooltipContent>{label}</TooltipContent>
+                                              </Tooltip>
+                                            );
+                                          })}
+                                          <Tooltip>
+                                            <TooltipTrigger render={
+                                              <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="icon-xs"
+                                                onClick={() => updateColumn(col.id, (column) => ({
+                                                  ...column,
+                                                  align: null,
+                                                }))}
+                                              >
+                                                <RotateCcw className="size-3" />
+                                              </Button>
+                                            } />
+                                            <TooltipContent>Use default item placement</TooltipContent>
+                                          </Tooltip>
+                                        </div>
+                                      </div>
+
+                                      <div className="space-y-1.5 md:col-span-2">
+                                        <Label className="text-[11px] font-medium text-muted-foreground">
+                                          Text truncation
+                                        </Label>
+                                        <div className="flex items-center gap-2">
+                                          <Select
+                                            value={truncation}
+                                            onValueChange={(value) =>
+                                              updateColumn(col.id, (column) => ({
+                                                ...column,
+                                                truncation: value as ColumnTruncation,
+                                              }))}
+                                          >
+                                            <SelectTrigger className="h-8 w-36 text-xs">
+                                              {TRUNCATION_OPTIONS.find((option) => option.value === truncation)?.label ?? truncation}
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                              {TRUNCATION_OPTIONS.map((option) => (
+                                                <SelectItem key={option.value} value={option.value}>
+                                                  {option.label}
+                                                </SelectItem>
+                                              ))}
+                                            </SelectContent>
+                                          </Select>
+                                          <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon-xs"
+                                            onClick={() => updateColumn(col.id, (column) => ({
+                                              ...column,
+                                              truncation: null,
+                                            }))}
+                                          >
+                                            <RotateCcw className="size-3" />
+                                          </Button>
+                                        </div>
+                                        <p className="text-[11px] text-muted-foreground/65">
+                                          Controls header and item text truncation for this column.
+                                        </p>
+                                      </div>
+                                    </div>
+                                  </AccordionContent>
+                                </AccordionItem>
+                              )}
+                            </SortableColumnItem>
+                          );
+                        })}
+                      </Accordion>
+                    </SortableContext>
+                  </DndContext>
+                </TooltipProvider>
+              </div>
+            </>
+          )}
 
           {/* Badge count */}
           <div className="flex items-center gap-2">

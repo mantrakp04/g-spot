@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { Badge } from "@g-spot/ui/components/badge";
 import { Button } from "@g-spot/ui/components/button";
 import { cn } from "@g-spot/ui/lib/utils";
-import { ChevronDown, ChevronRight, ArrowUpDown, Settings } from "lucide-react";
+import { ChevronDown, ChevronRight, ArrowUpDown, RefreshCw, Settings } from "lucide-react";
 
 export type InboxSectionData = {
   id: string;
@@ -23,6 +23,8 @@ type InboxSectionProps = {
   onEdit: () => void;
   sortAsc?: boolean;
   onToggleSort?: () => void;
+  onRefresh?: () => void;
+  isRefreshing?: boolean;
 };
 
 export function InboxSection({
@@ -34,6 +36,8 @@ export function InboxSection({
   onEdit,
   sortAsc = false,
   onToggleSort,
+  onRefresh,
+  isRefreshing,
 }: InboxSectionProps) {
   const isOpen = !section.collapsed;
 
@@ -85,6 +89,15 @@ export function InboxSection({
             onClick={() => onToggleSort?.()}
           >
             <ArrowUpDown className="size-3" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="text-muted-foreground hover:text-foreground"
+            onClick={() => onRefresh?.()}
+            disabled={isRefreshing}
+          >
+            <RefreshCw className={cn("size-3", isRefreshing && "animate-spin")} />
           </Button>
           <Button
             variant="ghost"

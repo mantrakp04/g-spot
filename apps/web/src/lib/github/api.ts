@@ -12,7 +12,7 @@ export type GitHubItemType = "pr" | "issue";
 
 // ─── GraphQL Queries ────────────────────────────────────────────────────────
 
-const SEARCH_PULL_REQUESTS_QUERY = `
+const PR_QUERY_BODY = (reviewRequestFragment: string) => `
   query SearchGitHubPullRequests($searchQuery: String!, $cursor: String, $first: Int!) {
     search(query: $searchQuery, type: ISSUE, first: $first, after: $cursor) {
       nodes {
@@ -27,6 +27,9 @@ const SEARCH_PULL_REQUESTS_QUERY = `
           reviewDecision
           latestReviews(first: 10) {
             nodes { author { login avatarUrl } state }
+          }
+          reviewRequests(first: 10) {
+            nodes { requestedReviewer { ${reviewRequestFragment} } }
           }
           commits(last: 1) {
             nodes {
@@ -54,6 +57,9 @@ const SEARCH_PULL_REQUESTS_QUERY = `
               }
             }
           }
+          labels(first: 10) {
+            nodes { name color }
+          }
           additions
           deletions
           updatedAt
@@ -65,6 +71,16 @@ const SEARCH_PULL_REQUESTS_QUERY = `
   }
 `;
 
+const SEARCH_PULL_REQUESTS_QUERY_WITH_TEAMS = PR_QUERY_BODY(
+  "... on User { login avatarUrl } ... on Team { name avatarUrl }",
+);
+const SEARCH_PULL_REQUESTS_QUERY_USER_ONLY = PR_QUERY_BODY(
+  "... on User { login avatarUrl }",
+);
+
+/** Tracks whether the token lacks org scopes so we skip the Team query on subsequent calls. */
+let hasOrgAccess: boolean | null = null;
+
 const SEARCH_ISSUES_QUERY = `
   query SearchGitHubIssues($searchQuery: String!, $cursor: String, $first: Int!) {
     search(query: $searchQuery, type: ISSUE, first: $first, after: $cursor) {
@@ -75,9 +91,19 @@ const SEARCH_ISSUES_QUERY = `
           title
           url
           state
+          stateReason
           author { login avatarUrl }
           repository { nameWithOwner owner { login } name }
+          labels(first: 10) {
+            nodes { name color }
+          }
+          assignees(first: 5) {
+            nodes { login avatarUrl }
+          }
+          reactions { totalCount }
+          milestone { title }
           comments { totalCount }
+          createdAt
           updatedAt
         }
       }
@@ -101,6 +127,9 @@ type PullRequestNode = {
   latestReviews: {
     nodes: Array<{ author: { login: string; avatarUrl: string } | null; state: string }>;
   } | null;
+  reviewRequests: {
+    nodes: Array<{ requestedReviewer: { login?: string; name?: string; avatarUrl?: string } | null }>;
+  } | null;
   commits: {
     nodes: Array<{
       commit: {
@@ -116,6 +145,7 @@ type PullRequestNode = {
       };
     }>;
   } | null;
+  labels: { nodes: Array<{ name: string; color: string }> } | null;
   additions: number;
   deletions: number;
   updatedAt: string;
@@ -127,9 +157,15 @@ type IssueNode = {
   title: string;
   url: string;
   state: GitHubIssue["state"];
+  stateReason: GitHubIssue["stateReason"];
   author: { login: string; avatarUrl: string } | null;
   repository: { nameWithOwner: string; owner: { login: string }; name: string };
+  labels: { nodes: Array<{ name: string; color: string }> } | null;
+  assignees: { nodes: Array<{ login: string; avatarUrl: string }> } | null;
+  reactions: { totalCount: number };
+  milestone: { title: string } | null;
   comments: { totalCount: number };
+  createdAt: string;
   updatedAt: string;
 };
 
@@ -282,11 +318,23 @@ function mapStatusChecks(node: PullRequestNode): GitHubPullRequest["statusChecks
 
 function mapPullRequestNode(node: PullRequestNode): GitHubPullRequest {
   const statusState = node.commits?.nodes?.[0]?.commit?.statusCheckRollup?.state ?? null;
-  const reviewers =
+  const reviewed =
     node.latestReviews?.nodes
       ?.filter((r) => r.author != null)
       .map((r) => ({ login: r.author!.login, avatarUrl: r.author!.avatarUrl, state: r.state }))
     ?? [];
+  const reviewedLogins = new Set(reviewed.map((r) => r.login));
+  const requested =
+    node.reviewRequests?.nodes
+      ?.filter((r) => r.requestedReviewer != null && (r.requestedReviewer.login || r.requestedReviewer.name))
+      .map((r) => ({
+        login: r.requestedReviewer!.login ?? r.requestedReviewer!.name!,
+        avatarUrl: r.requestedReviewer!.avatarUrl ?? "",
+        state: "REQUESTED",
+      }))
+      .filter((r) => !reviewedLogins.has(r.login))
+    ?? [];
+  const reviewers = [...reviewed, ...requested];
 
   return {
     id: node.id,
@@ -303,6 +351,7 @@ function mapPullRequestNode(node: PullRequestNode): GitHubPullRequest {
     statusChecks: mapStatusChecks(node),
     additions: node.additions,
     deletions: node.deletions,
+    labels: node.labels?.nodes?.map((l) => ({ name: l.name, color: l.color })) ?? [],
     updatedAt: node.updatedAt,
   };
 }
@@ -315,9 +364,15 @@ function mapIssueNode(node: IssueNode): GitHubIssue {
     url: node.url,
     itemType: "issue",
     state: node.state,
+    stateReason: node.stateReason,
     author: mapAuthor(node.author),
     repository: mapRepository(node.repository),
+    labels: node.labels?.nodes?.map((l) => ({ name: l.name, color: l.color })) ?? [],
+    assignees: node.assignees?.nodes?.map((a) => ({ login: a.login, avatarUrl: a.avatarUrl })) ?? [],
+    reactions: node.reactions.totalCount,
+    milestone: node.milestone?.title ?? null,
     comments: node.comments.totalCount,
+    createdAt: node.createdAt,
     updatedAt: node.updatedAt,
   };
 }
@@ -337,10 +392,34 @@ export async function searchGitHubItems(
   const variables = { searchQuery, cursor: cursor ?? null, first: SEARCH_PAGE_SIZE };
 
   if (itemType === "pr") {
-    const response = await octokit.graphql<PullRequestSearchResponse>(
-      SEARCH_PULL_REQUESTS_QUERY,
-      variables,
-    );
+    let response: PullRequestSearchResponse;
+
+    if (hasOrgAccess === false) {
+      response = await octokit.graphql<PullRequestSearchResponse>(
+        SEARCH_PULL_REQUESTS_QUERY_USER_ONLY,
+        variables,
+      );
+    } else {
+      try {
+        response = await octokit.graphql<PullRequestSearchResponse>(
+          SEARCH_PULL_REQUESTS_QUERY_WITH_TEAMS,
+          variables,
+        );
+        hasOrgAccess = true;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "";
+        if (msg.includes("required scopes") || msg.includes("read:org")) {
+          hasOrgAccess = false;
+          response = await octokit.graphql<PullRequestSearchResponse>(
+            SEARCH_PULL_REQUESTS_QUERY_USER_ONLY,
+            variables,
+          );
+        } else {
+          throw err;
+        }
+      }
+    }
+
     const { nodes, pageInfo, issueCount } = response.search;
     return {
       items: nodes.map(mapPullRequestNode),

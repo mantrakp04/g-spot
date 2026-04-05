@@ -1,5 +1,6 @@
 import { StackClientApp } from "@stackframe/react";
 
+import { GITHUB_OAUTH_SCOPES } from "./github-oauth-scopes";
 import { GOOGLE_OAUTH_SCOPES } from "./google-oauth-scopes";
 
 export const stackClientApp = new StackClientApp({
@@ -9,5 +10,6 @@ export const stackClientApp = new StackClientApp({
   redirectMethod: "window",
   oauthScopesOnSignIn: {
     google: [...GOOGLE_OAUTH_SCOPES],
+    github: [...GITHUB_OAUTH_SCOPES],
   },
 });

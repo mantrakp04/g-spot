@@ -16,6 +16,7 @@ import {
   CircleDot,
   CircleX,
   Clock,
+  Eye,
   ExternalLink,
   GitPullRequest,
   Loader2,
@@ -23,15 +24,13 @@ import {
   XCircle,
 } from "lucide-react";
 
+import type { ColumnConfig } from "@g-spot/types/filters";
+import { getColumnTruncation, PR_COLUMN_META } from "@g-spot/types/filters";
 import type { GitHubPullRequest, GitHubStatusCheck } from "@/lib/github/types";
-
-function relativeTime(date: string): string {
-  const diff = Date.now() - new Date(date).getTime();
-  const days = Math.floor(diff / 86400000);
-  if (days === 0) return "today";
-  if (days === 1) return "1d";
-  return `${days}d`;
-}
+import { ColumnCell } from "./column-layout";
+import { RowPreviewPopover, GitHubPRPreview, ROW_PREVIEW_BLOCK_ATTR } from "./row-preview";
+import { relativeTime, GitHubLabels } from "./shared";
+import { TruncatedText } from "./truncated-text";
 
 // ── Check helpers ──────────────────────────────────────────────────────────
 
@@ -149,6 +148,8 @@ function reviewerIcon(state: string) {
       return <CircleX className="size-3.5 shrink-0 text-red-500" />;
     case "DISMISSED":
       return <Minus className="size-3.5 shrink-0 text-muted-foreground" />;
+    case "REQUESTED":
+      return <Eye className="size-3.5 shrink-0 text-yellow-500" />;
     default:
       return <Clock className="size-3.5 shrink-0 text-muted-foreground" />;
   }
@@ -160,6 +161,7 @@ function reviewerLabel(state: string) {
     case "CHANGES_REQUESTED": return "Changes requested";
     case "DISMISSED": return "Dismissed";
     case "COMMENTED": return "Commented";
+    case "REQUESTED": return "Review requested";
     default: return "Pending";
   }
 }
@@ -183,6 +185,7 @@ function StatusCheckPopover({ pr }: { pr: GitHubPullRequest }) {
         render={
           <button
             type="button"
+            {...{ [ROW_PREVIEW_BLOCK_ATTR]: "" }}
             className="flex items-center justify-center rounded-sm p-1 transition-colors hover:bg-muted"
             onClick={(e) => {
               e.stopPropagation();
@@ -269,6 +272,7 @@ function ReviewDecisionPopover({ pr }: { pr: GitHubPullRequest }) {
         render={
           <button
             type="button"
+            {...{ [ROW_PREVIEW_BLOCK_ATTR]: "" }}
             className="flex items-center justify-center rounded-sm p-1 transition-colors hover:bg-muted"
             onClick={(e) => {
               e.stopPropagation();
@@ -338,23 +342,86 @@ function ReviewDecisionPopover({ pr }: { pr: GitHubPullRequest }) {
   );
 }
 
-// ── Row ────────────────────────────────────────────────────────────────────
+// ── Column Cell Renderers ─────────────────────────────────────────────────
 
 const MAX_REVIEWERS = 4;
+
+function ReviewersCell({ pr }: { pr: GitHubPullRequest }) {
+  const visible = pr.reviewers.slice(0, MAX_REVIEWERS);
+  const extra = pr.reviewers.length - MAX_REVIEWERS;
+  if (visible.length === 0) return null;
+  return (
+    <AvatarGroup>
+      {visible.map((r) => (
+        <Avatar key={r.login} size="sm">
+          <AvatarImage src={r.avatarUrl} alt={r.login} />
+          <AvatarFallback>{r.login.slice(0, 2).toUpperCase()}</AvatarFallback>
+        </Avatar>
+      ))}
+      {extra > 0 && <AvatarGroupCount>+{extra}</AvatarGroupCount>}
+    </AvatarGroup>
+  );
+}
+
+export const PR_CELL_RENDERERS: Record<string, (pr: GitHubPullRequest, truncation: "end" | "middle") => React.ReactNode> = {
+  title: (pr, truncation) => (
+    <div className="flex min-w-0 items-center gap-2.5">
+      <div className="flex shrink-0 items-center gap-2">
+        <Avatar size="sm">
+          <AvatarImage src={pr.author.avatarUrl} alt={pr.author.login} />
+          <AvatarFallback>
+            {pr.author.login.slice(0, 2).toUpperCase()}
+          </AvatarFallback>
+        </Avatar>
+      </div>
+      <div className="min-w-0 flex-1">
+        <TruncatedText
+          text={pr.title}
+          mode={truncation}
+          endChars={10}
+          className="block text-sm font-medium leading-tight"
+        />
+        <p className="truncate text-xs leading-tight text-muted-foreground">
+          {pr.author.login} · {pr.repository.nameWithOwner}#{pr.number}
+        </p>
+      </div>
+    </div>
+  ),
+  reviewers: (pr) => <ReviewersCell pr={pr} />,
+  ci: (pr) => <StatusCheckPopover pr={pr} />,
+  review: (pr) => <ReviewDecisionPopover pr={pr} />,
+  labels: (pr) => <GitHubLabels labels={pr.labels} />,
+  changes: (pr) =>
+    pr.additions != null && pr.deletions != null ? (
+      <span className="whitespace-nowrap font-mono text-xs">
+        <span className="text-emerald-500">+{pr.additions}</span>{" "}
+        <span className="text-red-500">-{pr.deletions}</span>
+      </span>
+    ) : null,
+  updated: (pr) => (
+    <span className="whitespace-nowrap text-xs text-muted-foreground">
+      {relativeTime(pr.updatedAt)}
+    </span>
+  ),
+};
+
+// ── Row ────────────────────────────────────────────────────────────────────
 
 export function GitHubPRRow({
   pr,
   isUnread,
   onMarkRead,
+  columns,
 }: {
   pr: GitHubPullRequest;
   isUnread?: boolean;
   onMarkRead?: (id: string) => void;
+  columns: ColumnConfig[];
 }) {
-  const visibleReviewers = pr.reviewers.slice(0, MAX_REVIEWERS);
-  const extraCount = pr.reviewers.length - MAX_REVIEWERS;
+  const visibleColumns = columns.filter((c) => c.visible);
 
   return (
+    <RowPreviewPopover preview={<GitHubPRPreview pr={pr} />}>
     <TableRow
       className="group cursor-pointer"
       onClick={() => {
@@ -362,90 +429,30 @@ export function GitHubPRRow({
         window.open(pr.url, "_blank", "noopener");
       }}
     >
-      {/* Unread indicator + Avatar + Title */}
-      <TableCell className="w-full max-w-0 pl-3">
-        <div className="flex items-center gap-2.5">
-          <div className="flex shrink-0 items-center gap-2">
-            {isUnread ? (
-              <span className="size-1.5 shrink-0 rounded-full bg-blue-500" />
-            ) : (
-              <span className="size-1.5 shrink-0 rounded-full bg-transparent" />
-            )}
-            <Avatar size="sm">
-              <AvatarImage src={pr.author.avatarUrl} alt={pr.author.login} />
-              <AvatarFallback>
-                {pr.author.login.slice(0, 2).toUpperCase()}
-              </AvatarFallback>
-            </Avatar>
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <p className="truncate text-sm font-medium leading-tight">
-                {pr.title}
-              </p>
-            </div>
-            <p className="truncate text-xs leading-tight text-muted-foreground">
-              {pr.author.login} &middot;{" "}
-              {pr.repository.nameWithOwner}#{pr.number}
-            </p>
-          </div>
-        </div>
-      </TableCell>
-
-      {/* Reviewer avatars */}
-      <TableCell className="hidden md:table-cell">
-        {visibleReviewers.length > 0 && (
-          <AvatarGroup>
-            {visibleReviewers.map((r) => (
-              <Avatar key={r.login} size="sm">
-                <AvatarImage src={r.avatarUrl} alt={r.login} />
-                <AvatarFallback>
-                  {r.login.slice(0, 2).toUpperCase()}
-                </AvatarFallback>
-              </Avatar>
-            ))}
-            {extraCount > 0 && (
-              <AvatarGroupCount>+{extraCount}</AvatarGroupCount>
-            )}
-          </AvatarGroup>
-        )}
-      </TableCell>
-
-      {/* CI status */}
-      <TableCell className="hidden sm:table-cell">
-        <div className="flex items-center justify-center">
-          <StatusCheckPopover pr={pr} />
-        </div>
-      </TableCell>
-
-      {/* Review decision */}
-      <TableCell className="hidden sm:table-cell">
-        <div className="flex items-center justify-center">
-          <ReviewDecisionPopover pr={pr} />
-        </div>
-      </TableCell>
-
-      {/* Changes */}
-      <TableCell className="hidden lg:table-cell">
-        {pr.additions != null && pr.deletions != null && (
-          <span className="font-mono text-xs">
-            <span className="text-emerald-500">+{pr.additions}</span>{" "}
-            <span className="text-red-500">-{pr.deletions}</span>
-          </span>
-        )}
-      </TableCell>
-
-      {/* Updated */}
-      <TableCell className="pr-3 text-right">
-        <span className="text-xs text-muted-foreground">
-          {relativeTime(pr.updatedAt)}
-        </span>
-      </TableCell>
+      {visibleColumns.map((col) => {
+        const render = PR_CELL_RENDERERS[col.id];
+        const meta = PR_COLUMN_META[col.id as keyof typeof PR_COLUMN_META];
+        if (!render || !meta) return null;
+        return (
+          <ColumnCell key={col.id} meta={meta} column={col} className={col.id === "title" ? "pl-3" : undefined}>
+            <>
+              {col.id === "title" && isUnread ? (
+                <span className="size-1.5 shrink-0 rounded-full bg-blue-500" />
+              ) : null}
+              {col.id === "title" && !isUnread ? (
+                <span className="size-1.5 shrink-0 rounded-full bg-transparent" />
+              ) : null}
+              {render(pr, getColumnTruncation(meta, col))}
+            </>
+          </ColumnCell>
+        );
+      })}
 
       {/* External link indicator on hover */}
       <TableCell className="w-8 pr-3">
         <ExternalLink className="size-3 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
       </TableCell>
     </TableRow>
+    </RowPreviewPopover>
   );
 }

@@ -33,10 +33,25 @@ type GmailLabel = {
   id: string;
   name: string;
   type: "system" | "user";
+  color?: {
+    textColor?: string;
+    backgroundColor?: string;
+  };
 };
 
 type GmailLabelsResponse = {
   labels: GmailLabel[];
+};
+
+export type GmailLabelCatalogEntry = {
+  id: string;
+  name: string;
+  type: "system" | "user";
+  label: string;
+  color?: {
+    textColor?: string;
+    backgroundColor?: string;
+  };
 };
 
 export type FilterSuggestionOption = {
@@ -69,22 +84,39 @@ type GmailSuggestionPayloadPart = {
   filename?: string;
 };
 
+async function fetchGmailLabelCatalog(account: OAuthConnection): Promise<GmailLabelCatalogEntry[]> {
+  const token = await getOAuthToken(account);
+  const res = await fetch(`${GMAIL_API}/labels`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    throw new Error(`Gmail API error: ${res.status} ${res.statusText}`);
+  }
+
+  const data: GmailLabelsResponse = await res.json();
+
+  return data.labels
+    .map((label) => ({
+      id: label.id,
+      name: label.name,
+      type: label.type,
+      label:
+        label.type === "system"
+          ? (SYSTEM_LABEL_DISPLAY[label.id] ?? label.name)
+          : label.name,
+      color: label.color,
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
+
 export function useGmailLabels(account: OAuthConnection | null) {
   return useQuery({
     queryKey: gmailKeys.labels(account?.providerAccountId),
     queryFn: async () => {
-      const token = await getOAuthToken(account!);
-      const res = await fetch(`${GMAIL_API}/labels`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) {
-        throw new Error(`Gmail API error: ${res.status} ${res.statusText}`);
-      }
-      const data: GmailLabelsResponse = await res.json();
-
+      const catalog = await fetchGmailLabelCatalog(account!);
       const includedSystemSet = new Set<string>(INCLUDED_SYSTEM_LABELS);
 
-      return data.labels
+      return catalog
         .filter(
           (label) =>
             label.type === "user" ||
@@ -92,13 +124,18 @@ export function useGmailLabels(account: OAuthConnection | null) {
         )
         .map((label) => ({
           value: label.name,
-          label:
-            label.type === "system"
-              ? (SYSTEM_LABEL_DISPLAY[label.id] ?? label.name)
-              : label.name,
-        }))
-        .sort((a, b) => a.label.localeCompare(b.label));
+          label: label.label,
+        }));
     },
+    enabled: !!account,
+    ...persistedStaleWhileRevalidateQueryOptions,
+  });
+}
+
+export function useGmailLabelCatalog(account: OAuthConnection | null) {
+  return useQuery({
+    queryKey: gmailKeys.labelsCatalog(account?.providerAccountId),
+    queryFn: () => fetchGmailLabelCatalog(account!),
     enabled: !!account,
     ...persistedStaleWhileRevalidateQueryOptions,
   });

@@ -10,6 +10,7 @@ export const sections = sqliteTable(
     source: text("source", { enum: ["github_pr", "github_issue", "gmail"] }).notNull(),
     filters: text("filters").notNull().default("[]"),
     repos: text("repos").notNull().default("[]"),
+    columns: text("columns").notNull().default("[]"),
     accountId: text("account_id"),
     position: integer("position").notNull(),
     showBadge: integer("show_badge", { mode: "boolean" }).notNull().default(true),

@@ -4,6 +4,17 @@ import { nanoid } from "nanoid";
 import { db } from "./index";
 import { sections } from "./schema";
 
+type PersistedColumnConfig = {
+  id: string;
+  visible: boolean;
+  width: number | null;
+  label?: string | null;
+  headerAlign?: "left" | "center" | "right" | null;
+  align?: "left" | "center" | "right" | null;
+};
+
+type SectionSource = "github_pr" | "github_issue" | "gmail";
+
 export async function listSections(userId: string) {
   return db
     .select()
@@ -16,11 +27,12 @@ export async function createSection(
   userId: string,
   input: {
     name: string;
-    source: "github_pr" | "github_issue" | "gmail";
+    source: SectionSource;
     filters: Array<{ field: string; operator: string; value: string; logic?: string }>;
     showBadge: boolean;
     repos: string[];
     accountId: string | null;
+    columns?: PersistedColumnConfig[];
   },
 ) {
   const [maxRow] = await db
@@ -41,6 +53,7 @@ export async function createSection(
       source: input.source,
       filters: JSON.stringify(input.filters),
       repos: JSON.stringify(input.repos),
+      columns: JSON.stringify(input.columns ?? []),
       accountId: input.accountId,
       position,
       showBadge: input.showBadge,
@@ -64,9 +77,10 @@ export async function updateSection(
     collapsed?: boolean;
     repos?: string[];
     accountId?: string | null;
+    columns?: PersistedColumnConfig[];
   },
 ) {
-  const { id, filters, repos, accountId, ...rest } = input;
+  const { id, filters, repos, accountId, columns, ...rest } = input;
   const values: Record<string, unknown> = {};
 
   if (rest.name !== undefined) values.name = rest.name;
@@ -75,6 +89,7 @@ export async function updateSection(
   if (filters !== undefined) values.filters = JSON.stringify(filters);
   if (repos !== undefined) values.repos = JSON.stringify(repos);
   if (accountId !== undefined) values.accountId = accountId;
+  if (columns !== undefined) values.columns = JSON.stringify(columns);
   values.updatedAt = new Date().toISOString();
 
   await db

@@ -1,12 +1,26 @@
 import { useRef, useEffect, useCallback, useMemo, useState } from "react";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@g-spot/ui/components/alert-dialog";
 import { Badge } from "@g-spot/ui/components/badge";
 import { Button } from "@g-spot/ui/components/button";
+import { Checkbox } from "@g-spot/ui/components/checkbox";
 import { Separator } from "@g-spot/ui/components/separator";
 import { Skeleton } from "@g-spot/ui/components/skeleton";
 import type { OAuthConnection } from "@stackframe/react";
 import {
   Archive,
+  ChevronDown,
+  ChevronUp,
+  ExternalLink,
   Forward,
   Loader2,
   Mail,
@@ -23,6 +37,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@g-spot/ui/components/tooltip";
+import { useLinkWarningDismissed } from "@/hooks/use-link-warning";
 import {
   useGmailComposeDraft,
   useGmailThreadActions,
@@ -123,6 +138,11 @@ function filterOutEmail(addresses: string, exclude: string): string {
 
 function MessageBody({ html, text }: { html: string | null; text: string | null }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [pendingUrl, setPendingUrl] = useState<string | null>(null);
+  const [dontShowAgain, setDontShowAgain] = useState(false);
+  const { dismissed, dismiss } = useLinkWarningDismissed();
+  const dismissedRef = useRef(dismissed);
+  dismissedRef.current = dismissed;
 
   useEffect(() => {
     if (!html || !iframeRef.current) return;
@@ -161,7 +181,7 @@ function MessageBody({ html, text }: { html: string | null; text: string | null 
             text-rendering: optimizeLegibility;
           }
           img { max-width: 100%; height: auto; }
-          a { color: var(--primary); }
+          a { color: var(--primary); cursor: pointer; }
           blockquote {
             margin: 8px 0;
             padding-left: 12px;
@@ -212,6 +232,23 @@ function MessageBody({ html, text }: { html: string | null; text: string | null 
       }
     }
 
+    // Intercept link clicks — open in new tab with optional warning
+    const handleLinkClick = (e: MouseEvent) => {
+      const anchor = (e.target as HTMLElement).closest?.("a");
+      if (!anchor) return;
+      const href = anchor.getAttribute("href");
+      if (!href || href.startsWith("#") || href.startsWith("mailto:")) return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      if (dismissedRef.current) {
+        window.open(href, "_blank", "noopener,noreferrer");
+      } else {
+        setPendingUrl(href);
+      }
+    };
+    doc.addEventListener("click", handleLinkClick);
+
     // Auto-resize iframe to content height
     const resize = () => {
       if (iframeRef.current && doc.body && doc.documentElement) {
@@ -228,32 +265,76 @@ function MessageBody({ html, text }: { html: string | null; text: string | null 
     // Re-check after images load
     const observer = new MutationObserver(resize);
     observer.observe(doc.body, { childList: true, subtree: true });
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      doc.removeEventListener("click", handleLinkClick);
+    };
   }, [html]);
 
-  if (html) {
-    return (
-      <iframe
-        ref={iframeRef}
-        title="Email content"
-        className="block w-full overflow-hidden border-0 bg-transparent"
-        sandbox="allow-same-origin"
-        scrolling="no"
-        style={{ minHeight: 100 }}
-      />
-    );
-  }
+  const openPendingUrl = () => {
+    if (dontShowAgain) dismiss();
+    if (pendingUrl) window.open(pendingUrl, "_blank", "noopener,noreferrer");
+    setPendingUrl(null);
+    setDontShowAgain(false);
+  };
 
-  if (text) {
-    return (
-      <pre className="whitespace-pre-wrap text-sm text-foreground font-sans leading-relaxed">
-        {text}
-      </pre>
-    );
-  }
+  const cancelPendingUrl = () => {
+    setPendingUrl(null);
+    setDontShowAgain(false);
+  };
+
+  const body = html ? (
+    <iframe
+      ref={iframeRef}
+      title="Email content"
+      className="block w-full overflow-hidden border-0 bg-transparent"
+      sandbox="allow-same-origin"
+      scrolling="no"
+      style={{ minHeight: 100 }}
+    />
+  ) : text ? (
+    <pre className="whitespace-pre-wrap text-sm text-foreground font-sans leading-relaxed">
+      {text}
+    </pre>
+  ) : (
+    <p className="text-sm text-muted-foreground italic">No content available</p>
+  );
 
   return (
-    <p className="text-sm text-muted-foreground italic">No content available</p>
+    <>
+      {body}
+      <AlertDialog open={!!pendingUrl} onOpenChange={(open) => { if (!open) cancelPendingUrl(); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Opening external link</AlertDialogTitle>
+            <AlertDialogDescription>
+              You are about to leave and open an external link in a new tab:
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="flex items-center gap-2 rounded-md border bg-muted/50 px-3 py-2">
+            <ExternalLink className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 break-all text-xs font-mono text-foreground">
+              {pendingUrl}
+            </span>
+          </div>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <Checkbox
+              checked={dontShowAgain}
+              onCheckedChange={(checked) => setDontShowAgain(checked === true)}
+            />
+            <span className="text-xs text-muted-foreground select-none">
+              Don't show this warning again
+            </span>
+          </label>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={cancelPendingUrl}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={openPendingUrl}>
+              Open link
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 
@@ -295,6 +376,10 @@ type GmailThreadDetailProps = {
   isLoading: boolean;
   googleAccount: OAuthConnection | null;
   onClose: () => void;
+  hasPrev?: boolean;
+  hasNext?: boolean;
+  onPrev?: () => void;
+  onNext?: () => void;
 };
 
 export function GmailThreadDetail({
@@ -303,6 +388,10 @@ export function GmailThreadDetail({
   isLoading,
   googleAccount,
   onClose,
+  hasPrev,
+  hasNext,
+  onPrev,
+  onNext,
 }: GmailThreadDetailProps) {
   const draftsCtx = useDrafts();
   const composeAnchorRef = useRef<HTMLDivElement>(null);
@@ -621,6 +710,33 @@ export function GmailThreadDetail({
                 </Button>
               } />
               <TooltipContent>Forward</TooltipContent>
+            </Tooltip>
+            <Separator orientation="vertical" className="mx-1 h-5" />
+            <Tooltip>
+              <TooltipTrigger render={
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  disabled={!hasPrev}
+                  onClick={onPrev}
+                >
+                  <ChevronUp className="size-4" />
+                </Button>
+              } />
+              <TooltipContent>Newer</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger render={
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  disabled={!hasNext}
+                  onClick={onNext}
+                >
+                  <ChevronDown className="size-4" />
+                </Button>
+              } />
+              <TooltipContent>Older</TooltipContent>
             </Tooltip>
             <Separator orientation="vertical" className="mx-1 h-5" />
             <Tooltip>

@@ -3,6 +3,7 @@ import type { OAuthConnection } from "@stackframe/react";
 import type { FilterCondition } from "@g-spot/types/filters";
 import type { GmailThreadPage } from "@/lib/gmail/types";
 import { searchGmailThreads } from "@/lib/gmail/api";
+import { getOAuthToken } from "@/lib/oauth";
 import { gmailKeys } from "@/lib/query-keys";
 import { persistedStaleWhileRevalidateQueryOptions } from "@/utils/query-defaults";
 
@@ -17,15 +18,8 @@ export function useGmailThreads(
       filters,
     }),
     queryFn: async ({ pageParam }): Promise<GmailThreadPage> => {
-      const tokenResult = await account!.getAccessToken();
-      if (tokenResult.status === "error") {
-        throw new Error("Failed to get Gmail access token");
-      }
-      return searchGmailThreads(
-        tokenResult.data.accessToken,
-        filters,
-        pageParam,
-      );
+      const token = await getOAuthToken(account!);
+      return searchGmailThreads(token, filters, pageParam);
     },
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.nextPageToken,

@@ -59,12 +59,24 @@ export type GitHubPullRequest = GitHubItemBase & {
   statusChecks: GitHubStatusCheck[];
   additions: number;
   deletions: number;
+  labels: GitHubLabel[];
+};
+
+export type GitHubLabel = {
+  name: string;
+  color: string;
 };
 
 export type GitHubIssue = GitHubItemBase & {
   itemType: "issue";
   state: "OPEN" | "CLOSED";
+  stateReason: "COMPLETED" | "NOT_PLANNED" | "REOPENED" | null;
   comments: number;
+  labels: GitHubLabel[];
+  assignees: GitHubActor[];
+  reactions: number;
+  milestone: string | null;
+  createdAt: string;
 };
 
 export type GitHubPullRequestPage = {

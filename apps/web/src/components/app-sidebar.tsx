@@ -61,7 +61,7 @@ function SortableSectionItem({
       style={style}
       href={`#section-${section.id}`}
       className={cn(
-        "group flex items-center justify-between gap-1 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-sidebar-accent",
+        "group flex min-w-0 items-center gap-1 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-sidebar-accent",
         isDragging && "z-50 opacity-50",
       )}
       {...attributes}
@@ -74,7 +74,11 @@ function SortableSectionItem({
       >
         <GripVertical className="size-3" />
       </button>
-      <span className="min-w-0 flex-1 truncate">{section.name}</span>
+      <div className="min-w-0 flex-1">
+        <span className="block w-full min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+          {section.name}
+        </span>
+      </div>
       {section.showBadge && count !== undefined && (
         <Badge
           variant="secondary"

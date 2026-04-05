@@ -3,6 +3,7 @@ import type { OAuthConnection } from "@stackframe/react";
 import type { FilterCondition } from "@g-spot/types/filters";
 import type { GitHubItemPage } from "@/lib/github/types";
 import { searchGitHubItems } from "@/lib/github/api";
+import { getOAuthToken } from "@/lib/oauth";
 import { githubKeys } from "@/lib/query-keys";
 import { persistedStaleWhileRevalidateQueryOptions } from "@/utils/query-defaults";
 
@@ -29,13 +30,10 @@ export function useGitHubItems(
       sortAsc: sortAsc ?? false,
     }),
     queryFn: async ({ pageParam }): Promise<GitHubItemPage> => {
-      const tokenResult = await account!.getAccessToken();
-      if (tokenResult.status === "error") {
-        throw new Error("Failed to get GitHub access token");
-      }
+      const token = await getOAuthToken(account!);
       return searchGitHubItems(
         itemType,
-        tokenResult.data.accessToken,
+        token,
         filters,
         pageParam,
         repos,

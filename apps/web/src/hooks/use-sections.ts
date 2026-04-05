@@ -37,6 +37,12 @@ function invalidateSectionDerivedData(
   ]);
 }
 
+function affectsSectionDerivedData(input: UpdateSectionInput) {
+  return input.filters !== undefined
+    || input.repos !== undefined
+    || input.accountId !== undefined;
+}
+
 function patchSectionList(
   sections: SectionRecord[] | undefined,
   input: UpdateSectionInput,
@@ -59,6 +65,7 @@ function patchSectionList(
             : {}),
           ...(input.repos !== undefined ? { repos: JSON.stringify(input.repos) } : {}),
           ...(input.accountId !== undefined ? { accountId: input.accountId } : {}),
+          ...(input.columns !== undefined ? { columns: JSON.stringify(input.columns) } : {}),
         }
       : section,
   );
@@ -111,8 +118,8 @@ export function useCreateSectionMutation() {
   return useMutation({
     mutationFn: (input: CreateSectionInput) =>
       trpcClient.sections.create.mutate(input),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
         queryKey: sectionsKeys.list(),
         exact: true,
       });
@@ -148,14 +155,15 @@ export function useUpdateSectionMutation() {
         queryClient.setQueryData(sectionsKeys.list(), context.previousSections);
       }
     },
-    onSuccess: async (_data, variables) => {
-      await Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: sectionsKeys.list(),
-          exact: true,
-        }),
-        invalidateSectionDerivedData(queryClient, variables.id),
-      ]);
+    onSuccess: (_data, variables) => {
+      void queryClient.invalidateQueries({
+        queryKey: sectionsKeys.list(),
+        exact: true,
+      });
+
+      if (affectsSectionDerivedData(variables)) {
+        void invalidateSectionDerivedData(queryClient, variables.id);
+      }
     },
   });
 }
@@ -165,12 +173,12 @@ export function useDeleteSectionMutation() {
 
   return useMutation({
     mutationFn: (id: string) => trpcClient.sections.delete.mutate({ id }),
-    onSuccess: async (_data, id) => {
+    onSuccess: (_data, id) => {
       queryClient.removeQueries({ queryKey: githubKeys.prsSection(id) });
       queryClient.removeQueries({ queryKey: githubKeys.issuesSection(id) });
       queryClient.removeQueries({ queryKey: gmailKeys.threadsSection(id) });
 
-      await queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: sectionsKeys.list(),
         exact: true,
       });

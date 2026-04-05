@@ -72,8 +72,8 @@ export function ComposeForm({
   return (
     <div className="flex flex-col gap-2">
       {/* To */}
-      <div className="flex items-center gap-2">
-        <span className="w-12 shrink-0 text-xs text-muted-foreground">To</span>
+      <div className="flex items-start gap-2">
+        <span className="mt-1.5 w-12 shrink-0 text-xs text-muted-foreground">To</span>
         <RecipientInput
           value={form.to}
           onChange={(v) => onUpdateField("to", v)}
@@ -94,8 +94,8 @@ export function ComposeForm({
 
       {/* Cc */}
       {showCcBcc && (
-        <div className="flex items-center gap-2">
-          <span className="w-12 shrink-0 text-xs text-muted-foreground">Cc</span>
+        <div className="flex items-start gap-2">
+          <span className="mt-1.5 w-12 shrink-0 text-xs text-muted-foreground">Cc</span>
           <RecipientInput
             value={form.cc}
             onChange={(v) => onUpdateField("cc", v)}
@@ -107,8 +107,8 @@ export function ComposeForm({
 
       {/* Bcc */}
       {showCcBcc && (
-        <div className="flex items-center gap-2">
-          <span className="w-12 shrink-0 text-xs text-muted-foreground">Bcc</span>
+        <div className="flex items-start gap-2">
+          <span className="mt-1.5 w-12 shrink-0 text-xs text-muted-foreground">Bcc</span>
           <RecipientInput
             value={form.bcc}
             onChange={(v) => onUpdateField("bcc", v)}

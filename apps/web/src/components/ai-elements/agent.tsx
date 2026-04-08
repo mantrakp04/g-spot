@@ -8,11 +8,11 @@ import {
 } from "@g-spot/ui/components/accordion";
 import { Badge } from "@g-spot/ui/components/badge";
 import { cn } from "@g-spot/ui/lib/utils";
-import type { Tool } from "ai";
 import { BotIcon } from "lucide-react";
 import type { ComponentProps } from "react";
 import { memo } from "react";
 
+import type { Tool } from "@/lib/chat-ui";
 import { CodeBlock } from "./code-block";
 
 export type AgentProps = ComponentProps<"div">;

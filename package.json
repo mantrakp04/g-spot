@@ -25,6 +25,12 @@
       "tailwindcss": "^4.1.18"
     }
   },
+  "overrides": {
+    "@mariozechner/pi-agent-core": "file:/tmp/pi-mono/packages/agent",
+    "@mariozechner/pi-ai": "file:/tmp/pi-mono/packages/ai",
+    "@mariozechner/pi-coding-agent": "file:/tmp/pi-mono/packages/coding-agent",
+    "@mariozechner/pi-tui": "file:/tmp/pi-mono/packages/tui"
+  },
   "type": "module",
   "scripts": {
     "dev": "turbo dev",
@@ -43,6 +49,10 @@
   },
   "dependencies": {
     "@g-spot/env": "workspace:*",
+    "@mariozechner/pi-agent-core": "file:/tmp/pi-mono/packages/agent",
+    "@mariozechner/pi-ai": "file:/tmp/pi-mono/packages/ai",
+    "@mariozechner/pi-coding-agent": "file:/tmp/pi-mono/packages/coding-agent",
+    "@mariozechner/pi-tui": "file:/tmp/pi-mono/packages/tui",
     "dotenv": "catalog:",
     "jose": "^6.2.2",
     "zod": "catalog:"

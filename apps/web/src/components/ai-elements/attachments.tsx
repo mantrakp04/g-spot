@@ -7,7 +7,6 @@ import {
   HoverCardTrigger,
 } from "@g-spot/ui/components/hover-card";
 import { cn } from "@g-spot/ui/lib/utils";
-import type { FileUIPart, SourceDocumentUIPart } from "ai";
 import {
   FileTextIcon,
   GlobeIcon,
@@ -19,6 +18,8 @@ import {
 } from "lucide-react";
 import type { ComponentProps, HTMLAttributes, ReactNode } from "react";
 import { createContext, useCallback, useContext, useMemo } from "react";
+
+import type { FileUIPart, SourceDocumentUIPart } from "@/lib/chat-ui";
 
 // ============================================================================
 // Types

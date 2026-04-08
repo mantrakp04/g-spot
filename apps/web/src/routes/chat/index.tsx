@@ -1,10 +1,13 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { ChatView } from "@/components/chat/chat-view";
+import { createFileRoute, Navigate } from "@tanstack/react-router";
 
+/**
+ * Legacy `/chat` route — kept for one release as a redirect to `/projects`,
+ * which is now the canonical entry point for chats.
+ */
 export const Route = createFileRoute("/chat/")({
-  component: ChatIndexPage,
+  component: LegacyChatIndexRedirect,
 });
 
-function ChatIndexPage() {
-  return <ChatView />;
+function LegacyChatIndexRedirect() {
+  return <Navigate to="/projects" replace />;
 }

@@ -40,7 +40,6 @@ import {
   TooltipTrigger,
 } from "@g-spot/ui/components/tooltip";
 import { cn } from "@g-spot/ui/lib/utils";
-import type { ChatStatus, FileUIPart, SourceDocumentUIPart } from "ai";
 import {
   CornerDownLeftIcon,
   ImageIcon,
@@ -73,6 +72,8 @@ import {
   useRef,
   useState,
 } from "react";
+
+import type { ChatStatus, FileUIPart, SourceDocumentUIPart } from "@/lib/chat-ui";
 
 // ============================================================================
 // Helpers

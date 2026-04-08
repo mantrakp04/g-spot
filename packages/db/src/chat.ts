@@ -10,23 +10,58 @@ type ChatListCursor = {
 };
 
 type CreateChatInput = {
+  projectId: string;
   title?: string;
   model?: string;
-  initialMessage?: {
-    id: string;
-    message: string;
-  };
+  agentConfig?: string;
 };
+
+function getFallbackSerializedAgentConfig(model: string) {
+  return JSON.stringify({
+    modelId: model,
+    thinkingLevel: "off",
+  });
+}
+
+function timestampSortValue(value: string | typeof chats.updatedAt | typeof chatMessages.createdAt) {
+  return sql<number>`coalesce(cast((julianday(${value}) - 2440587.5) * 86400000 as integer), 0)`;
+}
+
+function extractSerializedMessageCreatedAt(
+  serializedMessage: string,
+  fallback: string,
+) {
+  try {
+    const parsed = JSON.parse(serializedMessage) as { createdAt?: unknown };
+
+    if (typeof parsed.createdAt !== "string") {
+      return fallback;
+    }
+
+    const parsedTime = Date.parse(parsed.createdAt);
+    return Number.isNaN(parsedTime) ? fallback : new Date(parsedTime).toISOString();
+  } catch {
+    return fallback;
+  }
+}
 
 export async function listChats(
   userId: string,
-  input?: {
+  input: {
+    projectId: string;
     cursor?: ChatListCursor | null;
     limit?: number;
   },
 ) {
-  const limit = Math.min(Math.max(input?.limit ?? 20, 1), 100);
-  const cursor = input?.cursor ?? null;
+  const limit = Math.min(Math.max(input.limit ?? 20, 1), 100);
+  const cursor = input.cursor ?? null;
+  const updatedAtSortValue = timestampSortValue(chats.updatedAt);
+  const cursorUpdatedAtSortValue = cursor ? timestampSortValue(cursor.updatedAt) : null;
+
+  const scopeFilter = and(
+    eq(chats.userId, userId),
+    eq(chats.projectId, input.projectId),
+  );
 
   const rows = await db
     .select()
@@ -34,15 +69,18 @@ export async function listChats(
     .where(
       cursor
         ? and(
-            eq(chats.userId, userId),
+            scopeFilter,
             or(
-              lt(chats.updatedAt, cursor.updatedAt),
-              and(eq(chats.updatedAt, cursor.updatedAt), lt(chats.id, cursor.id)),
+              sql`${updatedAtSortValue} < ${cursorUpdatedAtSortValue}`,
+              and(
+                sql`${updatedAtSortValue} = ${cursorUpdatedAtSortValue}`,
+                lt(chats.id, cursor.id),
+              ),
             ),
           )
-        : eq(chats.userId, userId),
+        : scopeFilter,
     )
-    .orderBy(desc(chats.updatedAt), desc(chats.id))
+    .orderBy(desc(updatedAtSortValue), desc(chats.id))
     .limit(limit + 1);
 
   const page = rows.slice(0, limit);
@@ -68,27 +106,20 @@ export async function getChat(userId: string, chatId: string) {
   return chat ?? null;
 }
 
-export async function createChat(userId: string, input?: CreateChatInput) {
+export async function createChat(userId: string, input: CreateChatInput) {
   const id = nanoid();
   const now = new Date().toISOString();
-  await db.transaction(async (tx) => {
-    await tx.insert(chats).values({
-      id,
-      userId,
-      title: input?.title ?? "New Chat",
-      model: input?.model ?? "gpt-5.4-mini",
-      createdAt: now,
-      updatedAt: now,
-    });
+  const model = input.model ?? "gpt-5.4-mini";
 
-    if (input?.initialMessage) {
-      await tx.insert(chatMessages).values({
-        id: input.initialMessage.id,
-        chatId: id,
-        message: input.initialMessage.message,
-        createdAt: now,
-      });
-    }
+  await db.insert(chats).values({
+    id,
+    userId,
+    projectId: input.projectId,
+    title: input.title ?? "New Chat",
+    model,
+    agentConfig: input.agentConfig ?? getFallbackSerializedAgentConfig(model),
+    createdAt: now,
+    updatedAt: now,
   });
 
   return { id };
@@ -116,6 +147,22 @@ export async function updateChatModel(
     .where(and(eq(chats.id, chatId), eq(chats.userId, userId)));
 }
 
+export async function updateChatAgentConfig(
+  userId: string,
+  chatId: string,
+  agentConfig: string,
+  model: string,
+) {
+  await db
+    .update(chats)
+    .set({
+      model,
+      agentConfig,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(and(eq(chats.id, chatId), eq(chats.userId, userId)));
+}
+
 export async function deleteChat(userId: string, chatId: string) {
   await db
     .delete(chats)
@@ -127,21 +174,49 @@ export async function getChatMessages(chatId: string) {
     .select()
     .from(chatMessages)
     .where(eq(chatMessages.chatId, chatId))
-    .orderBy(chatMessages.createdAt, sql`rowid`);
+    .orderBy(timestampSortValue(chatMessages.createdAt), sql`rowid`);
+}
+
+export async function getLatestUserChatMessageId(chatId: string) {
+  const rows = await db
+    .select({
+      id: chatMessages.id,
+      message: chatMessages.message,
+    })
+    .from(chatMessages)
+    .where(eq(chatMessages.chatId, chatId))
+    .orderBy(desc(timestampSortValue(chatMessages.createdAt)), desc(sql`rowid`))
+    .limit(8);
+
+  for (const row of rows) {
+    try {
+      const parsedMessage = JSON.parse(row.message) as { role?: unknown };
+      if (parsedMessage.role === "user") {
+        return row.id;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
 }
 
 export async function saveChatMessage(
   chatId: string,
   message: { id: string; message: string },
 ) {
+  const now = new Date().toISOString();
+
   await db.insert(chatMessages).values({
     id: message.id,
     chatId,
     message: message.message,
+    createdAt: extractSerializedMessageCreatedAt(message.message, now),
   });
   await db
     .update(chats)
-    .set({ updatedAt: new Date().toISOString() })
+    .set({ updatedAt: now })
     .where(eq(chats.id, chatId));
 }
 
@@ -150,6 +225,8 @@ export async function replaceChatMessages(
   messages: Array<{ id: string; message: string }>,
 ) {
   await db.transaction(async (tx) => {
+    const now = new Date().toISOString();
+
     await tx.delete(chatMessages).where(eq(chatMessages.chatId, chatId));
 
     if (messages.length > 0) {
@@ -158,21 +235,24 @@ export async function replaceChatMessages(
           id: message.id,
           chatId,
           message: message.message,
+          createdAt: extractSerializedMessageCreatedAt(message.message, now),
         })),
       );
     }
 
     await tx
       .update(chats)
-      .set({ updatedAt: new Date().toISOString() })
+      .set({ updatedAt: now })
       .where(eq(chats.id, chatId));
   });
 }
 
 export async function forkChat(
   userId: string,
+  projectId: string,
   title: string | undefined,
   model: string | undefined,
+  agentConfig: string | undefined,
   messages: Array<{ id: string; message: string }>,
 ) {
   const id = nanoid();
@@ -180,14 +260,16 @@ export async function forkChat(
   const forkedMessages = messages.map((message) => {
     const nextMessageId = nanoid();
     const parsedMessage = JSON.parse(message.message) as { id?: string };
+    const nextSerializedMessage = JSON.stringify({
+      ...parsedMessage,
+      id: nextMessageId,
+    });
 
     return {
       id: nextMessageId,
       chatId: id,
-      message: JSON.stringify({
-        ...parsedMessage,
-        id: nextMessageId,
-      }),
+      message: nextSerializedMessage,
+      createdAt: extractSerializedMessageCreatedAt(nextSerializedMessage, now),
     };
   });
 
@@ -195,8 +277,10 @@ export async function forkChat(
     await tx.insert(chats).values({
       id,
       userId,
+      projectId,
       title: title ?? "New Chat",
       model: model ?? "gpt-5.4-mini",
+      agentConfig: agentConfig ?? getFallbackSerializedAgentConfig(model ?? "gpt-5.4-mini"),
       createdAt: now,
       updatedAt: now,
     });

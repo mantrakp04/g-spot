@@ -1,4 +1,3 @@
-import { ChatPreferences } from "@/components/chat/chat-preferences";
 import { createFileRoute } from "@tanstack/react-router";
 
 import { ConnectedAccounts } from "@/components/connected-accounts";
@@ -18,7 +17,6 @@ function ConnectionsPage() {
         </p>
       </header>
       <ConnectedAccounts />
-      <ChatPreferences />
     </div>
   );
 }

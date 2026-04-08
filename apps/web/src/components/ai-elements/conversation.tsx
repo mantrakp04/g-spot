@@ -2,11 +2,12 @@
 
 import { Button } from "@g-spot/ui/components/button";
 import { cn } from "@g-spot/ui/lib/utils";
-import type { UIMessage } from "ai";
 import { ArrowDownIcon, DownloadIcon } from "lucide-react";
 import type { ComponentProps } from "react";
 import { useCallback } from "react";
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
+
+import type { UIMessage } from "@/lib/chat-ui";
 
 export type ConversationProps = ComponentProps<typeof StickToBottom>;
 

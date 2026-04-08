@@ -1,22 +1,27 @@
 import { Badge } from "@g-spot/ui/components/badge";
 import { Button } from "@g-spot/ui/components/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@g-spot/ui/components/dialog";
+import { Input } from "@g-spot/ui/components/input";
+import { Textarea } from "@g-spot/ui/components/textarea";
 import { cn } from "@g-spot/ui/lib/utils";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useUser } from "@stackframe/react";
-import { Check, Github, Minus, Plus } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Check, Github, KeyRound, LinkIcon, Loader2, Minus, Plus } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { GoogleAccountRow } from "@/components/google-account-row";
-import { OpenAIConnectDialog } from "@/components/openai-connect-dialog";
 import { useRemoveConnectionMutation } from "@/hooks/use-connections";
-import {
-  useDisconnectOpenAIMutation,
-  useInitiateOpenAIOAuthMutation,
-  useOpenAIStatus,
-  useRefreshOpenAIStatus,
-} from "@/hooks/use-openai";
-import { GITHUB_OAUTH_SCOPES } from "@/stack/github-oauth-scopes";
-import { GOOGLE_OAUTH_SCOPES } from "@/stack/google-oauth-scopes";
+import { piKeys } from "@/lib/query-keys";
+import { GITHUB_OAUTH_SCOPES, GOOGLE_OAUTH_SCOPES } from "@/stack/client";
+import { trpcClient } from "@/utils/trpc";
 
 type ProviderId = "google" | "github";
 
@@ -43,10 +48,24 @@ function GoogleIcon({ className }: { className?: string }) {
   );
 }
 
-function OpenAIIcon({ className }: { className?: string }) {
+function PiIcon({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 24 24" className={className} aria-hidden fill="currentColor">
-      <path d="M22.282 9.821a5.985 5.985 0 0 0-.516-4.91 6.046 6.046 0 0 0-6.51-2.9A6.065 6.065 0 0 0 4.981 4.18a5.985 5.985 0 0 0-3.998 2.9 6.046 6.046 0 0 0 .743 7.097 5.98 5.98 0 0 0 .51 4.911 6.051 6.051 0 0 0 6.515 2.9A5.985 5.985 0 0 0 13.26 24a6.056 6.056 0 0 0 5.772-4.206 5.99 5.99 0 0 0 3.997-2.9 6.056 6.056 0 0 0-.747-7.073zM13.26 22.43a4.476 4.476 0 0 1-2.876-1.04l.141-.081 4.779-2.758a.795.795 0 0 0 .392-.681v-6.737l2.02 1.168a.071.071 0 0 1 .038.052v5.583a4.504 4.504 0 0 1-4.494 4.494zM3.6 18.304a4.47 4.47 0 0 1-.535-3.014l.142.085 4.783 2.759a.771.771 0 0 0 .78 0l5.843-3.369v2.332a.08.08 0 0 1-.033.062L9.74 19.95a4.5 4.5 0 0 1-6.14-1.646zM2.34 7.896a4.485 4.485 0 0 1 2.366-1.973V11.6a.766.766 0 0 0 .388.676l5.815 3.355-2.02 1.168a.076.076 0 0 1-.071 0l-4.83-2.786A4.504 4.504 0 0 1 2.34 7.872zm16.597 3.855l-5.833-3.387L15.119 7.2a.076.076 0 0 1 .071 0l4.83 2.791a4.494 4.494 0 0 1-.676 8.105v-5.678a.79.79 0 0 0-.407-.667zm2.01-3.023l-.141-.085-4.774-2.782a.776.776 0 0 0-.785 0L9.409 9.23V6.897a.066.066 0 0 1 .028-.061l4.83-2.787a4.5 4.5 0 0 1 6.68 4.66zm-12.64 4.135l-2.02-1.164a.08.08 0 0 1-.038-.057V6.075a4.5 4.5 0 0 1 7.375-3.453l-.142.08L8.704 5.46a.795.795 0 0 0-.393.681zm1.097-2.365l2.602-1.5 2.607 1.5v2.999l-2.597 1.5-2.607-1.5z" />
+    <svg viewBox="0 0 24 24" className={className} aria-hidden fill="none">
+      <path
+        d="M12 2.5 19.5 6v12L12 21.5 4.5 18V6L12 2.5Z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      />
+      <path
+        d="M12 6.5v11"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      />
+      <path
+        d="M7.5 9.25h9"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      />
     </svg>
   );
 }
@@ -59,42 +78,166 @@ function ScopeTag({ children }: { children: string }) {
   );
 }
 
+function prettyProviderName(providerId: string) {
+  return providerId
+    .split(/[-_]/g)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function isOauthSessionRunning(status: string | undefined) {
+  return (
+    status === "running" ||
+    status === "waiting_for_prompt" ||
+    status === "waiting_for_manual_code"
+  );
+}
+
 export function ConnectedAccounts() {
   const user = useUser({ or: "redirect" });
   const accounts = user.useConnectedAccounts();
+  const queryClient = useQueryClient();
 
-  const googleAccounts = accounts.filter((a) => a.provider === "google");
-  const githubAccounts = accounts.filter((a) => a.provider === "github");
+  const googleAccounts = accounts.filter((account) => account.provider === "google");
+  const githubAccounts = accounts.filter((account) => account.provider === "github");
   const githubLinked = githubAccounts.length > 0;
 
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
-  const [apiKeyDialogOpen, setApiKeyDialogOpen] = useState(false);
-  const popupRef = useRef<Window | null>(null);
-  const openaiStatus = useOpenAIStatus();
-  const refreshOpenAIStatus = useRefreshOpenAIStatus();
-  const initiateOpenAIOAuthMutation = useInitiateOpenAIOAuthMutation();
-  const disconnectOpenAIMutation = useDisconnectOpenAIMutation();
+  const [apiKeyProvider, setApiKeyProvider] = useState<string | null>(null);
+  const [apiKeyValue, setApiKeyValue] = useState("");
+  const [oauthSessionId, setOauthSessionId] = useState<string | null>(null);
+  const [oauthPromptValue, setOauthPromptValue] = useState("");
+  const [oauthManualCode, setOauthManualCode] = useState("");
+  const lastOauthStatusRef = useRef<string | null>(null);
+
   const removeConnectionMutation = useRemoveConnectionMutation();
 
-  // Listen for postMessage from OAuth popup
-  const handleOAuthMessage = useCallback(
-    (event: MessageEvent) => {
-      const data = event.data as { type?: string; status?: string } | undefined;
-      if (data?.type !== "openai-oauth") return;
-      if (data.status === "success") {
-        toast.success("OpenAI connected");
-        void refreshOpenAIStatus();
-      } else {
-        toast.error("OpenAI connection failed");
-      }
+  const piCatalog = useQuery({
+    queryKey: piKeys.catalog(),
+    queryFn: () => trpcClient.pi.catalog.query(),
+  });
+
+  const oauthSession = useQuery({
+    queryKey: piKeys.oauthSession(oauthSessionId),
+    queryFn: () => trpcClient.pi.oauthSession.query({ sessionId: oauthSessionId! }),
+    enabled: !!oauthSessionId,
+    refetchInterval: (query) =>
+      isOauthSessionRunning(query.state.data?.status) ? 1500 : false,
+  });
+
+  const saveApiKeyMutation = useMutation({
+    mutationFn: (input: { provider: string; apiKey: string }) =>
+      trpcClient.pi.saveApiKey.mutate(input),
+    onSuccess: async (_, variables) => {
+      await queryClient.invalidateQueries({ queryKey: piKeys.catalog() });
+      toast.success(`${prettyProviderName(variables.provider)} API key saved`);
+      setApiKeyProvider(null);
+      setApiKeyValue("");
     },
-    [refreshOpenAIStatus],
-  );
+  });
+
+  const removeCredentialMutation = useMutation({
+    mutationFn: (provider: string) =>
+      trpcClient.pi.removeCredential.mutate({ provider }),
+    onSuccess: async (_, provider) => {
+      await queryClient.invalidateQueries({ queryKey: piKeys.catalog() });
+      toast.success(`${prettyProviderName(provider)} credential removed`);
+    },
+  });
+
+  const startOAuthMutation = useMutation({
+    mutationFn: (provider: string) =>
+      trpcClient.pi.startOAuth.mutate({ provider }),
+    onSuccess: (session) => {
+      setOauthPromptValue("");
+      setOauthManualCode("");
+      setOauthSessionId(session.id);
+    },
+  });
+
+  const submitOauthPromptMutation = useMutation({
+    mutationFn: (input: { sessionId: string; value: string }) =>
+      trpcClient.pi.submitOAuthPrompt.mutate(input),
+    onSuccess: () => {
+      setOauthPromptValue("");
+    },
+  });
+
+  const submitOauthManualCodeMutation = useMutation({
+    mutationFn: (input: { sessionId: string; value: string }) =>
+      trpcClient.pi.submitOAuthManualCode.mutate(input),
+    onSuccess: () => {
+      setOauthManualCode("");
+    },
+  });
+
+  const cancelOauthMutation = useMutation({
+    mutationFn: (sessionId: string) =>
+      trpcClient.pi.cancelOAuth.mutate({ sessionId }),
+    onSuccess: () => {
+      setOauthSessionId(null);
+      setOauthPromptValue("");
+      setOauthManualCode("");
+    },
+  });
 
   useEffect(() => {
-    window.addEventListener("message", handleOAuthMessage);
-    return () => window.removeEventListener("message", handleOAuthMessage);
-  }, [handleOAuthMessage]);
+    const status = oauthSession.data?.status ?? null;
+    if (!status || lastOauthStatusRef.current === status) {
+      return;
+    }
+
+    lastOauthStatusRef.current = status;
+    if (status === "completed") {
+      toast.success(`${oauthSession.data?.providerName ?? "Provider"} connected`);
+      void queryClient.invalidateQueries({ queryKey: piKeys.catalog() });
+    }
+    if (status === "error" && oauthSession.data?.errorMessage) {
+      toast.error(oauthSession.data.errorMessage);
+    }
+  }, [oauthSession.data, queryClient]);
+
+  const providers = useMemo(() => {
+    const catalog = piCatalog.data;
+    if (!catalog) {
+      return [];
+    }
+
+    const oauthProviders = new Map(
+      catalog.oauthProviders.map((provider) => [provider.id, provider]),
+    );
+    const configuredProviders = new Map(
+      catalog.configuredProviders.map((provider) => [provider.provider, provider.type]),
+    );
+    const providersById = new Set<string>();
+
+    for (const provider of catalog.oauthProviders) {
+      providersById.add(provider.id);
+    }
+    for (const model of catalog.availableModels) {
+      providersById.add(model.provider);
+    }
+    for (const configuredProvider of catalog.configuredProviders) {
+      providersById.add(configuredProvider.provider);
+    }
+
+    return [...providersById]
+      .sort((left, right) => left.localeCompare(right))
+      .map((providerId) => {
+        const availableModels = catalog.availableModels.filter(
+          (model) => model.provider === providerId,
+        );
+
+        return {
+          id: providerId,
+          name: oauthProviders.get(providerId)?.name ?? prettyProviderName(providerId),
+          modelCount: availableModels.length,
+          authType: configuredProviders.get(providerId) ?? null,
+          supportsOauth: oauthProviders.has(providerId),
+        };
+      });
+  }, [piCatalog.data]);
 
   async function connectOAuth(provider: ProviderId, scopes?: readonly string[]) {
     try {
@@ -102,29 +245,10 @@ export function ConnectedAccounts() {
         provider,
         scopes ? { scopes: [...scopes] } : undefined,
       );
-    } catch (e) {
-      console.error(e);
+    } catch (error) {
+      console.error(error);
       toast.error(
-        e instanceof Error ? e.message : "Could not start connection flow.",
-      );
-    }
-  }
-
-  async function connectOpenai() {
-    try {
-      const { url } = await initiateOpenAIOAuthMutation.mutateAsync();
-      const w = 500;
-      const h = 700;
-      const left = window.screenX + (window.outerWidth - w) / 2;
-      const top = window.screenY + (window.outerHeight - h) / 2;
-      popupRef.current = window.open(
-        url,
-        "openai-oauth",
-        `width=${w},height=${h},left=${left},top=${top}`,
-      );
-    } catch (e) {
-      toast.error(
-        e instanceof Error ? e.message : "Could not start OpenAI connection.",
+        error instanceof Error ? error.message : "Could not start connection flow.",
       );
     }
   }
@@ -134,33 +258,28 @@ export function ConnectedAccounts() {
     try {
       await removeConnectionMutation.mutateAsync({ provider, providerAccountId });
       toast.success("Account removed");
-      // Stack Auth SDK will re-fetch connected accounts automatically
-    } catch (e) {
+    } catch (error) {
       toast.error(
-        e instanceof Error ? e.message : "Failed to remove account",
+        error instanceof Error ? error.message : "Failed to remove account",
       );
     } finally {
       setDisconnecting(null);
     }
   }
 
-  async function disconnectOpenai() {
-    setDisconnecting("openai");
-    try {
-      await disconnectOpenAIMutation.mutateAsync();
-      toast.success("OpenAI disconnected");
-    } catch (e) {
-      toast.error(
-        e instanceof Error ? e.message : "Failed to disconnect OpenAI",
-      );
-    } finally {
-      setDisconnecting(null);
+  async function saveApiKey() {
+    if (!apiKeyProvider || apiKeyValue.trim().length === 0) {
+      return;
     }
+
+    await saveApiKeyMutation.mutateAsync({
+      provider: apiKeyProvider,
+      apiKey: apiKeyValue.trim(),
+    });
   }
 
   return (
     <div className="space-y-3">
-      {/* ── Google ── */}
       <section
         className={cn(
           "group relative overflow-hidden rounded-lg border border-border/60 bg-card transition-colors",
@@ -174,10 +293,8 @@ export function ConnectedAccounts() {
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-medium text-[13px] tracking-tight">
-                  Google
-                </h3>
-                {googleAccounts.length > 0 && (
+                <h3 className="font-medium text-[13px] tracking-tight">Google</h3>
+                {googleAccounts.length > 0 ? (
                   <Badge
                     variant="outline"
                     className="gap-1 border-emerald-500/20 bg-emerald-500/10 py-0 font-normal text-[10px] text-emerald-400"
@@ -186,7 +303,7 @@ export function ConnectedAccounts() {
                     {googleAccounts.length}
                     {googleAccounts.length === 1 ? " account" : " accounts"}
                   </Badge>
-                )}
+                ) : null}
               </div>
               <div className="mt-1 flex flex-wrap gap-1">
                 <ScopeTag>gmail:full</ScopeTag>
@@ -207,24 +324,18 @@ export function ConnectedAccounts() {
           </Button>
         </div>
 
-        {googleAccounts.length > 0 && (
+        {googleAccounts.length > 0 ? (
           <ul className="border-t border-border/50">
-            {googleAccounts.map((a) => (
+            {googleAccounts.map((account) => (
               <GoogleAccountRow
-                key={a.providerAccountId}
-                account={a}
-                onReconnect={() =>
-                  void connectOAuth("google", GOOGLE_OAUTH_SCOPES)
-                }
-                onRemove={() =>
-                  removeAccount("google", a.providerAccountId)
-                }
+                key={account.providerAccountId}
+                account={account}
+                onReconnect={() => void connectOAuth("google", GOOGLE_OAUTH_SCOPES)}
+                onRemove={() => removeAccount("google", account.providerAccountId)}
               />
             ))}
           </ul>
-        )}
-
-        {googleAccounts.length === 0 && (
+        ) : (
           <div className="border-t border-dashed border-border/40 px-4 py-3">
             <p className="text-muted-foreground/60 text-[12px]">
               No Google accounts linked yet.
@@ -233,7 +344,6 @@ export function ConnectedAccounts() {
         )}
       </section>
 
-      {/* ── GitHub ── */}
       <section
         className={cn(
           "group relative overflow-hidden rounded-lg border border-border/60 bg-card transition-colors",
@@ -243,16 +353,11 @@ export function ConnectedAccounts() {
         <div className="flex items-center justify-between gap-4 px-4 py-4">
           <div className="flex items-center gap-2.5">
             <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted/50">
-              <Github
-                className="size-4 text-muted-foreground"
-                strokeWidth={1.75}
-              />
+              <Github className="size-4 text-muted-foreground" strokeWidth={1.75} />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-medium text-[13px] tracking-tight">
-                  GitHub
-                </h3>
+                <h3 className="font-medium text-[13px] tracking-tight">GitHub</h3>
                 {githubLinked ? (
                   <Badge
                     variant="outline"
@@ -275,22 +380,24 @@ export function ConnectedAccounts() {
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1">
-            {githubLinked && (
+            {githubLinked ? (
               <Button
                 type="button"
                 variant="ghost"
                 size="xs"
                 className="gap-1 text-muted-foreground text-xs hover:text-destructive"
                 onClick={() => {
-                  const gh = githubAccounts[0];
-                  if (gh) void removeAccount("github", gh.providerAccountId);
+                  const account = githubAccounts[0];
+                  if (account) {
+                    void removeAccount("github", account.providerAccountId);
+                  }
                 }}
                 disabled={disconnecting === githubAccounts[0]?.providerAccountId}
               >
                 <Minus className="size-3" strokeWidth={2.5} />
                 Remove
               </Button>
-            )}
+            ) : null}
             <Button
               type="button"
               variant="ghost"
@@ -304,84 +411,307 @@ export function ConnectedAccounts() {
         </div>
       </section>
 
-      {/* ── OpenAI (Codex OAuth) ── */}
-      <section
-        className={cn(
-          "group relative overflow-hidden rounded-lg border border-border/60 bg-card transition-colors",
-          openaiStatus.data?.connected && "border-border",
-        )}
-      >
-        <div className="flex items-center justify-between gap-4 px-4 py-4">
+      <section className="overflow-hidden rounded-lg border border-border/60 bg-card">
+        <div className="flex items-start justify-between gap-4 px-4 py-4">
           <div className="flex items-center gap-2.5">
             <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted/50">
-              <OpenAIIcon className="size-4 text-muted-foreground" />
+              <PiIcon className="size-4 text-muted-foreground" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-medium text-[13px] tracking-tight">
-                  OpenAI
-                </h3>
-                {openaiStatus.data?.connected ? (
-                  <Badge
-                    variant="outline"
-                    className="gap-1 border-emerald-500/20 bg-emerald-500/10 py-0 font-normal text-[10px] text-emerald-400"
-                  >
-                    <Check className="size-2.5" strokeWidth={3} />
-                    Connected
+                <h3 className="font-medium text-[13px] tracking-tight">Pi Providers</h3>
+                {piCatalog.data ? (
+                  <Badge variant="outline" className="py-0 font-normal text-[10px]">
+                    {piCatalog.data.configuredProviders.length} configured
                   </Badge>
-                ) : (
-                  <span className="text-muted-foreground/50 text-[11px]">
-                    Not linked
-                  </span>
-                )}
+                ) : null}
               </div>
-              <div className="mt-1 flex flex-wrap gap-1">
-                <ScopeTag>model.request</ScopeTag>
-                <ScopeTag>codex</ScopeTag>
-              </div>
+              <p className="mt-1 max-w-md text-muted-foreground text-[12px] leading-relaxed">
+                Connect model providers for Pi chat and worker agents. OAuth and
+                API-key auth are both supported where the provider allows it.
+              </p>
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-1">
-            {openaiStatus.data?.connected && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="xs"
-                className="gap-1 text-muted-foreground text-xs hover:text-destructive"
-                onClick={disconnectOpenai}
-                disabled={disconnecting === "openai"}
-              >
-                <Minus className="size-3" strokeWidth={2.5} />
-                {disconnecting === "openai" ? "Removing…" : "Remove"}
-              </Button>
-            )}
-            <Button
-              type="button"
-              variant="ghost"
-              size="xs"
-              className="shrink-0 text-muted-foreground text-xs hover:text-foreground"
-              onClick={connectOpenai}
-            >
-              {openaiStatus.data?.connected ? "Reconnect" : "OAuth"}
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="xs"
-              className="shrink-0 text-muted-foreground text-xs hover:text-foreground"
-              onClick={() => setApiKeyDialogOpen(true)}
-            >
-              API Key
-            </Button>
-          </div>
+        </div>
+
+        <div className="border-t border-border/50">
+          {piCatalog.isLoading ? (
+            <div className="px-4 py-6 text-muted-foreground text-[12px]">
+              Loading Pi providers…
+            </div>
+          ) : providers.length === 0 ? (
+            <div className="px-4 py-6 text-muted-foreground text-[12px]">
+              No Pi providers available.
+            </div>
+          ) : (
+            <div className="divide-y divide-border/40">
+              {providers.map((provider) => (
+                <div
+                  key={provider.id}
+                  className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-[13px]">{provider.name}</span>
+                      {provider.authType ? (
+                        <Badge
+                          variant="outline"
+                          className="gap-1 border-emerald-500/20 bg-emerald-500/10 py-0 font-normal text-[10px] text-emerald-400"
+                        >
+                          <Check className="size-2.5" strokeWidth={3} />
+                          {provider.authType === "oauth" ? "OAuth" : "API key"}
+                        </Badge>
+                      ) : (
+                        <span className="text-muted-foreground/50 text-[11px]">
+                          Not configured
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {provider.modelCount > 0 ? (
+                        <ScopeTag>{`${provider.modelCount} models`}</ScopeTag>
+                      ) : null}
+                      {provider.supportsOauth ? <ScopeTag>oauth</ScopeTag> : null}
+                      <ScopeTag>api-key</ScopeTag>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    {provider.authType ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="xs"
+                        className="gap-1 text-muted-foreground text-xs hover:text-destructive"
+                        onClick={() => void removeCredentialMutation.mutateAsync(provider.id)}
+                        disabled={removeCredentialMutation.isPending}
+                      >
+                        <Minus className="size-3" strokeWidth={2.5} />
+                        Remove
+                      </Button>
+                    ) : null}
+
+                    {provider.supportsOauth ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="xs"
+                        className="gap-1 text-muted-foreground text-xs hover:text-foreground"
+                        onClick={() => void startOAuthMutation.mutateAsync(provider.id)}
+                        disabled={startOAuthMutation.isPending}
+                      >
+                        <LinkIcon className="size-3.5" />
+                        {provider.authType === "oauth" ? "Reconnect" : "OAuth"}
+                      </Button>
+                    ) : null}
+
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="xs"
+                      className="gap-1 text-muted-foreground text-xs hover:text-foreground"
+                      onClick={() => {
+                        setApiKeyProvider(provider.id);
+                        setApiKeyValue("");
+                      }}
+                    >
+                      <KeyRound className="size-3.5" />
+                      API Key
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </section>
 
-      <OpenAIConnectDialog
-        open={apiKeyDialogOpen}
-        onOpenChange={setApiKeyDialogOpen}
-        onConnected={() => void refreshOpenAIStatus()}
-      />
+      <Dialog
+        open={apiKeyProvider !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setApiKeyProvider(null);
+            setApiKeyValue("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Save API key</DialogTitle>
+            <DialogDescription>
+              Store an API key for {apiKeyProvider ? prettyProviderName(apiKeyProvider) : "this provider"}.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            type="password"
+            placeholder="sk-..."
+            value={apiKeyValue}
+            onChange={(event) => setApiKeyValue(event.target.value)}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setApiKeyProvider(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => void saveApiKey()}
+              disabled={saveApiKeyMutation.isPending || apiKeyValue.trim().length === 0}
+            >
+              {saveApiKeyMutation.isPending ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={oauthSessionId !== null}
+        onOpenChange={(open) => {
+          if (!open && oauthSessionId) {
+            void cancelOauthMutation.mutateAsync(oauthSessionId);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              {oauthSession.data?.providerName ?? "Provider"} sign-in
+            </DialogTitle>
+            <DialogDescription>
+              Continue the Pi-native OAuth flow. This dialog updates as the provider asks
+              for browser auth, prompts, or manual code entry.
+            </DialogDescription>
+          </DialogHeader>
+
+          {oauthSession.data?.auth?.instructions ? (
+            <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-[12px] leading-relaxed">
+              {oauthSession.data.auth.instructions}
+            </div>
+          ) : null}
+
+          {oauthSession.data?.auth?.url ? (
+            <a
+              href={oauthSession.data.auth.url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex h-9 items-center justify-center rounded-md border border-border px-3 text-[12px] transition-colors hover:bg-muted"
+            >
+              Open provider login
+            </a>
+          ) : null}
+
+          {oauthSession.data?.progress?.length ? (
+            <div className="space-y-2 rounded-md border border-border/60 bg-background/60 p-3">
+              <p className="font-medium text-[12px]">Progress</p>
+              <ul className="space-y-1 text-muted-foreground text-[12px]">
+                {oauthSession.data.progress.slice(-6).map((entry, index) => (
+                  <li key={`${entry}-${index}`}>{entry}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {oauthSession.data?.status === "waiting_for_prompt" && oauthSession.data.prompt ? (
+            <div className="space-y-3">
+              <label className="space-y-1 text-[12px]">
+                <span className="font-medium">{oauthSession.data.prompt.message}</span>
+                <Input
+                  placeholder={oauthSession.data.prompt.placeholder ?? "Response"}
+                  value={oauthPromptValue}
+                  onChange={(event) => setOauthPromptValue(event.target.value)}
+                />
+              </label>
+              <Button
+                onClick={() =>
+                  oauthSessionId
+                    ? submitOauthPromptMutation.mutate({
+                        sessionId: oauthSessionId,
+                        value: oauthPromptValue,
+                      })
+                    : undefined
+                }
+                disabled={
+                  submitOauthPromptMutation.isPending ||
+                  (!oauthSession.data.prompt.allowEmpty && oauthPromptValue.trim().length === 0)
+                }
+              >
+                Submit prompt
+              </Button>
+            </div>
+          ) : null}
+
+          {oauthSession.data?.status === "waiting_for_manual_code" ? (
+            <div className="space-y-3">
+              <label className="space-y-1 text-[12px]">
+                <span className="font-medium">Manual code</span>
+                <Textarea
+                  placeholder="Paste the code from the provider"
+                  value={oauthManualCode}
+                  onChange={(event) => setOauthManualCode(event.target.value)}
+                />
+              </label>
+              <Button
+                onClick={() =>
+                  oauthSessionId
+                    ? submitOauthManualCodeMutation.mutate({
+                        sessionId: oauthSessionId,
+                        value: oauthManualCode,
+                      })
+                    : undefined
+                }
+                disabled={
+                  submitOauthManualCodeMutation.isPending ||
+                  oauthManualCode.trim().length === 0
+                }
+              >
+                Submit code
+              </Button>
+            </div>
+          ) : null}
+
+          {oauthSession.data?.status === "completed" ? (
+            <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-[12px] text-emerald-300">
+              Provider connected successfully.
+            </div>
+          ) : null}
+
+          {oauthSession.data?.status === "error" && oauthSession.data.errorMessage ? (
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-[12px] text-destructive">
+              {oauthSession.data.errorMessage}
+            </div>
+          ) : null}
+
+          <DialogFooter>
+            {isOauthSessionRunning(oauthSession.data?.status) ? (
+              <Button
+                variant="outline"
+                onClick={() =>
+                  oauthSessionId
+                    ? cancelOauthMutation.mutate(oauthSessionId)
+                    : undefined
+                }
+              >
+                Cancel
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setOauthSessionId(null);
+                  setOauthPromptValue("");
+                  setOauthManualCode("");
+                }}
+              >
+                Close
+              </Button>
+            )}
+            {oauthSession.isFetching ? (
+              <span className="inline-flex items-center gap-2 text-muted-foreground text-[12px]">
+                <Loader2 className="size-3.5 animate-spin" />
+                Syncing
+              </span>
+            ) : null}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

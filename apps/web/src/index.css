@@ -4,3 +4,52 @@
   height: 100%;
   overflow: hidden;
 }
+
+/*
+ * Streamdown code block — collapse the default double-frame (outer rounded
+ * card + inner rounded body with mismatched bg) into a single clean surface.
+ * The "txt"-style language header is hidden because it's redundant; the
+ * sticky actions strip is repositioned absolutely so it doesn't rely on the
+ * negative-margin overlap trick that leaves a gap once the inner frame is
+ * gone.
+ */
+[data-streamdown="code-block"] {
+  margin-block: 1rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: var(--card);
+  padding: 0;
+  gap: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+[data-streamdown="code-block-header"] {
+  display: none;
+}
+
+[data-streamdown="code-block"] > div:has(> [data-streamdown="code-block-actions"]) {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  margin: 0;
+  height: auto;
+}
+
+[data-streamdown="code-block-actions"] {
+  border: 0;
+  background-color: color-mix(in oklch, var(--card) 70%, transparent);
+}
+
+@supports (backdrop-filter: blur(0)) {
+  [data-streamdown="code-block-actions"] {
+    backdrop-filter: blur(8px);
+  }
+}
+
+[data-streamdown="code-block-body"] {
+  border: 0;
+  background: transparent;
+  border-radius: 0;
+  padding: 0.75rem 1rem;
+}

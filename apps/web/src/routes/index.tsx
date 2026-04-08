@@ -2,10 +2,11 @@ import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 
 import type { FilterCondition, SectionSource, ColumnConfig } from "@g-spot/types/filters";
 import {
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup,
-} from "@g-spot/ui/components/resizable";
+  Drawer,
+  DrawerContent,
+  DrawerDescription,
+  DrawerTitle,
+} from "@g-spot/ui/components/drawer";
 import { Skeleton } from "@g-spot/ui/components/skeleton";
 import { useUser } from "@stackframe/react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -202,6 +203,53 @@ function InboxPage() {
     }
   }, [selectedThread, googleAccount, currentIndex, prefetch]);
 
+  // Resizable drawer width (persisted to localStorage)
+  const [drawerWidth, setDrawerWidth] = useState(() => {
+    try {
+      const saved = localStorage.getItem("email-drawer-width");
+      return saved ? Number(saved) : 45;
+    } catch {
+      return 45;
+    }
+  });
+  const drawerWidthRef = useRef(drawerWidth);
+  drawerWidthRef.current = drawerWidth;
+
+  const handleResizePointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const el = e.currentTarget;
+      el.setPointerCapture(e.pointerId);
+      const startX = e.clientX;
+      const startWidth = drawerWidthRef.current;
+
+      const onPointerMove = (ev: PointerEvent) => {
+        const deltaVw = ((startX - ev.clientX) / window.innerWidth) * 100;
+        setDrawerWidth(Math.min(80, Math.max(25, startWidth + deltaVw)));
+      };
+      const onPointerUp = (ev: PointerEvent) => {
+        el.releasePointerCapture(ev.pointerId);
+        el.removeEventListener("pointermove", onPointerMove);
+        el.removeEventListener("pointerup", onPointerUp);
+        try {
+          localStorage.setItem(
+            "email-drawer-width",
+            String(drawerWidthRef.current),
+          );
+        } catch {}
+      };
+
+      el.addEventListener("pointermove", onPointerMove);
+      el.addEventListener("pointerup", onPointerUp);
+    },
+    [],
+  );
+
+  // Keep stale content ref so the drawer doesn't flash empty during close animation
+  const drawerThreadRef = useRef(selectedThread);
+  if (selectedThread) drawerThreadRef.current = selectedThread;
+
   if (isLoading) {
     return (
       <div className="h-full overflow-y-auto">
@@ -224,112 +272,131 @@ function InboxPage() {
   }
 
   return (
-    <ResizablePanelGroup orientation="horizontal" className="h-full">
+    <>
       {/* Sections list */}
-      <ResizablePanel defaultSize={selectedThread ? 55 : 100} minSize={30}>
-        <div className="h-full overflow-y-auto">
-          <div className="mx-auto max-w-5xl space-y-3 p-4">
-            {sections.map((section) => {
-              const filters = parseFilters(section.filters);
-              const isSortAsc = sortState[section.id] ?? false;
-              const collapsed =
-                collapseState[section.id] ?? section.collapsed;
-              const columns = parseJson<ColumnConfig[]>(section.columns, []);
+      <div className="h-full overflow-y-auto">
+        <div className="mx-auto max-w-5xl space-y-3 p-4">
+          {sections.map((section) => {
+            const filters = parseFilters(section.filters);
+            const isSortAsc = sortState[section.id] ?? false;
+            const collapsed =
+              collapseState[section.id] ?? section.collapsed;
+            const columns = parseJson<ColumnConfig[]>(section.columns, []);
 
-              return (
-                <div key={section.id} id={`section-${section.id}`}>
-                  <InboxSection
-                    section={{
+            return (
+              <div key={section.id} id={`section-${section.id}`}>
+                <InboxSection
+                  section={{
+                    id: section.id,
+                    name: section.name,
+                    source: section.source as SectionSource,
+                    filters: section.filters,
+                    collapsed,
+                    showBadge: section.showBadge,
+                  }}
+                  itemCount={sectionCounts[section.id] ?? 0}
+                  hasMoreItems={sectionHasMore[section.id] ?? false}
+                  sortAsc={isSortAsc}
+                  onToggleSort={() =>
+                    setSortState((prev) => ({
+                      ...prev,
+                      [section.id]: !prev[section.id],
+                    }))
+                  }
+                  onToggle={() => {
+                    const newCollapsed = !collapsed;
+                    setCollapseState((prev) => ({
+                      ...prev,
+                      [section.id]: newCollapsed,
+                    }));
+                    updateSectionMutation.mutate({
+                      id: section.id,
+                      collapsed: newCollapsed,
+                    });
+                  }}
+                  onRefresh={() => handleRefresh(section.id, section.source)}
+                  isRefreshing={refreshing[section.id] ?? false}
+                  onEdit={() =>
+                    setEditingSection({
                       id: section.id,
                       name: section.name,
                       source: section.source as SectionSource,
                       filters: section.filters,
-                      collapsed,
+                      repos: section.repos,
+                      columns: section.columns,
+                      accountId: section.accountId,
                       showBadge: section.showBadge,
-                    }}
-                    itemCount={sectionCounts[section.id] ?? 0}
-                    hasMoreItems={sectionHasMore[section.id] ?? false}
-                    sortAsc={isSortAsc}
-                    onToggleSort={() =>
-                      setSortState((prev) => ({
-                        ...prev,
-                        [section.id]: !prev[section.id],
-                      }))
-                    }
-                    onToggle={() => {
-                      const newCollapsed = !collapsed;
-                      setCollapseState((prev) => ({
-                        ...prev,
-                        [section.id]: newCollapsed,
-                      }));
-                      updateSectionMutation.mutate({
-                        id: section.id,
-                        collapsed: newCollapsed,
-                      });
-                    }}
-                    onRefresh={() => handleRefresh(section.id, section.source)}
-                    isRefreshing={refreshing[section.id] ?? false}
-                    onEdit={() =>
-                      setEditingSection({
-                        id: section.id,
-                        name: section.name,
-                        source: section.source as SectionSource,
-                        filters: section.filters,
-                        repos: section.repos,
-                        columns: section.columns,
-                        accountId: section.accountId,
-                        showBadge: section.showBadge,
-                      })
-                    }
-                  >
-                    {section.source === "github_pr" || section.source === "github_issue" ? (
-                      <GitHubTable
-                        source={section.source}
-                        sectionId={section.id}
-                        filters={filters}
-                        repos={parseJson<string[]>(section.repos, [])}
-                        accountId={section.accountId}
-                        sortAsc={isSortAsc}
-                        onCountChange={(count) => handleCountChange(section.id, count)}
-                        columns={columns}
-                      />
-                    ) : (
-                      <GmailMailView
-                        sectionId={section.id}
-                        filters={filters}
-                        accountId={section.accountId}
-                        sortAsc={isSortAsc}
-                        onCountChange={(count, hasMore) => handleCountChange(section.id, count, hasMore)}
-                        selectedThreadId={selectedThread?.thread.threadId}
-                        onSelectThread={handleSelectThread}
-                        columns={columns}
-                      />
-                    )}
-                  </InboxSection>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Section editor dialog */}
-          <SectionBuilder
-            open={editingSection !== null}
-            onOpenChange={(open) => {
-              if (!open) setEditingSection(null);
-            }}
-            section={editingSection ?? undefined}
-          />
+                    })
+                  }
+                >
+                  {section.source === "github_pr" || section.source === "github_issue" ? (
+                    <GitHubTable
+                      source={section.source}
+                      sectionId={section.id}
+                      filters={filters}
+                      repos={parseJson<string[]>(section.repos, [])}
+                      accountId={section.accountId}
+                      sortAsc={isSortAsc}
+                      onCountChange={(count) => handleCountChange(section.id, count)}
+                      columns={columns}
+                    />
+                  ) : (
+                    <GmailMailView
+                      sectionId={section.id}
+                      filters={filters}
+                      accountId={section.accountId}
+                      sortAsc={isSortAsc}
+                      onCountChange={(count, hasMore) => handleCountChange(section.id, count, hasMore)}
+                      selectedThreadId={selectedThread?.thread.threadId}
+                      onSelectThread={handleSelectThread}
+                      columns={columns}
+                    />
+                  )}
+                </InboxSection>
+              </div>
+            );
+          })}
         </div>
-      </ResizablePanel>
 
-      {/* Detail panel — shown when a thread is selected */}
-      {selectedThread && (
-        <>
-          <ResizableHandle withHandle />
-          <ResizablePanel defaultSize={45} minSize={30}>
+        {/* Section editor dialog */}
+        <SectionBuilder
+          open={editingSection !== null}
+          onOpenChange={(open) => {
+            if (!open) setEditingSection(null);
+          }}
+          section={editingSection ?? undefined}
+        />
+      </div>
+
+      {/* Email detail drawer */}
+      <Drawer
+        direction="right"
+        open={!!selectedThread}
+        onOpenChange={(open) => {
+          if (!open) handleCloseThread();
+        }}
+        handleOnly
+      >
+        <DrawerContent
+          style={{ width: `${drawerWidth}vw`, maxWidth: "none" }}
+          className="h-full"
+          overlayClassName="!bg-transparent !backdrop-blur-none"
+        >
+          <DrawerTitle className="sr-only">
+            {(selectedThread ?? drawerThreadRef.current)?.thread.subject ?? "Email thread"}
+          </DrawerTitle>
+          <DrawerDescription className="sr-only">
+            Read an email thread, navigate between nearby threads, and take mailbox actions.
+          </DrawerDescription>
+          {/* Resize handle */}
+          <div
+            onPointerDown={handleResizePointerDown}
+            className="absolute inset-y-0 left-0 z-10 w-1.5 cursor-col-resize transition-colors hover:bg-border active:bg-border"
+          />
+          {(selectedThread ?? drawerThreadRef.current) && (
             <GmailThreadDetail
-              key={selectedThread.thread.threadId}
-              thread={selectedThread.thread}
+              key={(selectedThread ?? drawerThreadRef.current)!.thread.threadId}
+              thread={(selectedThread ?? drawerThreadRef.current)!.thread}
               detail={threadDetail}
               isLoading={isDetailLoading}
               googleAccount={googleAccount ?? null}
@@ -339,9 +406,9 @@ function InboxPage() {
               onPrev={() => handleNavigateThread(-1)}
               onNext={() => handleNavigateThread(1)}
             />
-          </ResizablePanel>
-        </>
-      )}
-    </ResizablePanelGroup>
+          )}
+        </DrawerContent>
+      </Drawer>
+    </>
   );
 }

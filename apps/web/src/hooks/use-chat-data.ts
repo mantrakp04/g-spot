@@ -1,3 +1,4 @@
+import type { PiAgentConfig } from "@g-spot/types";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { chatKeys } from "@/lib/query-keys";
@@ -5,14 +6,16 @@ import { trpcClient } from "@/utils/trpc";
 
 const CHAT_LIST_PAGE_SIZE = 20;
 
-export function useChats() {
+export function useChats(projectId: string | null) {
   return useInfiniteQuery({
-    queryKey: chatKeys.list({ limit: CHAT_LIST_PAGE_SIZE }),
+    queryKey: chatKeys.list({ projectId, limit: CHAT_LIST_PAGE_SIZE }),
     queryFn: ({ pageParam }) =>
       trpcClient.chat.list.query({
+        projectId: projectId ?? "",
         limit: CHAT_LIST_PAGE_SIZE,
         cursor: pageParam,
       }),
+    enabled: !!projectId,
     initialPageParam: null as { updatedAt: string; id: string } | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor,
   });
@@ -38,11 +41,12 @@ export function useCreateChatMutation() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (input?: {
+    mutationFn: (input: {
+      projectId: string;
       title?: string;
       model?: string;
-      initialMessage?: { id: string; message: string };
-    }) => trpcClient.chat.create.mutate(input ?? {}),
+      agentConfig?: PiAgentConfig;
+    }) => trpcClient.chat.create.mutate(input),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: chatKeys.list() });
       queryClient.invalidateQueries({
@@ -58,8 +62,11 @@ export function useUpdateChatTitleMutation() {
   return useMutation({
     mutationFn: (input: { chatId: string; title: string }) =>
       trpcClient.chat.updateTitle.mutate(input),
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: chatKeys.list() });
+      queryClient.invalidateQueries({
+        queryKey: chatKeys.detail(variables.chatId),
+      });
     },
   });
 }
@@ -90,18 +97,16 @@ export function useUpdateChatModelMutation() {
   });
 }
 
-export function useSaveChatMessageMutation() {
+export function useUpdateChatAgentConfigMutation() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (input: {
-      chatId: string;
-      message: { id: string; message: string };
-    }) => trpcClient.chat.saveMessage.mutate(input),
+    mutationFn: (input: { chatId: string; agentConfig: PiAgentConfig }) =>
+      trpcClient.chat.updateAgentConfig.mutate(input),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: chatKeys.list() });
       queryClient.invalidateQueries({
-        queryKey: chatKeys.messages(variables.chatId),
+        queryKey: chatKeys.detail(variables.chatId),
       });
     },
   });
@@ -136,27 +141,6 @@ export function useForkChatMutation() {
       queryClient.invalidateQueries({ queryKey: chatKeys.list() });
       queryClient.invalidateQueries({
         queryKey: chatKeys.messages(data.id),
-      });
-    },
-  });
-}
-
-export function useGenerateChatTitleMutation() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (input: {
-      chatId: string;
-      model: string;
-      messages: Array<{
-        role: "system" | "user" | "assistant";
-        parts: unknown[];
-      }>;
-    }) => trpcClient.chat.generateTitle.mutate(input),
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: chatKeys.list() });
-      queryClient.invalidateQueries({
-        queryKey: chatKeys.detail(variables.chatId),
       });
     },
   });

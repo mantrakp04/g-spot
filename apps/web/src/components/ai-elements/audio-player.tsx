@@ -6,7 +6,6 @@ import {
   ButtonGroupText,
 } from "@g-spot/ui/components/button-group";
 import { cn } from "@g-spot/ui/lib/utils";
-import type { Experimental_SpeechResult as SpeechResult } from "ai";
 import {
   MediaControlBar,
   MediaController,
@@ -20,6 +19,8 @@ import {
   MediaVolumeRange,
 } from "media-chrome/react";
 import type { ComponentProps, CSSProperties } from "react";
+
+import type { Experimental_SpeechResult as SpeechResult } from "@/lib/chat-ui";
 
 export type AudioPlayerProps = Omit<
   ComponentProps<typeof MediaController>,

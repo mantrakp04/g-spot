@@ -1,4 +1,4 @@
-import type { UIMessage } from "ai";
+import type { UIMessage } from "@/lib/chat-ui";
 
 type PendingChatSubmission = {
   messageId: string;

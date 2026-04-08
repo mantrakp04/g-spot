@@ -19,15 +19,6 @@ export const env = createEnv({
     NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
     STACK_PROJECT_ID: z.string().min(1),
     STACK_SECRET_SERVER_KEY: z.string().min(1),
-    OPENAI_CLIENT_ID: z
-      .string()
-      .default("app_EMoamEEZ73f0CkXaXp7hrann"),
-    OPENAI_CALLBACK_PORT: z.number().default(1455),
-    /** Must match the redirect URI allowed by the OpenAI OAuth client. The Codex CLI public client only allows localhost:1455. */
-    OPENAI_REDIRECT_URI: z
-      .string()
-      .url()
-      .default("http://localhost:1455/auth/callback"),
   },
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,

@@ -9,6 +9,28 @@ const TOKEN_TTL = 4 * 60 * 1000; // 4 minutes (Google tokens last ~1 hour)
 const tokenCache = new Map<string, { token: string; expiresAt: number }>();
 const inflightRequests = new Map<string, Promise<string>>();
 
+function getTokenErrorMessage(result: unknown): string {
+  if (
+    result &&
+    typeof result === "object" &&
+    "error" in result &&
+    typeof (result as { error?: unknown }).error === "string"
+  ) {
+    return (result as { error: string }).error;
+  }
+
+  if (
+    result &&
+    typeof result === "object" &&
+    "message" in result &&
+    typeof (result as { message?: unknown }).message === "string"
+  ) {
+    return (result as { message: string }).message;
+  }
+
+  return "Failed to get access token";
+}
+
 /**
  * Get an OAuth access token with caching and request deduplication.
  * Concurrent calls for the same account share a single in-flight request.
@@ -27,7 +49,10 @@ export async function getOAuthToken(account: OAuthConnection): Promise<string> {
   const promise = (async () => {
     try {
       const result = await account.getAccessToken();
-      if (result.status !== "ok") throw new Error("Failed to get access token");
+      if (result.status !== "ok") {
+        clearOAuthToken(key);
+        throw new Error(getTokenErrorMessage(result));
+      }
       tokenCache.set(key, {
         token: result.data.accessToken,
         expiresAt: Date.now() + TOKEN_TTL,
@@ -39,6 +64,7 @@ export async function getOAuthToken(account: OAuthConnection): Promise<string> {
   })();
 
   inflightRequests.set(key, promise);
+  void promise.catch(() => {});
   return promise;
 }
 

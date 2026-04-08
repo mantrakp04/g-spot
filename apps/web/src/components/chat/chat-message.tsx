@@ -1,16 +1,16 @@
 import { Button } from "@g-spot/ui/components/button";
 import { cn } from "@g-spot/ui/lib/utils";
-import type { UIMessage } from "ai";
-import type { ChatStatus } from "ai";
 import {
+  BrainIcon,
   CheckIcon,
   CopyIcon,
   GitForkIcon,
   PencilIcon,
   RefreshCwIcon,
+  WrenchIcon,
   XIcon,
 } from "lucide-react";
-import { useCallback, useRef, useState, memo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, memo } from "react";
 
 import {
   Attachments,
@@ -19,6 +19,12 @@ import {
   AttachmentInfo,
 } from "@/components/ai-elements/attachments";
 import {
+  ChainOfThought,
+  ChainOfThoughtContent,
+  ChainOfThoughtHeader,
+  ChainOfThoughtStep,
+} from "@/components/ai-elements/chain-of-thought";
+import {
   Message,
   MessageContent,
   MessageResponse,
@@ -26,17 +32,14 @@ import {
   MessageAction,
 } from "@/components/ai-elements/message";
 import {
-  Reasoning,
-  ReasoningTrigger,
-  ReasoningContent,
-} from "@/components/ai-elements/reasoning";
-import {
   Tool,
   ToolHeader,
   ToolContent,
   ToolInput,
   ToolOutput,
 } from "@/components/ai-elements/tool";
+import type { ChatStatus, DynamicToolUIPart, ToolUIPart, UIMessage, UIMessagePart } from "@/lib/chat-ui";
+import { logChatDebug, summarizeUiMessage } from "@/lib/chat-debug";
 
 interface ChatMessageProps {
   message: UIMessage;
@@ -47,6 +50,10 @@ interface ChatMessageProps {
   onFork?: () => void;
 }
 
+function isToolPart(part: UIMessagePart): part is ToolUIPart | DynamicToolUIPart {
+  return "state" in part && (part.type === "dynamic-tool" || part.type.startsWith("tool-"));
+}
+
 export const ChatMessage = memo(function ChatMessage({
   message,
   isStreaming,
@@ -55,6 +62,14 @@ export const ChatMessage = memo(function ChatMessage({
   onEdit,
   onFork,
 }: ChatMessageProps) {
+  useEffect(() => {
+    logChatDebug("message-render", {
+      message: summarizeUiMessage(message),
+      isStreaming,
+      status,
+    });
+  }, [isStreaming, message, status]);
+
   const showAssistantActions =
     message.role === "assistant" && status !== "streaming";
   const [copied, setCopied] = useState(false);
@@ -104,6 +119,37 @@ export const ChatMessage = memo(function ChatMessage({
     .filter((p): p is Extract<typeof p, { type: "text" }> => p.type === "text")
     .map((p) => p.text)
     .join("");
+
+  /**
+   * Split assistant parts into "thought" (reasoning + tool invocations +
+   * intermediate text/steps) and "response" (the trailing text/file parts
+   * that form the agent's final answer). The response is the suffix of
+   * text/file parts; everything before that goes into ChainOfThought.
+   */
+  const { thoughtParts, responseParts } = useMemo(() => {
+    if (message.role !== "assistant") {
+      return { thoughtParts: [], responseParts: message.parts };
+    }
+
+    let splitAt = message.parts.length;
+    for (let i = message.parts.length - 1; i >= 0; i--) {
+      const p = message.parts[i]!;
+      if (p.type === "text" || p.type === "file") {
+        splitAt = i;
+        continue;
+      }
+      break;
+    }
+
+    return {
+      thoughtParts: message.parts.slice(0, splitAt),
+      responseParts: message.parts.slice(splitAt),
+    };
+  }, [message.parts, message.role]);
+
+  const hasThought = thoughtParts.some(
+    (p) => p.type === "reasoning" || isToolPart(p),
+  );
 
   return (
     <div
@@ -159,70 +205,133 @@ export const ChatMessage = memo(function ChatMessage({
                 "text-sm leading-relaxed",
             )}
           >
-            {message.parts.map((part, i) => {
-              const key = `${message.id}-${part.type}-${i}`;
-              switch (part.type) {
-                case "text":
-                  return part.text ? (
-                    <MessageResponse
-                      key={key}
-                      isAnimating={
-                        isStreaming &&
-                        message.role === "assistant" &&
-                        i === message.parts.length - 1
-                      }
-                    >
-                      {part.text}
-                    </MessageResponse>
-                  ) : null;
+            {message.role === "assistant" && hasThought && (
+              <ChainOfThought defaultOpen={isStreaming}>
+                <ChainOfThoughtHeader>
+                  {isStreaming && responseParts.length === 0
+                    ? "Thinking..."
+                    : "Chain of Thought"}
+                </ChainOfThoughtHeader>
+                <ChainOfThoughtContent>
+                  {thoughtParts.map((part, i) => {
+                    const key = `${message.id}-thought-${part.type}-${i}`;
 
-                case "reasoning":
-                  return (
-                    <Reasoning
-                      key={key}
-                      isStreaming={isStreaming && message.role === "assistant"}
-                    >
-                      <ReasoningTrigger />
-                      <ReasoningContent>{part.text}</ReasoningContent>
-                    </Reasoning>
-                  );
+                    if (isToolPart(part)) {
+                      const stepStatus: "pending" | "active" | "complete" =
+                        part.state === "input-streaming"
+                          ? "pending"
+                          : part.state === "input-available"
+                            ? "active"
+                            : "complete";
+                      const toolName =
+                        part.toolName ??
+                        (part.type.startsWith("tool-")
+                          ? part.type.slice("tool-".length)
+                          : "tool");
 
-                case "tool-invocation":
-                  return (
-                    <Tool key={key}>
-                      <ToolHeader
-                        type="tool-invocation"
-                        state={part.state}
-                        title={"toolName" in part ? String(part.toolName) : undefined}
-                      />
-                      <ToolContent>
-                        {"args" in part && <ToolInput input={part.args} />}
-                        {"output" in part && (
-                          <ToolOutput
-                            output={part.output}
-                            errorText={"errorText" in part ? String(part.errorText) : undefined}
-                          />
-                        )}
-                      </ToolContent>
-                    </Tool>
-                  );
+                      return (
+                        <ChainOfThoughtStep
+                          key={key}
+                          icon={WrenchIcon}
+                          label={toolName}
+                          status={stepStatus}
+                        >
+                          <Tool>
+                            {part.type === "dynamic-tool" ? (
+                              <ToolHeader
+                                type={part.type}
+                                state={part.state}
+                                toolName={part.toolName}
+                              />
+                            ) : (
+                              <ToolHeader type={part.type} state={part.state} />
+                            )}
+                            <ToolContent>
+                              {part.input !== undefined && (
+                                <ToolInput input={part.input} />
+                              )}
+                              {(part.output !== undefined || part.errorText) && (
+                                <ToolOutput
+                                  output={part.output}
+                                  errorText={part.errorText}
+                                />
+                              )}
+                            </ToolContent>
+                          </Tool>
+                        </ChainOfThoughtStep>
+                      );
+                    }
 
-                case "file":
-                  return (
-                    <Attachments key={key} variant="inline">
-                      <Attachment data={{ ...part, id: key }}>
-                        <AttachmentPreview />
-                        <AttachmentInfo />
-                      </Attachment>
-                    </Attachments>
-                  );
+                    if (part.type === "reasoning") {
+                      return (
+                        <ChainOfThoughtStep
+                          key={key}
+                          icon={BrainIcon}
+                          label="Thinking"
+                          status={
+                            isStreaming && i === thoughtParts.length - 1
+                              ? "active"
+                              : "complete"
+                          }
+                          description={
+                            <span className="whitespace-pre-wrap">
+                              {part.text}
+                            </span>
+                          }
+                        />
+                      );
+                    }
 
-                case "step-start":
-                  return null;
+                    if (part.type === "text" && part.text) {
+                      return (
+                        <ChainOfThoughtStep
+                          key={key}
+                          label="Note"
+                          description={
+                            <span className="whitespace-pre-wrap">
+                              {part.text}
+                            </span>
+                          }
+                        />
+                      );
+                    }
 
-                default:
-                  return null;
+                    return null;
+                  })}
+                </ChainOfThoughtContent>
+              </ChainOfThought>
+            )}
+
+            {responseParts.map((part, i) => {
+              const key = `${message.id}-response-${part.type}-${i}`;
+
+              if (part.type === "text") {
+                return part.text ? (
+                  <MessageResponse
+                    key={key}
+                    isAnimating={
+                      isStreaming &&
+                      message.role === "assistant" &&
+                      i === responseParts.length - 1
+                    }
+                  >
+                    {part.text}
+                  </MessageResponse>
+                ) : null;
               }
+
+              if (part.type === "file") {
+                return (
+                  <Attachments key={key} variant="inline">
+                    <Attachment data={{ ...part, id: key }}>
+                      <AttachmentPreview />
+                      <AttachmentInfo />
+                    </Attachment>
+                  </Attachments>
+                );
+              }
+
+              return null;
             })}
           </MessageContent>
         )}

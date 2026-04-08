@@ -3,9 +3,10 @@
 import { Alert, AlertDescription } from "@g-spot/ui/components/alert";
 import { Button } from "@g-spot/ui/components/button";
 import { cn } from "@g-spot/ui/lib/utils";
-import type { ToolUIPart } from "ai";
 import type { ComponentProps, ReactNode } from "react";
 import { createContext, useContext, useMemo } from "react";
+
+import type { ToolUIPart } from "@/lib/chat-ui";
 
 type ToolUIPartApproval =
   | {

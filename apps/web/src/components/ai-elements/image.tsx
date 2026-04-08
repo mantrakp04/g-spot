@@ -1,5 +1,5 @@
 import { cn } from "@g-spot/ui/lib/utils";
-import type { Experimental_GeneratedImage } from "ai";
+import type { Experimental_GeneratedImage } from "@/lib/chat-ui";
 
 export type ImageProps = Experimental_GeneratedImage & {
   className?: string;

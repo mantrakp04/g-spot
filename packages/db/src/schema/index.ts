@@ -3,6 +3,8 @@ import { sql } from "drizzle-orm";
 
 export { chats, chatMessages } from "./chat";
 export { fileHashes, fileMetadata } from "./files";
+export { projects } from "./projects";
+export { skills } from "./skills";
 
 export const sections = sqliteTable(
   "sections",

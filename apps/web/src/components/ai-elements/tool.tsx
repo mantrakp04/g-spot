@@ -7,7 +7,6 @@ import {
   CollapsibleTrigger,
 } from "@g-spot/ui/components/collapsible";
 import { cn } from "@g-spot/ui/lib/utils";
-import type { DynamicToolUIPart, ToolUIPart } from "ai";
 import {
   CheckCircleIcon,
   ChevronDownIcon,
@@ -19,6 +18,7 @@ import {
 import type { ComponentProps, ReactNode } from "react";
 import { isValidElement } from "react";
 
+import type { DynamicToolUIPart, ToolUIPart } from "@/lib/chat-ui";
 import { CodeBlock } from "./code-block";
 
 export type ToolProps = ComponentProps<typeof Collapsible>;
@@ -79,8 +79,7 @@ export const ToolHeader = ({
   toolName,
   ...props
 }: ToolHeaderProps) => {
-  const derivedName =
-    type === "dynamic-tool" ? toolName : type.split("-").slice(1).join("-");
+  const derivedName = toolName ?? type.split("-").slice(1).join("-");
 
   return (
     <CollapsibleTrigger

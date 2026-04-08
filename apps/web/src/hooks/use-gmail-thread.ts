@@ -26,14 +26,15 @@ export function usePrefetchGmailThread() {
   const queryClient = useQueryClient();
   return useCallback(
     (threadId: string, account: OAuthConnection) => {
-      queryClient.prefetchQuery({
+      // Background prefetch should never surface as an uncaught runtime error.
+      void queryClient.prefetchQuery({
         queryKey: gmailKeys.thread(threadId, account.providerAccountId),
         queryFn: async (): Promise<GmailThreadDetail> => {
           const token = await getOAuthToken(account);
           return fetchGmailThreadDetail(token, threadId);
         },
         ...persistedStaleWhileRevalidateQueryOptions,
-      });
+      }).catch(() => {});
     },
     [queryClient],
   );

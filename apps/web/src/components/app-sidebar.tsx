@@ -1,7 +1,8 @@
+import type { ComponentProps } from "react";
 import { useState, useCallback, useEffect } from "react";
 
 import { Badge } from "@g-spot/ui/components/badge";
-import { Button } from "@g-spot/ui/components/button";
+import { Button, buttonVariants } from "@g-spot/ui/components/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@g-spot/ui/components/collapsible";
 import { ScrollArea } from "@g-spot/ui/components/scroll-area";
 import { Separator } from "@g-spot/ui/components/separator";
@@ -9,12 +10,34 @@ import { Skeleton } from "@g-spot/ui/components/skeleton";
 import { cn } from "@g-spot/ui/lib/utils";
 import { useUser } from "@stackframe/react";
 import { Link, useNavigate, useParams, useRouterState } from "@tanstack/react-router";
-import { LogIn, Plus, GripVertical, Pencil, BotIcon, ChevronRight, Trash2 } from "lucide-react";
+import {
+  LogIn,
+  Plus,
+  GripVertical,
+  Pencil,
+  BotIcon,
+  ChevronRight,
+  Trash2,
+  SlidersHorizontal,
+  ChevronsLeft,
+  SparklesIcon,
+  FolderIcon,
+} from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@g-spot/ui/components/dropdown-menu";
 import { useDrafts } from "@/contexts/drafts-context";
 import { useSectionCounts } from "@/contexts/section-counts-context";
-import { ChatSidebarSettings } from "@/components/chat/chat-sidebar-settings";
-import { useChats, useDeleteChatMutation } from "@/hooks/use-chat-data";
-import { useInfiniteScroll } from "@/hooks/use-infinite-scroll";
+import { useDeleteChatMutation } from "@/hooks/use-chat-data";
+import { useProjects } from "@/hooks/use-projects";
+import { SidebarProjectItem } from "@/components/projects/sidebar-project-item";
+import { getLastProjectId, setLastProjectId } from "@/lib/active-project";
 import {
   DndContext,
   closestCenter,
@@ -35,6 +58,10 @@ import { NavUser } from "./nav-user";
 import { ThemePicker } from "./tweakcn-theme-picker";
 import { SectionBuilder } from "./inbox/section-builder";
 import { useReorderSectionsMutation, useSections } from "@/hooks/use-sections";
+
+type AppSidebarProps = {
+  onToggleCollapse?: ComponentProps<typeof Button>["onClick"];
+};
 
 function SortableSectionItem({
   section,
@@ -60,24 +87,22 @@ function SortableSectionItem({
   };
 
   return (
-    <a
+    <Link
       ref={setNodeRef}
       style={style}
-      href={`#section-${section.id}`}
+      to="/"
+      hash={`section-${section.id}`}
       className={cn(
-        "group flex min-w-0 items-center gap-1 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-sidebar-accent",
+        "group flex min-w-0 touch-none items-center gap-1 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-sidebar-accent active:cursor-grabbing",
         isDragging && "z-50 opacity-50",
       )}
       {...attributes}
+      {...listeners}
     >
-      <button
-        type="button"
-        className="shrink-0 cursor-grab touch-none text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 active:cursor-grabbing"
-        {...listeners}
-        onClick={(e) => e.preventDefault()}
-      >
-        <GripVertical className="size-3" />
-      </button>
+      <GripVertical
+        aria-hidden
+        className="size-3 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
+      />
       <div className="min-w-0 flex-1">
         <span className="block w-full min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
           {section.name}
@@ -91,11 +116,11 @@ function SortableSectionItem({
           {count}
         </Badge>
       )}
-    </a>
+    </Link>
   );
 }
 
-export function AppSidebar() {
+export function AppSidebar({ onToggleCollapse }: AppSidebarProps) {
   const user = useUser();
   const { data: sections, isLoading } = useSections();
   const [builderOpen, setBuilderOpen] = useState(false);
@@ -104,28 +129,63 @@ export function AppSidebar() {
   const { counts: sectionCounts } = useSectionCounts();
   const accounts = user?.useConnectedAccounts();
 
-  const {
-    data: chatsData,
-    isLoading: chatsLoading,
-    hasNextPage: hasMoreChats,
-    fetchNextPage: fetchMoreChats,
-    isFetchingNextPage: isFetchingMoreChats,
-  } = useChats();
-  const deleteChat = useDeleteChatMutation();
   const navigate = useNavigate();
   const routerState = useRouterState();
-  const isOnChat = routerState.location.pathname.startsWith("/chat");
+  const pathname = routerState.location.pathname;
+  const isOnChat = pathname.startsWith("/chat") || pathname.startsWith("/projects");
+  const isChatSettings = pathname === "/chat/settings";
   const [chatListOpen, setChatListOpen] = useState(isOnChat);
-  const [chatScrollContainer, setChatScrollContainer] = useState<HTMLDivElement | null>(null);
-  const params = useParams({ strict: false }) as { chatId?: string };
+  const params = useParams({ strict: false }) as {
+    chatId?: string;
+    projectId?: string;
+  };
   const activeChatId = params.chatId;
-  const chats = chatsData?.pages.flatMap((page) => page.chats) ?? [];
-  const chatSentinelRef = useInfiniteScroll({
-    hasNextPage: hasMoreChats ?? false,
-    isFetchingNextPage: isFetchingMoreChats,
-    fetchNextPage: () => void fetchMoreChats(),
-    root: chatScrollContainer,
-  });
+
+  // Active project: URL is the source of truth, fall back to last-used,
+  // then to the first project the user has. Used to highlight + auto-expand
+  // the matching project row.
+  const projectsQuery = useProjects();
+  const projects = projectsQuery.data ?? [];
+  const lastProjectId =
+    typeof window !== "undefined" ? getLastProjectId() : null;
+  const activeProjectId =
+    params.projectId ??
+    (lastProjectId && projects.find((p) => p.id === lastProjectId)?.id) ??
+    projects[0]?.id ??
+    null;
+
+  useEffect(() => {
+    if (params.projectId) {
+      setLastProjectId(params.projectId);
+    }
+  }, [params.projectId]);
+
+  // Track which project rows are expanded. The active project is added to the
+  // set automatically whenever it changes; user toggles are preserved.
+  const [openProjectIds, setOpenProjectIds] = useState<Set<string>>(
+    () => new Set(activeProjectId ? [activeProjectId] : []),
+  );
+
+  useEffect(() => {
+    if (!activeProjectId) return;
+    setOpenProjectIds((prev) => {
+      if (prev.has(activeProjectId)) return prev;
+      const next = new Set(prev);
+      next.add(activeProjectId);
+      return next;
+    });
+  }, [activeProjectId]);
+
+  const handleToggleProject = useCallback((projectId: string, open: boolean) => {
+    setOpenProjectIds((prev) => {
+      const next = new Set(prev);
+      if (open) next.add(projectId);
+      else next.delete(projectId);
+      return next;
+    });
+  }, []);
+
+  const deleteChat = useDeleteChatMutation();
 
   useEffect(() => {
     if (isOnChat) {
@@ -141,20 +201,19 @@ export function AppSidebar() {
     });
   }, [accounts, openDraft]);
 
-  const handleNewChat = useCallback(() => {
-    navigate({ to: "/chat" });
-  }, [navigate]);
-
   const handleDeleteChat = useCallback(
     (e: React.MouseEvent, chatId: string) => {
       e.preventDefault();
       e.stopPropagation();
       deleteChat.mutate(chatId);
-      if (activeChatId === chatId) {
-        navigate({ to: "/chat" });
+      if (activeChatId === chatId && activeProjectId) {
+        navigate({
+          to: "/projects/$projectId",
+          params: { projectId: activeProjectId },
+        });
       }
     },
-    [activeChatId, deleteChat, navigate],
+    [activeChatId, activeProjectId, deleteChat, navigate],
   );
 
   const sensors = useSensors(
@@ -185,13 +244,26 @@ export function AppSidebar() {
     <div className="flex h-full min-h-0 flex-col bg-sidebar text-sidebar-foreground">
       {/* Header */}
       <div className="border-b border-sidebar-border p-2">
-        <Link
-          to="/"
-          className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm font-semibold tracking-tight text-sidebar-foreground hover:bg-sidebar-accent"
-        >
-          <Logo className="size-5" />
-          <span>g-spot</span>
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            to="/"
+            className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-sm font-semibold tracking-tight text-sidebar-foreground hover:bg-sidebar-accent"
+          >
+            <Logo className="size-5 shrink-0" />
+            <span className="truncate">g-spot</span>
+          </Link>
+          {onToggleCollapse && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="shrink-0 text-muted-foreground hover:text-foreground"
+              onClick={onToggleCollapse}
+              aria-label="Collapse sidebar"
+            >
+              <ChevronsLeft className="size-4" />
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Compose button */}
@@ -278,55 +350,85 @@ export function AppSidebar() {
                 <BotIcon className="size-3 shrink-0" />
                 <span>AI Chat</span>
               </CollapsibleTrigger>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-6 shrink-0 text-muted-foreground hover:text-foreground"
-                onClick={handleNewChat}
-              >
-                <Plus className="size-3" />
-              </Button>
-              <ChatSidebarSettings />
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  className={cn(
+                    buttonVariants({ variant: "ghost", size: "icon-xs" }),
+                    "size-6 shrink-0 text-muted-foreground hover:text-foreground",
+                    isChatSettings && "bg-sidebar-accent text-sidebar-foreground",
+                  )}
+                  aria-label="AI Chat settings menu"
+                >
+                  <SlidersHorizontal className="size-3" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel>Pi agent</DropdownMenuLabel>
+                    <DropdownMenuItem render={<Link to="/chat/settings" />}>
+                      <SlidersHorizontal className="size-3.5" />
+                      Pi defaults
+                    </DropdownMenuItem>
+                    <DropdownMenuItem render={<Link to="/settings/skills" />}>
+                      <SparklesIcon className="size-3.5" />
+                      Global skills
+                    </DropdownMenuItem>
+                  </DropdownMenuGroup>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel>Projects</DropdownMenuLabel>
+                    <DropdownMenuItem render={<Link to="/projects" />}>
+                      <FolderIcon className="size-3.5" />
+                      All projects
+                    </DropdownMenuItem>
+                    <DropdownMenuItem render={<Link to="/projects/new" />}>
+                      <Plus className="size-3.5" />
+                      New project
+                    </DropdownMenuItem>
+                  </DropdownMenuGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
 
             <CollapsibleContent className="min-h-0 flex-1 pt-0.5">
-              <div
-                ref={setChatScrollContainer}
-                className="flex h-full min-h-0 flex-col gap-0.5 overflow-y-auto"
-              >
-                {chatsLoading &&
-                  Array.from({ length: 3 }).map((_, i) => (
-                    <Skeleton key={`chat-skel-${i}`} className="h-7 w-full rounded-md" />
-                  ))}
-
-                {chats.map((chat) => (
-                  <Link
-                    key={chat.id}
-                    to="/chat/$chatId"
-                    params={{ chatId: chat.id }}
-                    className={cn(
-                      "group flex min-w-0 items-center gap-1 rounded-md px-2 py-1.5 pl-7 text-xs transition-colors hover:bg-sidebar-accent",
-                      activeChatId === chat.id && "bg-sidebar-accent",
-                    )}
-                  >
-                    <span className="min-w-0 flex-1 truncate">{chat.title}</span>
-                    <button
-                      type="button"
-                      className="shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
-                      onClick={(e) => handleDeleteChat(e, chat.id)}
-                    >
-                      <Trash2 className="size-3.5" />
-                    </button>
-                  </Link>
-                ))}
-
-                {!chatsLoading && chats.length === 0 && (
-                  <p className="px-2 py-2 text-center text-xs text-muted-foreground">
-                    No chats yet
-                  </p>
+              <div className="flex h-full min-h-0 flex-col gap-0.5 overflow-y-auto pr-0.5">
+                {projectsQuery.isLoading && (
+                  <>
+                    <Skeleton className="mx-1 h-7 rounded-md" />
+                    <Skeleton className="mx-1 h-7 rounded-md" />
+                  </>
                 )}
 
-                {hasMoreChats && <div ref={chatSentinelRef} className="h-1 shrink-0" />}
+                {!projectsQuery.isLoading && projects.length === 0 && (
+                  <Link
+                    to="/projects/new"
+                    className="mx-1 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground"
+                  >
+                    <Plus className="size-3 shrink-0" />
+                    Create a project to start chatting
+                  </Link>
+                )}
+
+                {projects.map((project) => (
+                  <SidebarProjectItem
+                    key={project.id}
+                    project={project}
+                    isActiveProject={project.id === activeProjectId}
+                    activeChatId={activeChatId}
+                    isOpen={openProjectIds.has(project.id)}
+                    onToggle={(open) => handleToggleProject(project.id, open)}
+                    onDeleteChat={handleDeleteChat}
+                  />
+                ))}
+
+                {!projectsQuery.isLoading && projects.length > 0 && (
+                  <Link
+                    to="/projects/new"
+                    className="mx-1 mt-1 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground"
+                  >
+                    <Plus className="size-3 shrink-0" />
+                    New project
+                  </Link>
+                )}
               </div>
             </CollapsibleContent>
           </Collapsible>

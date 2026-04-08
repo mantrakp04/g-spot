@@ -2,9 +2,10 @@
 
 import { useControllableState } from "@radix-ui/react-use-controllable-state";
 import { cn } from "@g-spot/ui/lib/utils";
-import type { Experimental_TranscriptionResult as TranscriptionResult } from "ai";
 import type { ComponentProps, ReactNode } from "react";
 import { createContext, useCallback, useContext, useMemo } from "react";
+
+import type { Experimental_TranscriptionResult as TranscriptionResult } from "@/lib/chat-ui";
 
 type TranscriptionSegment = TranscriptionResult["segments"][number];
 

@@ -7,102 +7,77 @@ import {
   getChatMessages,
   listChats,
   replaceChatMessages,
-  saveChatMessage,
-  updateChatModel,
+  updateChatAgentConfig,
   updateChatTitle,
 } from "@g-spot/db/chat";
-import { generateText } from "ai";
 import { z } from "zod";
 
-import {
-  createOpenAIClient,
-  getOpenAICredentials,
-} from "../lib/openai";
+import type { PiChatHistoryMessage } from "@g-spot/types";
+import { piAgentConfigSchema } from "@g-spot/types";
+
 import { authedProcedure, router } from "../index";
+import { deserializePiMessages } from "../lib/pi-chat-messages";
+import { normalizePiAgentConfig, normalizeStoredChatAgentConfig } from "../lib/pi";
 
-function extractTranscriptText(
-  messages: Array<{
-    role: "system" | "user" | "assistant";
-    parts: unknown[];
-  }>,
+function withParsedAgentConfig<T extends { agentConfig?: string | null; model?: string }>(
+  chat: T,
 ) {
-  return messages
-    .map((message) => {
-      const text = message.parts
-        .flatMap((part) => {
-          if (
-            typeof part === "object" &&
-            part !== null &&
-            "type" in part &&
-            "text" in part &&
-            part.type === "text" &&
-            typeof part.text === "string"
-          ) {
-            return [part.text.trim()];
-          }
-
-          return [];
-        })
-        .filter(Boolean)
-        .join("\n");
-
-      return text ? `${message.role}: ${text}` : null;
-    })
-    .filter(Boolean)
-    .slice(-12)
-    .join("\n\n");
-}
-
-function sanitizeGeneratedTitle(text: string) {
-  return text
-    .split("\n")[0]
-    ?.trim()
-    .replace(/^["'`]+|["'`]+$/g, "")
-    .replace(/\s+/g, " ")
-    .slice(0, 80);
+  return {
+    ...chat,
+    agentConfig: normalizeStoredChatAgentConfig(chat),
+  };
 }
 
 export const chatRouter = router({
   list: authedProcedure
     .input(
-      z
-        .object({
-          limit: z.number().int().min(1).max(100).optional(),
-          cursor: z
-            .object({
-              updatedAt: z.string(),
-              id: z.string(),
-            })
-            .nullable()
-            .optional(),
-        })
-        .optional(),
+      z.object({
+        projectId: z.string().min(1),
+        limit: z.number().int().min(1).max(100).optional(),
+        cursor: z
+          .object({
+            updatedAt: z.string(),
+            id: z.string(),
+          })
+          .nullable()
+          .optional(),
+      }),
     )
     .query(async ({ ctx, input }) => {
-      return listChats(ctx.userId, input);
+      const page = await listChats(ctx.userId, input);
+      return {
+        ...page,
+        chats: page.chats.map((chat) => withParsedAgentConfig(chat)),
+      };
     }),
 
   get: authedProcedure
     .input(z.object({ chatId: z.string() }))
     .query(async ({ ctx, input }) => {
-      return getChat(ctx.userId, input.chatId);
+      const chat = await getChat(ctx.userId, input.chatId);
+      return chat ? withParsedAgentConfig(chat) : null;
     }),
 
   create: authedProcedure
     .input(
       z.object({
+        projectId: z.string().min(1),
         title: z.string().optional(),
         model: z.string().min(1).optional(),
-        initialMessage: z
-          .object({
-            id: z.string(),
-            message: z.string(),
-          })
-          .optional(),
+        agentConfig: piAgentConfigSchema.optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      return createChat(ctx.userId, input);
+      const agentConfig = input.agentConfig
+        ? normalizePiAgentConfig(input.agentConfig)
+        : undefined;
+
+      return createChat(ctx.userId, {
+        projectId: input.projectId,
+        title: input.title,
+        model: agentConfig?.modelId ?? input.model,
+        agentConfig: agentConfig ? JSON.stringify(agentConfig) : undefined,
+      });
     }),
 
   updateTitle: authedProcedure
@@ -114,7 +89,34 @@ export const chatRouter = router({
   updateModel: authedProcedure
     .input(z.object({ chatId: z.string(), model: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
-      await updateChatModel(ctx.userId, input.chatId, input.model);
+      const chat = await getChat(ctx.userId, input.chatId);
+      if (!chat) throw new Error("Chat not found");
+
+      const currentAgentConfig = withParsedAgentConfig(chat).agentConfig;
+      const nextAgentConfig = normalizePiAgentConfig(
+        Object.assign({}, currentAgentConfig, {
+          modelId: input.model,
+        }),
+      );
+
+      await updateChatAgentConfig(
+        ctx.userId,
+        input.chatId,
+        JSON.stringify(nextAgentConfig),
+        nextAgentConfig.modelId,
+      );
+    }),
+
+  updateAgentConfig: authedProcedure
+    .input(z.object({ chatId: z.string(), agentConfig: piAgentConfigSchema }))
+    .mutation(async ({ ctx, input }) => {
+      const nextAgentConfig = normalizePiAgentConfig(input.agentConfig);
+      await updateChatAgentConfig(
+        ctx.userId,
+        input.chatId,
+        JSON.stringify(nextAgentConfig),
+        nextAgentConfig.modelId,
+      );
     }),
 
   delete: authedProcedure
@@ -130,26 +132,13 @@ export const chatRouter = router({
       const chat = await getChat(ctx.userId, input.chatId);
       if (!chat) return [];
       const rows = await getChatMessages(input.chatId);
-      return rows.map((row) => ({
-        ...JSON.parse(row.message),
+      const messages = await deserializePiMessages(rows);
+      const history: PiChatHistoryMessage[] = messages.map((row) => ({
+        ...row.parsedMessage,
+        id: row.id,
         createdAt: row.createdAt,
       }));
-    }),
-
-  saveMessage: authedProcedure
-    .input(
-      z.object({
-        chatId: z.string(),
-        message: z.object({
-          id: z.string(),
-          message: z.string(), // JSON-serialized UIMessage
-        }),
-      }),
-    )
-    .mutation(async ({ ctx, input }) => {
-      const chat = await getChat(ctx.userId, input.chatId);
-      if (!chat) throw new Error("Chat not found");
-      await saveChatMessage(input.chatId, input.message);
+      return history;
     }),
 
   replaceMessages: authedProcedure
@@ -159,7 +148,7 @@ export const chatRouter = router({
         messages: z.array(
           z.object({
             id: z.string(),
-            message: z.string(),
+            message: z.string(), // JSON-serialized PI message
           }),
         ),
       }),
@@ -177,7 +166,7 @@ export const chatRouter = router({
         messages: z.array(
           z.object({
             id: z.string(),
-            message: z.string(),
+            message: z.string(), // JSON-serialized PI message
           }),
         ),
       }),
@@ -188,63 +177,12 @@ export const chatRouter = router({
 
       return forkChat(
         ctx.userId,
+        sourceChat.projectId,
         `${sourceChat.title} (fork)`,
         sourceChat.model,
+        sourceChat.agentConfig,
         input.messages,
       );
-    }),
-
-  generateTitle: authedProcedure
-    .input(
-      z.object({
-        chatId: z.string(),
-        model: z.string().min(1),
-        messages: z.array(
-          z.object({
-            role: z.enum(["system", "user", "assistant"]),
-            parts: z.array(z.unknown()),
-          }),
-        ),
-      }),
-    )
-    .mutation(async ({ ctx, input }) => {
-      const chat = await getChat(ctx.userId, input.chatId);
-      if (!chat) throw new Error("Chat not found");
-
-      const transcript = extractTranscriptText(input.messages);
-      if (!transcript) {
-        return { title: chat.title };
-      }
-
-      const credentials = await getOpenAICredentials(ctx.userId);
-      if (!credentials) {
-        throw new Error("OpenAI not connected");
-      }
-
-      const openai = createOpenAIClient(credentials);
-      const result = await generateText({
-        model: openai.responses(input.model),
-        system:
-          "Generate a short chat title. Return only the title in sentence case, no quotes, no markdown, and keep it under 8 words.",
-        prompt: transcript,
-        maxOutputTokens: 24,
-        providerOptions: {
-          openai: {
-            store: false,
-          },
-        },
-      });
-
-      const title = sanitizeGeneratedTitle(result.text);
-      if (!title) {
-        return { title: chat.title };
-      }
-
-      if (title !== chat.title) {
-        await updateChatTitle(ctx.userId, input.chatId, title);
-      }
-
-      return { title };
     }),
 
   deleteMessage: authedProcedure

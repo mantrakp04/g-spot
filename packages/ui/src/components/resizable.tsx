@@ -1,5 +1,4 @@
 "use client"
-
 import * as ResizablePrimitive from "react-resizable-panels"
 
 import { cn } from "@g-spot/ui/lib/utils"
@@ -47,4 +46,7 @@ function ResizableHandle({
   )
 }
 
+type ResizablePanelHandle = ResizablePrimitive.PanelImperativeHandle
+
 export { ResizableHandle, ResizablePanel, ResizablePanelGroup }
+export type { ResizablePanelHandle }

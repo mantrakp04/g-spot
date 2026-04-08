@@ -6,15 +6,32 @@ export const sectionsKeys = {
   list: () => trpc.sections.list.queryOptions().queryKey,
 };
 
-export const openaiKeys = {
-  status: () => ["openai-status"] as const,
+export const piKeys = {
+  catalog: () => ["pi", "catalog"] as const,
+  defaults: () => ["pi", "defaults"] as const,
+  credentials: () => ["pi", "credentials"] as const,
+  oauthSession: (sessionId: string | null) =>
+    ["pi", "oauth-session", sessionId ?? null] as const,
 };
 
 export const chatKeys = {
-  list: (input?: { limit?: number }) =>
+  list: (input?: { projectId?: string | null; limit?: number }) =>
     input ? (["chat", "list", input] as const) : (["chat", "list"] as const),
   detail: (chatId: string) => ["chat", "detail", chatId] as const,
   messages: (chatId: string) => ["chat", "messages", chatId] as const,
+};
+
+export const projectKeys = {
+  list: () => ["projects", "list"] as const,
+  detail: (projectId: string) => ["projects", "detail", projectId] as const,
+  chatCount: (projectId: string) =>
+    ["projects", "chat-count", projectId] as const,
+};
+
+export const skillsKeys = {
+  global: () => ["skills", "list", "global"] as const,
+  project: (projectId: string) => ["skills", "list", "project", projectId] as const,
+  detail: (skillId: string) => ["skills", "detail", skillId] as const,
 };
 
 export const googleKeys = {

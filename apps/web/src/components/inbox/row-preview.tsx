@@ -1,5 +1,6 @@
-import { cloneElement, useCallback, useRef, useState } from "react";
+import { cloneElement, useCallback, useEffect, useRef, useState } from "react";
 import type { HTMLAttributes, PointerEvent, ReactElement, ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 import {
   Avatar,
@@ -9,11 +10,6 @@ import {
   AvatarGroupCount,
 } from "@g-spot/ui/components/avatar";
 import { Badge } from "@g-spot/ui/components/badge";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@g-spot/ui/components/popover";
 import {
   Check,
   CircleCheck,
@@ -52,17 +48,132 @@ export function RowPreviewPopover({
   preview: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState({ top: 0, left: 0 });
   const previewBlockedRef = useRef(false);
+  const anchorElementRef = useRef<HTMLElement | null>(null);
+  const previewElementRef = useRef<HTMLDivElement | null>(null);
+  const openTimerRef = useRef<number | null>(null);
+  const closeTimerRef = useRef<number | null>(null);
+
+  const clearOpenTimer = useCallback(() => {
+    if (openTimerRef.current !== null) {
+      window.clearTimeout(openTimerRef.current);
+      openTimerRef.current = null;
+    }
+  }, []);
+
+  const clearCloseTimer = useCallback(() => {
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  }, []);
+
+  const updatePosition = useCallback(() => {
+    const anchorElement = anchorElementRef.current;
+    if (!anchorElement) return;
+
+    const anchorRect = anchorElement.getBoundingClientRect();
+    const previewWidth = previewElementRef.current?.offsetWidth ?? 320;
+    const previewHeight = previewElementRef.current?.offsetHeight ?? 240;
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    const left = Math.min(
+      Math.max(anchorRect.left, 8),
+      Math.max(8, viewportWidth - previewWidth - 8),
+    );
+
+    const preferredTop = anchorRect.bottom + 4;
+    const fallbackTop = anchorRect.top - previewHeight - 4;
+    const top =
+      preferredTop + previewHeight <= viewportHeight - 8
+        ? preferredTop
+        : Math.max(8, fallbackTop);
+
+    setPosition({ top, left });
+  }, []);
+
+  const closePreview = useCallback(() => {
+    clearOpenTimer();
+    clearCloseTimer();
+    setOpen(false);
+  }, [clearCloseTimer, clearOpenTimer]);
+
+  const scheduleClose = useCallback(() => {
+    clearOpenTimer();
+    clearCloseTimer();
+    closeTimerRef.current = window.setTimeout(() => {
+      setOpen(false);
+    }, 80);
+  }, [clearCloseTimer, clearOpenTimer]);
+
+  const scheduleOpen = useCallback(
+    (anchorElement: HTMLElement) => {
+      if (previewBlockedRef.current) return;
+
+      anchorElementRef.current = anchorElement;
+      clearOpenTimer();
+      clearCloseTimer();
+      openTimerRef.current = window.setTimeout(() => {
+        updatePosition();
+        setOpen(true);
+      }, 400);
+    },
+    [clearCloseTimer, clearOpenTimer, updatePosition],
+  );
 
   const handleBlockState = useCallback((target: EventTarget | null) => {
     const blocked = targetBlocksRowPreview(target);
     previewBlockedRef.current = blocked;
     if (blocked) {
-      setOpen(false);
+      closePreview();
     }
-  }, []);
+  }, [closePreview]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const handleWindowChange = () => {
+      updatePosition();
+    };
+
+    const frame = window.requestAnimationFrame(updatePosition);
+    window.addEventListener("resize", handleWindowChange);
+    window.addEventListener("scroll", handleWindowChange, true);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("resize", handleWindowChange);
+      window.removeEventListener("scroll", handleWindowChange, true);
+    };
+  }, [open, updatePosition]);
+
+  useEffect(() => () => {
+    clearOpenTimer();
+    clearCloseTimer();
+  }, [clearCloseTimer, clearOpenTimer]);
 
   const child = cloneElement(children, {
+    onPointerEnter: (event: PointerEvent<HTMLElement>) => {
+      handleBlockState(event.target);
+      if (!previewBlockedRef.current) {
+        scheduleOpen(event.currentTarget);
+      }
+      children.props.onPointerEnter?.(event);
+    },
+    onPointerLeave: (event: PointerEvent<HTMLElement>) => {
+      const nextTarget = event.relatedTarget;
+      if (
+        nextTarget instanceof Node &&
+        previewElementRef.current?.contains(nextTarget)
+      ) {
+        clearCloseTimer();
+      } else {
+        scheduleClose();
+      }
+      children.props.onPointerLeave?.(event);
+    },
     onPointerOverCapture: (event: PointerEvent<HTMLElement>) => {
       handleBlockState(event.target);
       children.props.onPointerOverCapture?.(event);
@@ -83,24 +194,37 @@ export function RowPreviewPopover({
   });
 
   return (
-    <Popover
-      open={open}
-      onOpenChange={(nextOpen) => {
-        if (nextOpen && previewBlockedRef.current) return;
-        setOpen(nextOpen);
-      }}
-    >
-      <PopoverTrigger openOnHover delay={400} render={child} />
-      <PopoverContent
-        side="bottom"
-        align="start"
-        sideOffset={4}
-        className="w-80 p-0"
-        onClick={(e: React.MouseEvent) => e.stopPropagation()}
-      >
-        {preview}
-      </PopoverContent>
-    </Popover>
+    <>
+      {child}
+      {open
+        ? createPortal(
+            <div
+              ref={previewElementRef}
+              className="fixed isolate z-50 w-80 bg-popover p-0 text-xs text-popover-foreground shadow-md ring-1 ring-foreground/10 outline-hidden"
+              style={{ top: position.top, left: position.left }}
+              onPointerEnter={() => {
+                clearCloseTimer();
+                clearOpenTimer();
+              }}
+              onPointerLeave={(event) => {
+                const nextTarget = event.relatedTarget;
+                if (
+                  nextTarget instanceof Node &&
+                  anchorElementRef.current?.contains(nextTarget)
+                ) {
+                  clearCloseTimer();
+                } else {
+                  scheduleClose();
+                }
+              }}
+              onClick={(event) => event.stopPropagation()}
+            >
+              {preview}
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
   );
 }
 

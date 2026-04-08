@@ -12,7 +12,7 @@ import {
   TabsTrigger,
 } from "@g-spot/ui/components/tabs";
 import { cn } from "@g-spot/ui/lib/utils";
-import type { ToolUIPart } from "ai";
+import type { ToolUIPart } from "@/lib/chat-ui";
 import { ChevronDownIcon, Code } from "lucide-react";
 import type { ComponentProps } from "react";
 

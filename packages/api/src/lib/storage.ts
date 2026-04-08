@@ -19,11 +19,12 @@ export async function putObject(
   body: Buffer | Uint8Array,
   contentType: string,
 ): Promise<void> {
+  const normalizedBody = Buffer.isBuffer(body) ? body : Buffer.from(body);
   await s3.send(
     new PutObjectCommand({
       Bucket: BUCKET,
       Key: key,
-      Body: body,
+      Body: normalizedBody,
       ContentType: contentType,
     }),
   );
@@ -47,6 +48,17 @@ export async function objectExists(key: string): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+export async function getObjectSize(key: string): Promise<number | null> {
+  try {
+    const result = await s3.send(
+      new HeadObjectCommand({ Bucket: BUCKET, Key: key }),
+    );
+    return result.ContentLength ?? null;
+  } catch {
+    return null;
   }
 }
 

@@ -1,9 +1,12 @@
 import { cors } from "@elysiajs/cors";
-import { handleChatStream } from "@g-spot/api/chat-stream";
+import {
+  handleChatStream,
+  handleChatStreamAbort,
+  handleChatStreamReconnect,
+} from "@g-spot/api/chat-stream";
 import { handleFileUpload, handleFileDownload } from "@g-spot/api/file-handler";
 import { createContext } from "@g-spot/api/context";
 import { appRouter } from "@g-spot/api/routers/index";
-import { handleOpenAIOAuthCallback } from "@g-spot/api/routers/openai";
 import { env } from "@g-spot/env/server";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { Elysia } from "elysia";
@@ -45,6 +48,17 @@ async function getValidatedFavicon(domain: string): Promise<ArrayBuffer | null> 
   return result;
 }
 
+function buildFallbackFavicon(domain: string): string {
+  const letter = (domain.match(/[a-z0-9]/i)?.[0] ?? "?").toUpperCase();
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="${domain}">
+  <rect width="64" height="64" rx="12" fill="#f3f4f6"/>
+  <rect x="4" y="4" width="56" height="56" rx="10" fill="#e5e7eb" stroke="#d1d5db"/>
+  <text x="32" y="41" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="28" font-weight="700" fill="#111827">${letter}</text>
+</svg>`;
+}
+
 // ── Main server (port 3000) ──
 
 export const app = new Elysia()
@@ -65,7 +79,14 @@ export const app = new Elysia()
   })
   .get("/api/favicon/:domain", async ({ params }) => {
     const buf = await getValidatedFavicon(params.domain);
-    if (!buf) return new Response(null, { status: 404 });
+    if (!buf) {
+      return new Response(buildFallbackFavicon(params.domain), {
+        headers: {
+          "content-type": "image/svg+xml; charset=utf-8",
+          "cache-control": "public, max-age=86400",
+        },
+      });
+    }
     return new Response(buf, {
       headers: {
         "content-type": "image/png",
@@ -74,21 +95,15 @@ export const app = new Elysia()
     });
   })
   .post("/api/chat", ({ request }) => handleChatStream(request))
+  .get("/api/chat/:chatId/stream", ({ params, request }) =>
+    handleChatStreamReconnect(request, params.chatId),
+  )
+  .delete("/api/chat/:chatId/stream", ({ params, request }) =>
+    handleChatStreamAbort(request, params.chatId),
+  )
   .post("/api/files/upload", ({ request }) => handleFileUpload(request))
   .get("/api/files/:fileId", ({ params }) => handleFileDownload(params.fileId))
   .get("/", () => "OK")
-  .listen(3000, () => {
-    console.log("Server is running on http://localhost:3000");
+  .listen(env.SERVER_PORT, () => {
+    console.log(`Server is running on http://${env.SERVER_HOST}:${env.SERVER_PORT}`);
   });
-
-// ── OpenAI OAuth callback server (port 1455) ──
-// The public Codex CLI client_id only allows redirect to localhost:1455/auth/callback.
-
-new Elysia()
-  .get("/auth/callback", ({ request }) => handleOpenAIOAuthCallback(request))
-  .get("/", () => "OK")
-  .listen(env.OPENAI_CALLBACK_PORT, () => {
-    console.log(
-      `OpenAI OAuth callback listening on http://${env.SERVER_HOST}:${env.OPENAI_CALLBACK_PORT}`,
-    );
-  }); 

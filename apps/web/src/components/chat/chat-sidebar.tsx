@@ -9,13 +9,14 @@ import { useChats, useDeleteChatMutation } from "@/hooks/use-chat-data";
 import { useInfiniteScroll } from "@/hooks/use-infinite-scroll";
 
 export function ChatSidebar() {
+  // TODO(chunk-3): pass the active project id once project routing lands.
   const {
     data,
     isLoading,
     hasNextPage,
     fetchNextPage,
     isFetchingNextPage,
-  } = useChats();
+  } = useChats(null);
   const deleteChat = useDeleteChatMutation();
   const navigate = useNavigate();
   const [scrollContainer, setScrollContainer] = useState<HTMLDivElement | null>(null);

@@ -1,9 +1,11 @@
 import { Skeleton } from "@g-spot/ui/components/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@g-spot/ui/components/tabs";
 import { env } from "@g-spot/env/web";
-import type { UIMessage } from "ai";
-import { DefaultChatTransport } from "ai";
-import { useChat } from "@ai-sdk/react";
+import type {
+  PiAgentConfig,
+  PiChatHistoryMessage,
+  PiSdkMessage,
+} from "@g-spot/types";
 import {
   PaperclipIcon,
   XIcon,
@@ -14,7 +16,9 @@ import {
   PenLineIcon,
 } from "lucide-react";
 import { nanoid } from "nanoid";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 
 import {
@@ -24,6 +28,7 @@ import {
 } from "@/components/ai-elements/conversation";
 import {
   PromptInput,
+  PromptInputProvider,
   PromptInputTextarea,
   PromptInputHeader,
   PromptInputFooter,
@@ -36,8 +41,14 @@ import {
   PromptInputSelectValue,
   PromptInputButton,
   usePromptInputAttachments,
+  usePromptInputController,
   type PromptInputMessage,
 } from "@/components/ai-elements/prompt-input";
+import {
+  SlashCommandPopover,
+  type SlashCommandPopoverHandle,
+} from "@/components/chat/slash-command-popover";
+import type { BuiltinHandlers } from "@/lib/slash-commands";
 
 import { ChatMessage } from "./chat-message";
 
@@ -73,23 +84,41 @@ const STARTER_PROMPTS: Record<StarterTabId, readonly string[]> = {
 import { stackClientApp } from "@/stack/client";
 import {
   useChatDetail,
-  useGenerateChatTitleMutation,
   useChatMessages,
   useCreateChatMutation,
   useForkChatMutation,
   useReplaceChatMessagesMutation,
-  useSaveChatMessageMutation,
-  useUpdateChatModelMutation,
+  useUpdateChatAgentConfigMutation,
 } from "@/hooks/use-chat-data";
 import {
-  CHAT_MODELS,
-  type ChatModelId,
-  DEFAULT_CHAT_MODEL,
-  useDefaultChatModelPreference,
-  useDefaultWorkerModelPreference,
-} from "@/hooks/use-chat-preferences";
+  usePiCatalog,
+  usePiDefaults,
+  useUpdatePiDefaultsMutation,
+} from "@/hooks/use-pi";
+import {
+  type ChatStatus,
+  type ChatStreamEvent,
+  type UIMessage,
+  type UIMessagePart,
+  applyPiToolResultToMessages,
+  getMessageText,
+  piHistoryToUiMessages,
+  piMessageToUiMessage,
+} from "@/lib/chat-ui";
+import { usePiChatStream } from "@/hooks/use-pi-chat-stream";
+import {
+  logChatDebug,
+  summarizeUiMessage,
+} from "@/lib/chat-debug";
+import {
+  areAgentConfigsEqual,
+  FALLBACK_PI_AGENT_CONFIG,
+  getModelValue,
+  normalizeAgentConfig,
+  THINKING_LEVEL_OPTIONS,
+} from "@/lib/pi-agent-config";
+import { chatKeys } from "@/lib/query-keys";
 import { consumePendingChatSubmission, setPendingChatSubmission } from "@/lib/pending-chat-submissions";
-import { useNavigate } from "@tanstack/react-router";
 
 /** Attach files button — must be a child of PromptInput to access attachments context */
 function AttachFilesButton() {
@@ -143,20 +172,105 @@ function AttachmentPreviews() {
 
 interface ChatViewProps {
   chatId?: string;
+  /**
+   * Project this chat belongs to (or, when `chatId` is omitted, the project
+   * that a freshly created chat will be assigned to).
+   */
+  projectId: string;
 }
 
-type ChatUiMessage = UIMessage & {
-  createdAt?: Date | string;
-};
+type ChatUiMessage = UIMessage;
+
+function stripHistoryMessage(message: PiChatHistoryMessage): PiSdkMessage {
+  const { id: _id, createdAt: _createdAt, ...persistedMessage } = message;
+  return persistedMessage;
+}
+
+function serializeHistoryMessage(message: PiChatHistoryMessage) {
+  return {
+    id: message.id,
+    message: JSON.stringify(stripHistoryMessage(message)),
+  };
+}
+
+function updatePersistedUserMessageText(
+  message: PiChatHistoryMessage,
+  newText: string,
+): PiChatHistoryMessage {
+  if (message.role !== "user") {
+    throw new Error("Only user messages can be edited");
+  }
+
+  const originalContent: Array<
+    | { type: "text"; text: string }
+    | { type: "image"; data: string; mimeType: string }
+  > = Array.isArray(message.content)
+    ? message.content
+    : typeof message.content === "string" && message.content.trim().length > 0
+      ? [{ type: "text", text: message.content }]
+      : [];
+
+  let replaced = false;
+  const nextContent: typeof originalContent = [];
+
+  for (const part of originalContent) {
+    if (part.type !== "text") {
+      nextContent.push(part);
+      continue;
+    }
+
+    if (replaced) {
+      continue;
+    }
+
+    replaced = true;
+    nextContent.push({ type: "text", text: newText });
+  }
+
+  if (!replaced) {
+    nextContent.unshift({ type: "text" as const, text: newText });
+  }
+
+  return {
+    ...message,
+    content: nextContent,
+  };
+}
+
+async function getChatHeaders() {
+  const user = await stackClientApp.getUser();
+  if (!user) {
+    return { "content-type": "application/json" } as Record<string, string>;
+  }
+
+  const { accessToken } = await user.getAuthJson();
+  return accessToken
+    ? ({
+        "content-type": "application/json",
+        "x-stack-access-token": accessToken,
+      } as Record<string, string>)
+    : ({ "content-type": "application/json" } as Record<string, string>);
+}
 
 /**
  * Outer wrapper: fetches DB messages, shows loading skeleton,
  * then mounts ChatViewInner only once data is ready.
  * This ensures useChat initializes with the actual messages.
  */
-export function ChatView({ chatId }: ChatViewProps) {
+export function ChatView({ chatId, projectId }: ChatViewProps) {
   const { data: chat, isLoading: isLoadingChat } = useChatDetail(chatId ?? "");
   const { data: dbMessages, isLoading: isLoadingMessages } = useChatMessages(chatId ?? "");
+
+  useEffect(() => {
+    logChatDebug("chat-view-query-state", {
+      chatId,
+      projectId,
+      isLoadingChat,
+      isLoadingMessages,
+      dbMessageCount: dbMessages?.length ?? 0,
+      hasPersistedAgentConfig: chat?.agentConfig != null,
+    });
+  }, [chat?.agentConfig, chatId, projectId, dbMessages?.length, isLoadingChat, isLoadingMessages]);
 
   if (chatId && (isLoadingChat || isLoadingMessages || !dbMessages)) {
     return (
@@ -172,9 +286,10 @@ export function ChatView({ chatId }: ChatViewProps) {
 
   return (
     <ChatViewInner
-      key={chatId ?? "draft"}
+      key={`${projectId}:${chatId ?? "draft"}`}
       chatId={chatId ?? null}
-      chatModel={chat?.model ?? null}
+      projectId={projectId}
+      chatAgentConfig={chat?.agentConfig ?? null}
       dbMessages={dbMessages ?? []}
     />
   );
@@ -182,99 +297,311 @@ export function ChatView({ chatId }: ChatViewProps) {
 
 interface ChatViewInnerProps {
   chatId: string | null;
-  chatModel: string | null;
-  dbMessages: { id: string; role: string; parts: unknown[]; createdAt: string }[];
+  projectId: string;
+  chatAgentConfig: PiAgentConfig | null;
+  dbMessages: PiChatHistoryMessage[];
 }
 
 function ChatViewInner({
   chatId,
-  chatModel,
+  projectId,
+  chatAgentConfig,
   dbMessages,
 }: ChatViewInnerProps) {
   const navigate = useNavigate();
-  const { defaultChatModel, setDefaultChatModel } = useDefaultChatModelPreference();
-  const { defaultWorkerModel } = useDefaultWorkerModelPreference();
+  const queryClient = useQueryClient();
+  const piCatalog = usePiCatalog();
+  const piDefaults = usePiDefaults();
   const createChat = useCreateChatMutation();
-  const saveMessage = useSaveChatMessageMutation();
-  const updateChatModel = useUpdateChatModelMutation();
-  const generateTitle = useGenerateChatTitleMutation();
+  const updateChatAgentConfig = useUpdateChatAgentConfigMutation();
+  const updatePiDefaults = useUpdatePiDefaultsMutation();
   const replaceMessages = useReplaceChatMessagesMutation();
   const forkChat = useForkChatMutation();
   const isDraft = chatId === null;
-  const persistedChatModel = useMemo(
+  const allModels = piCatalog.data?.models ?? [];
+  const draftDefaultConfig = useMemo(
     () =>
-      chatModel && CHAT_MODELS.some((candidate) => candidate.id === chatModel)
-        ? (chatModel as ChatModelId)
-        : DEFAULT_CHAT_MODEL,
-    [chatModel],
+      normalizeAgentConfig(
+        piDefaults.data?.chat ?? FALLBACK_PI_AGENT_CONFIG,
+        allModels,
+      ),
+    [allModels, piDefaults.data?.chat],
   );
-  const [model, setModel] = useState<ChatModelId>(
-    isDraft ? defaultChatModel : persistedChatModel,
+  const draftWorkerDefaultConfig = useMemo(
+    () =>
+      normalizeAgentConfig(
+        piDefaults.data?.worker ?? FALLBACK_PI_AGENT_CONFIG,
+        allModels,
+      ),
+    [allModels, piDefaults.data?.worker],
   );
+  const persistedAgentConfig = useMemo(
+    () =>
+      normalizeAgentConfig(
+        chatAgentConfig ?? FALLBACK_PI_AGENT_CONFIG,
+        allModels,
+      ),
+    [allModels, chatAgentConfig],
+  );
+  const [agentConfig, setAgentConfig] = useState<PiAgentConfig>(
+    isDraft ? draftDefaultConfig : persistedAgentConfig,
+  );
+  const lastAppliedDraftConfigRef = useRef<PiAgentConfig | null>(null);
 
   useEffect(() => {
     if (isDraft) {
-      setModel(defaultChatModel);
+      setAgentConfig((current) => {
+        const shouldSync =
+          lastAppliedDraftConfigRef.current === null ||
+          areAgentConfigsEqual(current, lastAppliedDraftConfigRef.current);
+
+        lastAppliedDraftConfigRef.current = draftDefaultConfig;
+
+        if (!shouldSync) {
+          return current;
+        }
+
+        logChatDebug("agent-config-sync", {
+          source: "draft-defaults",
+          chatId,
+          agentConfig: draftDefaultConfig,
+        });
+
+        return draftDefaultConfig;
+      });
       return;
     }
 
-    setModel(persistedChatModel);
-  }, [defaultChatModel, isDraft, persistedChatModel]);
+    lastAppliedDraftConfigRef.current = null;
+    setAgentConfig(persistedAgentConfig);
+    logChatDebug("agent-config-sync", {
+      source: "persisted-chat",
+      chatId,
+      agentConfig: persistedAgentConfig,
+    });
+  }, [draftDefaultConfig, isDraft, persistedAgentConfig]);
 
   const initialMessages = useMemo<ChatUiMessage[]>(
-    () =>
-      dbMessages.map((m) => ({
-        id: m.id,
-        role: m.role as UIMessage["role"],
-        parts: m.parts as UIMessage["parts"],
-        createdAt: new Date(m.createdAt),
-      })),
+    () => piHistoryToUiMessages(dbMessages),
     [dbMessages],
   );
-
-  const transport = useMemo(
-    () =>
-      new DefaultChatTransport({
-        api: `${env.VITE_SERVER_URL}/api/chat`,
-        headers: async () => {
-          const user = await stackClientApp.getUser();
-          if (!user) return {} as Record<string, string>;
-          const { accessToken } = await user.getAuthJson();
-          return accessToken
-            ? ({ "x-stack-access-token": accessToken } as Record<string, string>)
-            : ({} as Record<string, string>);
-        },
-        body: () => ({ chatId: chatId ?? "", model }),
-      }),
-    [chatId, model],
+  const persistedMessagesById = useMemo(
+    () => new Map(dbMessages.map((message) => [message.id, message])),
+    [dbMessages],
   );
+  const [messages, setMessages] = useState<ChatUiMessage[]>(initialMessages);
+  const streamingAssistantIdRef = useRef<string | null>(null);
+  const streamingAssistantCountRef = useRef(0);
 
-  const { messages, sendMessage, regenerate, stop, status } = useChat<ChatUiMessage>({
-    id: chatId ?? "draft",
-    transport,
-    messages: initialMessages,
-    onFinish: ({ messages: nextMessages, isAbort, isDisconnect, isError }) => {
-      if (isAbort || isDisconnect || isError || !chatId) {
+  /**
+   * Translate a single SSE event from the server into UI message state.
+   * Used by both fresh POST streams and reconnect-replay streams. The
+   * `isReconnect` flag controls whether buffered user messages are
+   * materialized (POST already added them optimistically; reconnect did not).
+   */
+  const handleStreamEvent = useCallback(
+    (event: ChatStreamEvent, ctx: { isReconnect: boolean }) => {
+      logChatDebug("stream-event", {
+        chatId,
+        eventType: event.type,
+        isReconnect: ctx.isReconnect,
+        event,
+      });
+
+      if (
+        event.type !== "message_start" &&
+        event.type !== "message_update" &&
+        event.type !== "message_end"
+      ) {
         return;
       }
 
-      void generateTitle
-        .mutateAsync({
-          chatId,
-          model: defaultWorkerModel,
-          messages: nextMessages.map((message) => ({
-            role: message.role,
-            parts: message.parts,
-          })),
-        })
-        .catch(() => {
-          // Title refresh is best-effort and should never block the chat flow.
+      const streamMessage = event.message as PiSdkMessage;
+
+      if (streamMessage.role === "user") {
+        // POST path adds the user bubble optimistically before the stream
+        // starts, so buffered user events would be duplicates. On reconnect
+        // there is no optimistic add, so we materialize them on message_end
+        // and dedupe by text content against current state.
+        if (!ctx.isReconnect || event.type !== "message_end") {
+          return;
+        }
+
+        const replayedUi = piMessageToUiMessage(streamMessage, nanoid());
+        if (!replayedUi) {
+          return;
+        }
+
+        const replayedText = getMessageText(replayedUi);
+        setMessages((current) => {
+          const alreadyPresent = current.some(
+            (m) => m.role === "user" && getMessageText(m) === replayedText,
+          );
+          if (alreadyPresent) {
+            return current;
+          }
+          return [...current, replayedUi];
         });
+        return;
+      }
+
+      if (streamMessage.role === "toolResult") {
+        // Tool results never become their own bubble — fold them into the
+        // matching tool call on the prior assistant message. Only act on
+        // message_end so we don't thrash on partials.
+        if (event.type !== "message_end") {
+          return;
+        }
+
+        logChatDebug("tool-result-applied", {
+          chatId,
+          toolCallId: streamMessage.toolCallId,
+          toolName: streamMessage.toolName,
+          isError: streamMessage.isError,
+        });
+
+        setMessages((current) =>
+          applyPiToolResultToMessages(current, streamMessage),
+        );
+        return;
+      }
+
+      if (event.type === "message_start") {
+        streamingAssistantCountRef.current += 1;
+        streamingAssistantIdRef.current = `${chatId ?? "draft"}-stream-${streamingAssistantCountRef.current}`;
+      }
+
+      const assistantMessageId =
+        streamingAssistantIdRef.current ??
+        `${chatId ?? "draft"}-stream-${streamingAssistantCountRef.current || 1}`;
+
+      const assistantMessage = piMessageToUiMessage(
+        streamMessage,
+        assistantMessageId,
+        { streaming: event.type !== "message_end" },
+      );
+
+      if (!assistantMessage) {
+        return;
+      }
+
+      logChatDebug(
+        event.type === "message_end"
+          ? "assistant-message-produced"
+          : "assistant-message-streaming",
+        {
+          chatId,
+          eventType: event.type,
+          assistantMessage: summarizeUiMessage(assistantMessage),
+        },
+      );
+
+      setMessages((current) => {
+        const existingIndex = current.findIndex(
+          (message) => message.id === assistantMessageId,
+        );
+
+        if (existingIndex === -1) {
+          return [...current, assistantMessage];
+        }
+
+        const next = [...current];
+        next[existingIndex] = assistantMessage;
+        return next;
+      });
+
+      if (event.type === "message_end") {
+        streamingAssistantIdRef.current = null;
+      }
+    },
+    [chatId],
+  );
+
+  // Destructure individual values: each callback inside the hook is wrapped
+  // in `useCallback` with stable deps, so referencing them directly (instead
+  // of `piStream.x`) gives the surrounding effects/callbacks stable
+  // dependency identities and avoids re-running on every render.
+  const {
+    status,
+    isActive: isStreamActive,
+    startStream: hookStartStream,
+    attachToExistingStream,
+    stopEverywhere,
+  } = usePiChatStream({
+    chatId,
+    serverUrl: env.VITE_SERVER_URL,
+    getHeaders: getChatHeaders,
+    onEvent: handleStreamEvent,
+    onError: (err) => {
+      streamingAssistantIdRef.current = null;
+      streamingAssistantCountRef.current = 0;
+      toast.error(err.message);
+    },
+    onStreamComplete: (id) => {
+      streamingAssistantIdRef.current = null;
+      streamingAssistantCountRef.current = 0;
+      void queryClient.invalidateQueries({
+        queryKey: chatKeys.messages(id),
+      });
     },
   });
 
   useEffect(() => {
-    if (!chatId || dbMessages.length === 0) {
+    if (isStreamActive) {
+      // While a stream is active (POST or reconnect), the stream is the
+      // source of truth for the tail of the conversation. Re-running DB
+      // hydration here would clobber the in-progress assistant bubble.
+      return;
+    }
+    setMessages(initialMessages);
+    logChatDebug("messages-hydrated-from-db", {
+      chatId,
+      dbMessageCount: dbMessages.length,
+      initialMessages: initialMessages.map(summarizeUiMessage),
+    });
+  }, [initialMessages, isStreamActive]);
+
+  useEffect(() => {
+    logChatDebug("messages-state", {
+      chatId,
+      status,
+      messageCount: messages.length,
+      messages: messages.map(summarizeUiMessage),
+    });
+  }, [chatId, messages, status]);
+
+  const stop = useCallback(() => {
+    streamingAssistantIdRef.current = null;
+    streamingAssistantCountRef.current = 0;
+    logChatDebug("stream-stop", { chatId });
+    void stopEverywhere();
+  }, [chatId, stopEverywhere]);
+
+  /**
+   * Start a fresh POST stream, optimistically appending the user message.
+   * Mirrors the old `streamResponse` callback but delegates the network /
+   * SSE lifecycle to `usePiChatStream`.
+   */
+  const startStream = useCallback(
+    async (userMessage: ChatUiMessage) => {
+      streamingAssistantIdRef.current = null;
+      streamingAssistantCountRef.current = 0;
+
+      setMessages((current) =>
+        current.some((message) => message.id === userMessage.id)
+          ? current
+          : [...current, userMessage],
+      );
+
+      await hookStartStream(userMessage);
+    },
+    [hookStartStream],
+  );
+
+  // Pending submission: if we navigated here from a draft submit, kick off
+  // the POST. Runs before the reconnect probe via effect ordering.
+  useEffect(() => {
+    if (!chatId) {
       return;
     }
 
@@ -283,31 +610,45 @@ function ChatViewInner({
       return;
     }
 
-    if (!dbMessages.some((message) => message.id === pendingSubmission.messageId)) {
+    logChatDebug("pending-submission-found", {
+      chatId,
+      pendingSubmission,
+    });
+
+    void startStream({
+      id: pendingSubmission.messageId,
+      role: "user",
+      parts: pendingSubmission.parts,
+      createdAt: new Date().toISOString(),
+    });
+  }, [chatId, startStream]);
+
+  // Reconnect probe: on mount (or chatId change), check whether the server
+  // still has an active run for this chat and reattach to its buffered
+  // event stream. The probe early-returns inside the hook if a POST has
+  // already started in the same render cycle, so this is race-safe.
+  useEffect(() => {
+    if (!chatId) {
       return;
     }
 
-    void sendMessage({
-      messageId: pendingSubmission.messageId,
-      parts: pendingSubmission.parts,
-    });
-  }, [chatId, dbMessages, sendMessage]);
+    let cancelled = false;
+    void (async () => {
+      try {
+        const attached = await attachToExistingStream();
+        if (cancelled) {
+          return;
+        }
+        logChatDebug("reconnect-probe", { chatId, attached });
+      } catch (err) {
+        logChatDebug("reconnect-probe-error", { chatId, error: err });
+      }
+    })();
 
-  const serializeMessage = useCallback(
-    (message: ChatUiMessage) => ({
-      id: message.id,
-      message: JSON.stringify({
-        ...message,
-        createdAt:
-          message.createdAt instanceof Date
-            ? message.createdAt.toISOString()
-            : typeof message.createdAt === "string"
-              ? message.createdAt
-              : new Date().toISOString(),
-      }),
-    }),
-    [],
-  );
+    return () => {
+      cancelled = true;
+    };
+  }, [chatId, attachToExistingStream]);
 
   const handleSubmit = useCallback(
     async (message: PromptInputMessage) => {
@@ -328,13 +669,17 @@ function ChatViewInner({
         createdAt: new Date().toISOString(),
       };
 
+      logChatDebug("submit", {
+        chatId,
+        isDraft,
+        agentConfig,
+        message: summarizeUiMessage(userMsg),
+      });
+
       if (isDraft) {
         const nextChat = await createChat.mutateAsync({
-          model,
-          initialMessage: {
-            id: userMsgId,
-            message: JSON.stringify(userMsg),
-          },
+          projectId,
+          agentConfig,
         });
 
         setPendingChatSubmission(nextChat.id, {
@@ -342,9 +687,14 @@ function ChatViewInner({
           parts,
         });
 
+        logChatDebug("draft-chat-created", {
+          nextChatId: nextChat.id,
+          pendingMessageId: userMsgId,
+        });
+
         navigate({
-          to: "/chat/$chatId",
-          params: { chatId: nextChat.id },
+          to: "/projects/$projectId/chat/$chatId",
+          params: { projectId, chatId: nextChat.id },
         });
         return;
       }
@@ -352,21 +702,9 @@ function ChatViewInner({
       if (!chatId) {
         return;
       }
-
-      saveMessage.mutate({
-        chatId,
-        message: {
-          id: userMsgId,
-          message: JSON.stringify(userMsg),
-        },
-      });
-
-      await sendMessage({
-        text: message.text,
-        files: message.files,
-      });
+      await startStream(userMsg);
     },
-    [chatId, createChat, isDraft, model, navigate, saveMessage, sendMessage],
+    [agentConfig, chatId, createChat, isDraft, navigate, projectId, startStream],
   );
 
   /** Edit a user message, persist the new branch, then resubmit from that point. */
@@ -413,17 +751,50 @@ function ChatViewInner({
             : message,
         );
 
-      await replaceMessages.mutateAsync({
+      const persistedMessage = persistedMessagesById.get(messageToEdit.id);
+      if (!persistedMessage) {
+        toast.error("Chat history is still syncing. Try again.");
+        return;
+      }
+
+      try {
+        await replaceMessages.mutateAsync({
+          chatId,
+          messages: nextMessages.map((message) => {
+            if (message.id === messageToEdit.id) {
+              return serializeHistoryMessage(
+                updatePersistedUserMessageText(persistedMessage, newText),
+              );
+            }
+
+            const persisted = persistedMessagesById.get(message.id);
+            if (!persisted) {
+              throw new Error(`Missing persisted message ${message.id}`);
+            }
+
+            return serializeHistoryMessage(persisted);
+          }),
+        });
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Could not update chat history",
+        );
+        return;
+      }
+
+      logChatDebug("message-edited", {
         chatId,
-        messages: nextMessages.map(serializeMessage),
+        editedMessageId: messageToEdit.id,
+        nextMessages: nextMessages.map(summarizeUiMessage),
       });
 
-      await sendMessage({
+      setMessages(nextMessages);
+      await startStream({
+        ...messageToEdit,
         parts: nextParts,
-        messageId: messageToEdit.id,
       });
     },
-    [chatId, messages, replaceMessages, sendMessage, serializeMessage],
+    [chatId, messages, persistedMessagesById, replaceMessages, startStream],
   );
 
   /** Regenerate any assistant message by its id */
@@ -438,14 +809,43 @@ function ChatViewInner({
         return;
       }
 
-      await replaceMessages.mutateAsync({
+      try {
+        await replaceMessages.mutateAsync({
+          chatId,
+          messages: messages.slice(0, messageIndex).map((message) => {
+            const persisted = persistedMessagesById.get(message.id);
+            if (!persisted) {
+              throw new Error(`Missing persisted message ${message.id}`);
+            }
+
+            return serializeHistoryMessage(persisted);
+          }),
+        });
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Could not update chat history",
+        );
+        return;
+      }
+
+      logChatDebug("message-regenerated", {
         chatId,
-        messages: messages.slice(0, messageIndex).map(serializeMessage),
+        messageId,
+        retainedMessageCount: messageIndex,
       });
 
-      await regenerate({ messageId });
+      const nextMessages = messages.slice(0, messageIndex);
+      const triggerMessage = [...nextMessages]
+        .reverse()
+        .find((message) => message.role === "user");
+      if (!triggerMessage) {
+        return;
+      }
+
+      setMessages(nextMessages);
+      await startStream(triggerMessage);
     },
-    [chatId, messages, regenerate, replaceMessages, serializeMessage],
+    [chatId, messages, persistedMessagesById, replaceMessages, startStream],
   );
 
   /** Fork into a new chat seeded with the conversation through this message */
@@ -455,28 +855,63 @@ function ChatViewInner({
         return;
       }
 
-      const nextChat = await forkChat.mutateAsync({
-        chatId,
-        messages: messages.slice(0, index + 1).map(serializeMessage),
+      let nextChat;
+      try {
+        nextChat = await forkChat.mutateAsync({
+          chatId,
+          messages: messages.slice(0, index + 1).map((message) => {
+            const persisted = persistedMessagesById.get(message.id);
+            if (!persisted) {
+              throw new Error(`Missing persisted message ${message.id}`);
+            }
+
+            return serializeHistoryMessage(persisted);
+          }),
+        });
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Could not fork chat",
+        );
+        return;
+      }
+
+      logChatDebug("chat-forked", {
+        sourceChatId: chatId,
+        nextChatId: nextChat.id,
+        retainedMessageCount: index + 1,
       });
 
       navigate({
-        to: "/chat/$chatId",
-        params: { chatId: nextChat.id },
+        to: "/projects/$projectId/chat/$chatId",
+        params: { projectId, chatId: nextChat.id },
       });
     },
-    [chatId, forkChat, messages, navigate, serializeMessage],
+    [chatId, forkChat, messages, navigate, persistedMessagesById, projectId],
   );
 
   const handleModelChange = useCallback(
     async (nextValue: string) => {
-      const nextModel = nextValue as ChatModelId;
-      const previousModel = model;
-      setModel(nextModel);
+      const nextModel = allModels.find((model) => getModelValue(model) === nextValue);
+      if (!nextModel) {
+        return;
+      }
+
+      const nextAgentConfig = {
+        ...agentConfig,
+        provider: nextModel.provider,
+        modelId: nextModel.id,
+      };
+      const previousAgentConfig = agentConfig;
+      setAgentConfig(nextAgentConfig);
+      logChatDebug("model-change", {
+        chatId,
+        previousAgentConfig,
+        nextAgentConfig,
+        isDraft,
+      });
 
       try {
         if (isDraft) {
-          await setDefaultChatModel(nextModel);
           return;
         }
 
@@ -484,25 +919,141 @@ function ChatViewInner({
           return;
         }
 
-        await updateChatModel.mutateAsync({
+        await updateChatAgentConfig.mutateAsync({
           chatId,
-          model: nextModel,
+          agentConfig: nextAgentConfig,
         });
       } catch (error) {
-        setModel(previousModel);
+        setAgentConfig(previousAgentConfig);
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Could not save chat model",
+        );
+      }
+    },
+    [agentConfig, allModels, chatId, isDraft, updateChatAgentConfig],
+  );
+
+  const handleThinkingLevelChange = useCallback(
+    async (thinkingLevel: PiAgentConfig["thinkingLevel"]) => {
+      const nextAgentConfig = {
+        ...agentConfig,
+        thinkingLevel,
+      };
+      const previousAgentConfig = agentConfig;
+
+      setAgentConfig(nextAgentConfig);
+      logChatDebug("thinking-level-change", {
+        chatId,
+        previousAgentConfig,
+        nextAgentConfig,
+        isDraft,
+      });
+
+      try {
+        if (isDraft) {
+          await updatePiDefaults.mutateAsync({
+            chat: {
+              ...draftDefaultConfig,
+              thinkingLevel,
+            },
+            worker: {
+              ...draftWorkerDefaultConfig,
+              thinkingLevel,
+            },
+          });
+          return;
+        }
+
+        if (!chatId) {
+          return;
+        }
+
+        await updateChatAgentConfig.mutateAsync({
+          chatId,
+          agentConfig: nextAgentConfig,
+        });
+      } catch (error) {
+        setAgentConfig(previousAgentConfig);
         toast.error(
           error instanceof Error
             ? error.message
             : isDraft
-              ? "Could not save default chat model"
-              : "Could not save chat model",
+              ? "Could not save default reasoning effort"
+              : "Could not save chat reasoning effort",
         );
       }
     },
-    [chatId, isDraft, model, setDefaultChatModel, updateChatModel],
+    [
+      agentConfig,
+      chatId,
+      draftDefaultConfig,
+      draftWorkerDefaultConfig,
+      isDraft,
+      updateChatAgentConfig,
+      updatePiDefaults,
+    ],
   );
 
   const isStreaming = status === "streaming" || status === "submitted";
+
+  /**
+   * Multi-turn agent responses produce one PiSdkMessage per turn (thinking +
+   * tool calls, then thinking + more tool calls, then the final text). Render
+   * them as a single continuous bubble so users see one assistant response,
+   * not five fragmented ones. We still keep the underlying `messages` array
+   * intact so action handlers (regenerate/fork/edit) can map back to the real
+   * persisted messages by index.
+   */
+  const displayMessages = useMemo(() => {
+    type DisplayMessage = {
+      message: ChatUiMessage;
+      firstIndex: number;
+      lastIndex: number;
+    };
+
+    const result: DisplayMessage[] = [];
+    let i = 0;
+
+    while (i < messages.length) {
+      const msg = messages[i]!;
+
+      if (msg.role !== "assistant") {
+        result.push({ message: msg, firstIndex: i, lastIndex: i });
+        i++;
+        continue;
+      }
+
+      const firstIndex = i;
+      let lastIndex = i;
+      const mergedParts: UIMessagePart[] = [...msg.parts];
+      i++;
+
+      while (i < messages.length && messages[i]!.role === "assistant") {
+        mergedParts.push({ type: "step-start" });
+        mergedParts.push(...messages[i]!.parts);
+        lastIndex = i;
+        i++;
+      }
+
+      result.push({
+        message:
+          firstIndex === lastIndex
+            ? msg
+            : {
+                id: msg.id,
+                role: "assistant",
+                parts: mergedParts,
+                createdAt: msg.createdAt,
+              },
+        firstIndex,
+        lastIndex,
+      });
+    }
+
+    return result;
+  }, [messages]);
 
   return (
     <div className="relative flex h-full min-h-0 flex-col bg-background">
@@ -572,11 +1123,11 @@ function ChatViewInner({
             </div>
           )}
 
-          {messages.map((msg: UIMessage, i: number) => (
+          {displayMessages.map(({ message: msg, firstIndex, lastIndex }) => (
             <ChatMessage
               key={msg.id}
               message={msg}
-              isStreaming={isStreaming && i === messages.length - 1}
+              isStreaming={isStreaming && lastIndex === messages.length - 1}
               status={status}
               onReload={
                 msg.role === "assistant"
@@ -588,12 +1139,12 @@ function ChatViewInner({
               onEdit={
                 msg.role === "user"
                   ? (newText: string) => {
-                      void handleEdit(i, newText);
+                      void handleEdit(firstIndex, newText);
                     }
                   : undefined
               }
               onFork={() => {
-                void handleFork(i);
+                void handleFork(lastIndex);
               }}
             />
           ))}
@@ -604,37 +1155,165 @@ function ChatViewInner({
 
       <div className="bg-background/80 backdrop-blur-md">
         <div className="mx-auto w-full max-w-2xl px-4 py-3">
-          <PromptInput onSubmit={handleSubmit}>
-            <AttachmentPreviews />
-            <PromptInputTextarea placeholder="Message..." />
-            <PromptInputFooter>
-              <PromptInputTools>
-                <AttachFilesButton />
-
-                <PromptInputSelect
-                  value={model}
-                  onValueChange={(value) => {
-                    void handleModelChange(value as string);
-                  }}
-                >
-                  <PromptInputSelectTrigger className="h-7 w-auto gap-1.5 rounded-md px-2 text-xs">
-                    <PromptInputSelectValue />
-                  </PromptInputSelectTrigger>
-                  <PromptInputSelectContent>
-                    {CHAT_MODELS.map((m) => (
-                      <PromptInputSelectItem key={m.id} value={m.id}>
-                        {m.label}
-                      </PromptInputSelectItem>
-                    ))}
-                  </PromptInputSelectContent>
-                </PromptInputSelect>
-              </PromptInputTools>
-
-              <PromptInputSubmit status={status} onStop={stop} />
-            </PromptInputFooter>
-          </PromptInput>
+          <PromptInputProvider>
+            <ChatPromptInputArea
+              chatId={chatId}
+              projectId={projectId}
+              onSubmit={handleSubmit}
+              status={status}
+              onStop={stop}
+              agentConfig={agentConfig}
+              allModels={allModels}
+              onThinkingLevelChange={handleThinkingLevelChange}
+              onModelChange={handleModelChange}
+              builtinHandlers={{
+                onFork: () => {
+                  if (messages.length > 0) {
+                    void handleFork(messages.length - 1);
+                  }
+                },
+                onRegenerate: () => {
+                  const lastAssistant = [...messages]
+                    .reverse()
+                    .find((m) => m.role === "assistant");
+                  if (lastAssistant) {
+                    void handleRegenerate(lastAssistant.id);
+                  }
+                },
+                onHelp: () => {
+                  toast.info(
+                    "Slash commands: /clear /help /fork /regenerate · plus your skills",
+                  );
+                },
+              }}
+            />
+          </PromptInputProvider>
         </div>
       </div>
+    </div>
+  );
+}
+
+type ChatPromptModel = {
+  id: string;
+  name: string;
+  provider: string;
+};
+
+interface ChatPromptInputAreaProps {
+  chatId: string | null;
+  projectId: string;
+  onSubmit: (message: PromptInputMessage) => Promise<void> | void;
+  status: ChatStatus;
+  onStop: () => void;
+  agentConfig: PiAgentConfig;
+  allModels: readonly ChatPromptModel[];
+  onThinkingLevelChange: (
+    level: PiAgentConfig["thinkingLevel"],
+  ) => Promise<void> | void;
+  onModelChange: (value: string) => Promise<void> | void;
+  builtinHandlers: BuiltinHandlers;
+}
+
+function ChatPromptInputArea({
+  chatId,
+  projectId,
+  onSubmit,
+  status,
+  onStop,
+  agentConfig,
+  allModels,
+  onThinkingLevelChange,
+  onModelChange,
+  builtinHandlers,
+}: ChatPromptInputAreaProps) {
+  const controller = usePromptInputController();
+  const popoverRef = useRef<SlashCommandPopoverHandle>(null);
+  const anchorRef = useRef<HTMLDivElement>(null);
+
+  const handleTextareaKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      popoverRef.current?.handleKeyDown(event);
+    },
+    [],
+  );
+
+  return (
+    <div ref={anchorRef} className="relative">
+      <SlashCommandPopover
+        ref={popoverRef}
+        value={controller.textInput.value}
+        setValue={controller.textInput.setInput}
+        clearValue={controller.textInput.clear}
+        projectId={projectId}
+        chatId={chatId}
+        handlers={builtinHandlers}
+        anchorRef={anchorRef}
+      />
+      <PromptInput onSubmit={onSubmit}>
+        <AttachmentPreviews />
+        <PromptInputTextarea
+          placeholder="Message..."
+          onKeyDown={handleTextareaKeyDown}
+        />
+        <PromptInputFooter>
+          <PromptInputTools>
+            <AttachFilesButton />
+
+            <PromptInputSelect
+              value={getModelValue({
+                provider: agentConfig.provider,
+                id: agentConfig.modelId,
+              })}
+              onValueChange={(value) => {
+                void onModelChange(value as string);
+              }}
+            >
+              <PromptInputSelectTrigger className="h-7 w-auto gap-1.5 rounded-md px-2 text-xs">
+                <PromptInputSelectValue />
+              </PromptInputSelectTrigger>
+              <PromptInputSelectContent>
+                {allModels.map((model) => (
+                  <PromptInputSelectItem
+                    key={getModelValue(model)}
+                    value={getModelValue(model)}
+                  >
+                    {model.name}
+                  </PromptInputSelectItem>
+                ))}
+              </PromptInputSelectContent>
+            </PromptInputSelect>
+
+            <PromptInputSelect
+              value={agentConfig.thinkingLevel}
+              onValueChange={(value) => {
+                void onThinkingLevelChange(
+                  value as PiAgentConfig["thinkingLevel"],
+                );
+              }}
+            >
+              <PromptInputSelectTrigger
+                aria-label="Reasoning effort"
+                className="h-7 w-auto gap-1.5 rounded-md px-2 text-xs"
+              >
+                <PromptInputSelectValue />
+              </PromptInputSelectTrigger>
+              <PromptInputSelectContent>
+                {THINKING_LEVEL_OPTIONS.map((option) => (
+                  <PromptInputSelectItem
+                    key={option.value}
+                    value={option.value}
+                  >
+                    {option.label}
+                  </PromptInputSelectItem>
+                ))}
+              </PromptInputSelectContent>
+            </PromptInputSelect>
+          </PromptInputTools>
+
+          <PromptInputSubmit status={status} onStop={onStop} />
+        </PromptInputFooter>
+      </PromptInput>
     </div>
   );
 }

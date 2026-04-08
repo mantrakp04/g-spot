@@ -136,6 +136,63 @@ function filterOutEmail(addresses: string, exclude: string): string {
     .join(", ");
 }
 
+function isLikelyTrackingImage(image: HTMLImageElement): boolean {
+  const width = image.width || Number(image.getAttribute("width") ?? 0);
+  const height = image.height || Number(image.getAttribute("height") ?? 0);
+  const style = (image.getAttribute("style") ?? "").toLowerCase();
+  const src = (image.getAttribute("src") ?? "").toLowerCase();
+
+  if ((width > 0 && width <= 1) || (height > 0 && height <= 1)) {
+    return true;
+  }
+
+  if (
+    style.includes("display:none")
+    || style.includes("visibility:hidden")
+    || style.includes("opacity:0")
+    || style.includes("width:1px")
+    || style.includes("height:1px")
+  ) {
+    return true;
+  }
+
+  return (
+    src.includes("/open?")
+    || src.includes("/pixel")
+    || src.includes("tracking")
+    || src.includes("stat?event=email.opened")
+  );
+}
+
+function sanitizeEmailHtml(html: string): string {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+
+  for (const element of doc.querySelectorAll("script, noscript, iframe, object, embed")) {
+    element.remove();
+  }
+
+  for (const image of Array.from(doc.images)) {
+    if (isLikelyTrackingImage(image)) {
+      image.remove();
+      continue;
+    }
+
+    image.removeAttribute("srcset");
+    image.removeAttribute("loading");
+    image.removeAttribute("decoding");
+  }
+
+  for (const element of Array.from(doc.body.querySelectorAll<HTMLElement>("*"))) {
+    for (const attribute of Array.from(element.attributes)) {
+      if (attribute.name.toLowerCase().startsWith("on")) {
+        element.removeAttribute(attribute.name);
+      }
+    }
+  }
+
+  return doc.body.innerHTML;
+}
+
 function MessageBody({ html, text }: { html: string | null; text: string | null }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [pendingUrl, setPendingUrl] = useState<string | null>(null);
@@ -151,6 +208,7 @@ function MessageBody({ html, text }: { html: string | null; text: string | null 
     const root = document.documentElement;
     const rootStyles = getComputedStyle(root);
     const isDark = root.classList.contains("dark");
+    const sanitizedHtml = sanitizeEmailHtml(html);
 
     doc.open();
     doc.write(`
@@ -212,7 +270,7 @@ function MessageBody({ html, text }: { html: string | null; text: string | null 
           }
         </style>
       </head>
-      <body>${html}</body>
+      <body>${sanitizedHtml}</body>
       </html>
     `);
     doc.close();

@@ -12,7 +12,7 @@ import { getMemoryNativeDb } from "@g-spot/db/memory-db";
 import { nanoid } from "nanoid";
 import { createHash } from "node:crypto";
 
-import { embed, embedOne, toF32Buffer } from "./embeddings";
+import { embedOne, toF32Buffer } from "./embeddings";
 import {
   query,
   ensureDefaultBlocks,

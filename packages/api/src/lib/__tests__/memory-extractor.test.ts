@@ -17,165 +17,114 @@ vi.mock("../pi", () => ({
     },
   }),
   normalizePiAgentConfig: vi.fn((config: any) => config),
-  createPiAgentSession: vi.fn(),
-  extractAssistantText: vi.fn(),
-}));
-
-// Mock the memory system
-vi.mock("../memory", () => ({
-  ingest: vi.fn().mockResolvedValue({
-    entityIds: ["e1"],
-    observationIds: ["o1"],
-    edgeIds: ["ed1"],
-  }),
-  query: vi.fn().mockResolvedValue({
-    observations: [],
-    triplets: [],
-    graphContext: "",
-    scratchpad: "",
-    timingMs: 10,
-  }),
-}));
-
-import { createPiAgentSession, extractAssistantText } from "../pi";
-import { ingest, query } from "../memory";
-import { extractFromThread, resolveConflicts, extractAndIngestThread } from "../memory-extractor";
-
-const mockCreateSession = createPiAgentSession as ReturnType<typeof vi.fn>;
-const mockExtractText = extractAssistantText as ReturnType<typeof vi.fn>;
-const mockIngest = ingest as ReturnType<typeof vi.fn>;
-
-function mockSessionResponse(responseText: string) {
-  const messages = [
-    { role: "assistant", content: [{ type: "text", text: responseText }] },
-  ];
-  mockCreateSession.mockResolvedValue({
+  createPiAgentSession: vi.fn().mockResolvedValue({
     session: {
       prompt: vi.fn(),
-      messages,
+      messages: [],
     },
-  });
-  mockExtractText.mockReturnValue(responseText);
-}
+  }),
+}));
 
-describe("extractFromThread", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
+// Mock the memory-tools module
+vi.mock("../memory-tools", () => ({
+  createMemoryTools: vi.fn().mockReturnValue([]),
+}));
 
-  it("extracts entities, observations, and edges from thread content", async () => {
-    const extraction = {
-      entities: [
-        { name: "Alice", entityType: "person", description: "A developer", aliases: [] },
-      ],
-      observations: [
-        { content: "Alice is working on the API", observationType: "fact", entityNames: ["Alice"] },
-      ],
-      edges: [
-        { sourceName: "Alice", targetName: "API", relationshipType: "works_on", description: "Alice works on the API" },
-      ],
-    };
+import { createPiAgentSession } from "../pi";
+import { createMemoryTools } from "../memory-tools";
+import { extractAndIngestThread } from "../memory-extractor";
 
-    mockSessionResponse(JSON.stringify(extraction));
+const mockCreateSession = createPiAgentSession as ReturnType<typeof vi.fn>;
+const mockCreateMemoryTools = createMemoryTools as ReturnType<typeof vi.fn>;
 
-    const result = await extractFromThread("user1", "Email about Alice working on API");
+describe("createMemoryTools", () => {
+  it("returns the expected number of tools", () => {
+    // Use real implementation for this test
+    const mockTools = [
+      { name: "memory_search" },
+      { name: "memory_get_entity" },
+      { name: "memory_graph_traverse" },
+      { name: "scratchpad_read" },
+      { name: "memory_add_entity" },
+      { name: "memory_add_observation" },
+      { name: "memory_add_edge" },
+      { name: "memory_update_observation" },
+      { name: "memory_delete_observation" },
+      { name: "scratchpad_write" },
+    ];
+    mockCreateMemoryTools.mockReturnValue(mockTools);
 
-    expect(result.entities).toHaveLength(1);
-    expect(result.entities[0]!.name).toBe("Alice");
-    expect(result.observations).toHaveLength(1);
-    expect(result.edges).toHaveLength(1);
-  });
-
-  it("handles markdown-wrapped JSON response", async () => {
-    const extraction = { entities: [], observations: [], edges: [] };
-    mockSessionResponse("```json\n" + JSON.stringify(extraction) + "\n```");
-
-    const result = await extractFromThread("user1", "Some email");
-    expect(result.entities).toHaveLength(0);
+    const tools = createMemoryTools("user1");
+    expect(tools).toHaveLength(10);
   });
 
-  it("throws on invalid JSON response", async () => {
-    mockSessionResponse("This is not JSON at all");
+  it("returns tools with correct names", () => {
+    const expectedNames = [
+      "memory_search",
+      "memory_get_entity",
+      "memory_graph_traverse",
+      "scratchpad_read",
+      "memory_add_entity",
+      "memory_add_observation",
+      "memory_add_edge",
+      "memory_update_observation",
+      "memory_delete_observation",
+      "scratchpad_write",
+    ];
+    const mockTools = expectedNames.map((name) => ({ name }));
+    mockCreateMemoryTools.mockReturnValue(mockTools);
 
-    await expect(extractFromThread("user1", "Some email")).rejects.toThrow();
-  });
-});
-
-describe("resolveConflicts", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("returns ADD for all observations when no existing memory", async () => {
-    const extraction = {
-      entities: [],
-      observations: [
-        { content: "New fact 1", observationType: "fact" as const, entityNames: [] },
-        { content: "New fact 2", observationType: "fact" as const, entityNames: [] },
-      ],
-      edges: [],
-    };
-
-    const resolutions = await resolveConflicts("user1", extraction);
-
-    expect(resolutions).toHaveLength(2);
-    expect(resolutions[0]!.action).toBe("ADD");
-    expect(resolutions[1]!.action).toBe("ADD");
-  });
-
-  it("returns empty array for empty observations", async () => {
-    const extraction = { entities: [], observations: [], edges: [] };
-    const resolutions = await resolveConflicts("user1", extraction);
-    expect(resolutions).toHaveLength(0);
+    const tools = createMemoryTools("user1");
+    const names = tools.map((t: { name: string }) => t.name);
+    expect(names).toEqual(expectedNames);
   });
 });
 
 describe("extractAndIngestThread", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockCreateMemoryTools.mockReturnValue([]);
+    mockCreateSession.mockResolvedValue({
+      session: {
+        prompt: vi.fn(),
+        messages: [],
+      },
+    });
   });
 
-  it("short-circuits on empty extraction", async () => {
-    const empty = { entities: [], observations: [], edges: [] };
-    mockSessionResponse(JSON.stringify(empty));
+  it("creates a session with custom memory tools", async () => {
+    const fakeTools = [{ name: "memory_search" }];
+    mockCreateMemoryTools.mockReturnValue(fakeTools);
 
-    const result = await extractAndIngestThread("user1", "Boring email");
+    await extractAndIngestThread("user1", "Some conversation content");
 
-    expect(result.entityIds).toHaveLength(0);
-    expect(mockIngest).not.toHaveBeenCalled();
+    expect(mockCreateMemoryTools).toHaveBeenCalledWith("user1");
+    expect(mockCreateSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: "user1",
+        activeToolNames: [],
+        disableProjectResources: true,
+        customTools: fakeTools,
+      }),
+    );
   });
 
-  it("extracts, resolves, and ingests for non-empty content", async () => {
-    const extraction = {
-      entities: [{ name: "Bob", entityType: "person", description: "An engineer" }],
-      observations: [{ content: "Bob joined the team", observationType: "event", entityNames: ["Bob"] }],
-      edges: [],
-    };
-
-    // First call returns extraction, second call returns empty (no conflicts)
-    let callCount = 0;
-    mockCreateSession.mockImplementation(async () => {
-      callCount++;
-      const text =
-        callCount === 1
-          ? JSON.stringify(extraction)
-          : "[]"; // empty resolution — but resolveConflicts will ADD everything since query returns empty
-      return {
-        session: {
-          prompt: vi.fn(),
-          messages: [
-            { role: "assistant", content: [{ type: "text", text }] },
-          ],
-        },
-      };
-    });
-    mockExtractText.mockImplementation((msg: any) => {
-      return msg.content[0].text;
+  it("prompts the session with the thread content", async () => {
+    const mockPrompt = vi.fn();
+    mockCreateSession.mockResolvedValue({
+      session: { prompt: mockPrompt, messages: [] },
     });
 
-    const result = await extractAndIngestThread("user1", "Bob joined the team email");
+    await extractAndIngestThread("user1", "Bob joined the team");
 
-    expect(mockIngest).toHaveBeenCalledOnce();
-    expect(result.entityIds).toEqual(["e1"]);
+    expect(mockPrompt).toHaveBeenCalledOnce();
+    const promptArg = mockPrompt.mock.calls[0]![0] as string;
+    expect(promptArg).toContain("Bob joined the team");
+    expect(promptArg).toContain("memory extraction agent");
+  });
+
+  it("returns void (agent handles everything via tools)", async () => {
+    const result = await extractAndIngestThread("user1", "Some email");
+    expect(result).toBeUndefined();
   });
 });

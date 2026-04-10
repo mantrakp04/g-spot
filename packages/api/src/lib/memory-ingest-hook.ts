@@ -9,7 +9,6 @@ import type { Message } from "@mariozechner/pi-ai";
 
 import { extractAssistantText } from "./pi";
 import { extractAndIngestThread } from "./memory-extractor";
-import { ensureDefaultBlocks, scratchpadRewrite } from "./memory";
 import { scheduleDecayTick, registerUserForDecay } from "./memory-cron";
 
 /**
@@ -46,9 +45,11 @@ function buildTranscript(messages: Message[], maxMessages = 6): string {
  *
  * This:
  * 1. Builds a transcript from the last few messages
- * 2. Runs the 2-call LLM extraction pipeline (extract → resolve → ingest)
- * 3. Optionally updates the scratchpad active_context block
- * 4. Schedules a decay tick (throttled to once per hour)
+ * 2. Runs the agent-based extraction pipeline (agent uses tools autonomously)
+ * 3. Schedules a decay tick (throttled to once per hour)
+ *
+ * The agent handles scratchpad updates internally via its memory tools,
+ * so there is no separate scratchpad update step here.
  */
 export async function extractChatTurnToMemory(args: {
   userId: string;
@@ -63,49 +64,12 @@ export async function extractChatTurnToMemory(args: {
     registerUserForDecay(args.userId);
     scheduleDecayTick(args.userId);
 
-    // Extract and ingest
-    const result = await extractAndIngestThread(
+    // Extract and ingest — the agent handles everything via tools
+    await extractAndIngestThread(
       args.userId,
       transcript,
       args.chatId,
     );
-
-    if (
-      result.entityIds.length > 0 ||
-      result.observationIds.length > 0
-    ) {
-      // Update the active_context scratchpad block with what user is doing
-      try {
-        ensureDefaultBlocks(args.userId);
-        const lastUserMsg = [...args.messages]
-          .reverse()
-          .find((m) => m.role === "user");
-
-        if (lastUserMsg) {
-          const content = lastUserMsg.content;
-          const userText = (
-            typeof content === "string"
-              ? content
-              : Array.isArray(content)
-                ? content
-                    .flatMap((part: any) => (part.type === "text" ? [part.text] : []))
-                    .join(" ")
-                : ""
-          ).slice(0, 200);
-
-          if (userText) {
-            scratchpadRewrite(
-              args.userId,
-              "active_context",
-              `Last activity: ${userText}\nChat: ${args.chatId}`,
-              "system",
-            );
-          }
-        }
-      } catch {
-        // Scratchpad update is best-effort
-      }
-    }
   } catch (error) {
     console.error("[memory-ingest-hook] Failed:", error);
   }

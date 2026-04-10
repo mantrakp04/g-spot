@@ -5,7 +5,6 @@
  * - Queue 1 (Fetcher): fetches threads from Gmail API, stores in DB
  * - Queue 2 (Processor): runs LLM extraction + memory ingestion
  *
- * Backpressure: Queue 1 pauses when Queue 2 has too many pending items.
  * Circuit breaker: 429s pause all fetching.
  */
 
@@ -13,9 +12,11 @@ import { AsyncQueuer } from "@tanstack/pacer";
 
 import {
   getFailuresByIds,
+  getFetchedGmailThreadIds,
   getGmailAccount,
   getThread,
   getThreadMessages,
+  getUnprocessedGmailThreadIds,
   getUnresolvedFailures,
   incrementSyncProgress,
   markThreadProcessed,
@@ -79,8 +80,6 @@ interface ProcessItem {
 
 const FETCH_CONCURRENCY = Number(process.env.GMAIL_SYNC_CONCURRENCY ?? 20);
 const PROCESS_CONCURRENCY = Number(process.env.MEMORY_WORKER_CONCURRENCY ?? 8);
-const HIGH_WATERMARK = Number(process.env.MEMORY_QUEUE_HIGH_WATERMARK ?? 32);
-const LOW_WATERMARK = Number(process.env.MEMORY_QUEUE_LOW_WATERMARK ?? 16);
 
 // ---------------------------------------------------------------------------
 // Orchestrator
@@ -202,15 +201,71 @@ export class GmailSyncOrchestrator {
 
       if (this.cancelled) return;
 
+      // 2b. Filter out already-handled threads for resume
+      const alreadyFetched = await getFetchedGmailThreadIds(this.accountId);
+      const toFetch = threadIds.filter((id) => !alreadyFetched.has(id));
+      const unprocessed = await getUnprocessedGmailThreadIds(this.accountId);
+
       this.progress.totalThreads = threadIds.length;
+      this.progress.fetchedThreads = alreadyFetched.size;
+      this.progress.processedThreads = alreadyFetched.size - unprocessed.length;
+
+      if (unprocessed.length > 0 || alreadyFetched.size > 0) {
+        console.log(
+          `[gmail-sync] Resuming: ${alreadyFetched.size} already fetched, ${unprocessed.length} need processing, ${toFetch.length} need fetching`,
+        );
+      }
+
       await upsertSyncState(this.accountId, {
+        status: "running",
+        mode,
         totalThreads: threadIds.length,
+        fetchedThreads: alreadyFetched.size,
+        processedThreads: alreadyFetched.size - unprocessed.length,
+        failedThreads: 0,
+        startedAt: this.progress.startedAt,
+        completedAt: null,
+        lastError: null,
       });
 
-      // 3. Enqueue all thread IDs
-      for (const id of threadIds) {
+      // 3a. Enqueue threads that need fetching
+      for (const id of toFetch) {
         if (this.cancelled) break;
         this.fetchQueue.addItem({ gmailThreadId: id });
+      }
+
+      // 3b. Enqueue threads that only need processing (already fetched but not processed)
+      for (const gmailThreadId of unprocessed) {
+        if (this.cancelled) break;
+        const thread = await getThread(this.accountId, gmailThreadId);
+        if (!thread) continue;
+        const dbMessages = await getThreadMessages(thread.id);
+        const parsedMessages: ParsedMessage[] = dbMessages.map((m) => ({
+          gmailMessageId: m.gmailMessageId,
+          gmailThreadId: m.gmailThreadId,
+          fromName: m.fromName,
+          fromEmail: m.fromEmail,
+          toHeader: m.toHeader,
+          ccHeader: m.ccHeader,
+          subject: m.subject,
+          date: m.date,
+          bodyHtml: m.bodyHtml,
+          bodyText: m.bodyText,
+          snippet: m.snippet,
+          labels: JSON.parse(m.labels) as string[],
+          messageIdHeader: m.messageIdHeader,
+          inReplyTo: m.inReplyTo,
+          referencesHeader: m.referencesHeader,
+          isDraft: m.isDraft,
+          historyId: m.historyId,
+          rawSizeEstimate: m.rawSizeEstimate,
+        }));
+        this.processQueue.addItem({
+          dbThreadId: thread.id,
+          gmailThreadId,
+          subject: thread.subject,
+          messages: parsedMessages,
+        });
       }
 
       // 4. Start both queues
@@ -275,10 +330,6 @@ export class GmailSyncOrchestrator {
       this.fetchQueue.addItem(item);
       return;
     }
-
-    // Backpressure: wait if processor queue is too full
-    await this.waitForBackpressure();
-    if (this.cancelled) return;
 
     const detail = await getThreadDetail(this.token, item.gmailThreadId);
     const messages = detail.messages.map(parseGmailMessage);
@@ -371,18 +422,6 @@ export class GmailSyncOrchestrator {
       `[gmail-sync] Process failed for ${item.gmailThreadId}:`,
       error.message,
     );
-  }
-
-  // ----- Internal: Backpressure -----
-
-  private async waitForBackpressure(): Promise<void> {
-    while (
-      this.processQueue.store.state.items.length >= HIGH_WATERMARK &&
-      !this.cancelled
-    ) {
-      await sleep(200);
-      if (this.processQueue.store.state.items.length <= LOW_WATERMARK) break;
-    }
   }
 
   // ----- Internal: Circuit Breaker -----

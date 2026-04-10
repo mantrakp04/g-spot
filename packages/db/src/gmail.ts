@@ -305,6 +305,37 @@ export async function getUnprocessedThreadIds(
   return rows.map((r) => r.id);
 }
 
+/**
+ * Returns all gmail_thread_ids that are already fetched (stored) for an account.
+ */
+export async function getFetchedGmailThreadIds(
+  accountId: string,
+): Promise<Set<string>> {
+  const rows = await db
+    .select({ gmailThreadId: gmailThreads.gmailThreadId })
+    .from(gmailThreads)
+    .where(eq(gmailThreads.accountId, accountId));
+  return new Set(rows.map((r) => r.gmailThreadId));
+}
+
+/**
+ * Returns gmail_thread_ids that are fetched but NOT yet processed (isProcessed = false).
+ */
+export async function getUnprocessedGmailThreadIds(
+  accountId: string,
+): Promise<string[]> {
+  const rows = await db
+    .select({ gmailThreadId: gmailThreads.gmailThreadId })
+    .from(gmailThreads)
+    .where(
+      and(
+        eq(gmailThreads.accountId, accountId),
+        eq(gmailThreads.isProcessed, false),
+      ),
+    );
+  return rows.map((r) => r.gmailThreadId);
+}
+
 // ---------------------------------------------------------------------------
 // Messages
 // ---------------------------------------------------------------------------

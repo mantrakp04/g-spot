@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { db } from "./index";
@@ -583,6 +583,21 @@ export async function resolveFailure(failureId: string): Promise<void> {
     .update(gmailSyncFailures)
     .set({ resolvedAt: new Date().toISOString() })
     .where(eq(gmailSyncFailures.id, failureId));
+}
+
+export async function getFailuresByIds(
+  failureIds: string[],
+): Promise<GmailSyncFailureRow[]> {
+  if (failureIds.length === 0) return [];
+  return db
+    .select()
+    .from(gmailSyncFailures)
+    .where(
+      and(
+        inArray(gmailSyncFailures.id, failureIds),
+        isNull(gmailSyncFailures.resolvedAt),
+      ),
+    );
 }
 
 // ---------------------------------------------------------------------------

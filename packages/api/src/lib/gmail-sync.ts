@@ -12,10 +12,15 @@
 import { AsyncQueuer } from "@tanstack/pacer";
 
 import {
+  getFailuresByIds,
   getGmailAccount,
+  getThread,
+  getThreadMessages,
+  getUnresolvedFailures,
   incrementSyncProgress,
   markThreadProcessed,
   recordSyncFailure,
+  resolveFailure,
   syncLabels,
   upsertAttachments,
   upsertGmailAccount,
@@ -23,6 +28,7 @@ import {
   upsertSyncState,
   upsertThread,
 } from "@g-spot/db/gmail";
+import type { GmailSyncFailureRow } from "@g-spot/db/schema/gmail";
 
 import {
   getProfile,
@@ -461,6 +467,172 @@ export function cancelSync(userId: string, accountId: string): boolean {
   if (!orch) return false;
   orch.cancel();
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// Retry failed threads
+// ---------------------------------------------------------------------------
+
+const RETRY_CONCURRENCY = 4;
+
+export async function retryFailedThreads(
+  userId: string,
+  accountId: string,
+  token: string,
+  failureIds?: string[],
+): Promise<{ retried: number; succeeded: number; failed: number }> {
+  // 1. Get failures to retry
+  const toRetry: GmailSyncFailureRow[] = failureIds?.length
+    ? await getFailuresByIds(failureIds)
+    : await getUnresolvedFailures(accountId);
+
+  if (toRetry.length === 0) {
+    return { retried: 0, succeeded: 0, failed: 0 };
+  }
+
+  let succeeded = 0;
+  let failed = 0;
+
+  // 2. Process in batches for controlled concurrency
+  const queue = new AsyncQueuer<GmailSyncFailureRow>(
+    async (failure) => {
+      await retryOneFailure(userId, accountId, token, failure);
+    },
+    {
+      concurrency: RETRY_CONCURRENCY,
+      started: false,
+      throwOnError: false,
+      onSuccess: async (_result, failure) => {
+        succeeded++;
+        await resolveFailure(failure.id);
+        console.log(
+          `[gmail-sync] Retry succeeded for ${failure.gmailThreadId} (stage: ${failure.stage})`,
+        );
+      },
+      onError: async (error, failure) => {
+        failed++;
+        // Update the failure record with the new attempt
+        await recordSyncFailure(accountId, {
+          gmailThreadId: failure.gmailThreadId,
+          stage: failure.stage,
+          errorMessage:
+            error instanceof Error ? error.message : String(error),
+          errorCode: failure.errorCode ?? "RETRY_ERROR",
+        });
+        console.error(
+          `[gmail-sync] Retry failed for ${failure.gmailThreadId}:`,
+          error instanceof Error ? error.message : error,
+        );
+      },
+    },
+  );
+
+  for (const failure of toRetry) {
+    queue.addItem(failure);
+  }
+
+  queue.start();
+
+  // Wait until queue drains
+  while (true) {
+    const state = queue.store.state;
+    if (state.items.length === 0 && state.activeItems.length === 0) break;
+    await sleep(200);
+  }
+
+  queue.stop();
+
+  return { retried: toRetry.length, succeeded, failed };
+}
+
+/**
+ * Retry a single failed thread based on which stage it failed at.
+ */
+async function retryOneFailure(
+  userId: string,
+  accountId: string,
+  token: string,
+  failure: GmailSyncFailureRow,
+): Promise<void> {
+  if (failure.stage === "fetch") {
+    // Need to re-fetch from Gmail API and then process
+    const detail = await getThreadDetail(token, failure.gmailThreadId);
+    const messages = detail.messages.map(parseGmailMessage);
+
+    const subject = messages[0]?.subject ?? "(no subject)";
+    const lastMsg = messages[messages.length - 1];
+    const lastMessageAt = lastMsg?.date ?? new Date().toISOString();
+    const allLabels = new Set<string>();
+    for (const msg of messages) {
+      for (const label of msg.labels) allLabels.add(label);
+    }
+
+    const { id: dbThreadId } = await upsertThread(accountId, {
+      gmailThreadId: failure.gmailThreadId,
+      subject,
+      snippet: messages[0]?.snippet ?? "",
+      lastMessageAt,
+      messageCount: messages.length,
+      labels: Array.from(allLabels),
+      historyId: detail.historyId ?? undefined,
+    });
+
+    const msgIds = await upsertMessages(dbThreadId, accountId, messages);
+
+    for (let i = 0; i < detail.messages.length; i++) {
+      const atts = parseAttachments(detail.messages[i]!);
+      if (atts.length > 0 && msgIds[i]) {
+        await upsertAttachments(msgIds[i]!, atts);
+      }
+    }
+
+    // Also run memory extraction since fetch includes the full pipeline
+    const content = threadToText(subject, messages);
+    await extractAndIngestThread(userId, content, failure.gmailThreadId);
+    await markThreadProcessed(dbThreadId);
+  } else {
+    // "extract" | "resolve" | "ingest" — thread data is already in DB,
+    // just re-run the memory extraction pipeline
+    const thread = await getThread(accountId, failure.gmailThreadId);
+    if (!thread) {
+      throw new Error(
+        `Thread ${failure.gmailThreadId} not found in DB; cannot retry ${failure.stage} stage`,
+      );
+    }
+
+    const dbMessages = await getThreadMessages(thread.id);
+    if (dbMessages.length === 0) {
+      throw new Error(
+        `No messages found for thread ${failure.gmailThreadId}; cannot retry`,
+      );
+    }
+
+    // Build ParsedMessage-compatible objects for threadToText
+    const parsedMessages: ParsedMessage[] = dbMessages.map((m) => ({
+      gmailMessageId: m.gmailMessageId,
+      gmailThreadId: m.gmailThreadId,
+      fromName: m.fromName,
+      fromEmail: m.fromEmail,
+      toHeader: m.toHeader,
+      ccHeader: m.ccHeader,
+      subject: m.subject,
+      date: m.date,
+      bodyHtml: m.bodyHtml,
+      bodyText: m.bodyText,
+      snippet: m.snippet,
+      labels: JSON.parse(m.labels) as string[],
+      messageIdHeader: m.messageIdHeader,
+      inReplyTo: m.inReplyTo,
+      referencesHeader: m.referencesHeader,
+      isDraft: m.isDraft,
+      historyId: m.historyId,
+      rawSizeEstimate: m.rawSizeEstimate,
+    }));
+
+    const content = threadToText(thread.subject, parsedMessages);
+    await extractAndIngestThread(userId, content, failure.gmailThreadId);
+    await markThreadProcessed(thread.id);
+  }
 }
 
 // ---------------------------------------------------------------------------

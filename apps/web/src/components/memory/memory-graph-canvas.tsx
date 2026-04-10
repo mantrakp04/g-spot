@@ -89,6 +89,8 @@ const TYPE_COLORS: Record<string, string> = {
   tool: "#f97316",        // orange
   event: "#fbbf24",       // amber
   preference: "#f472b6",  // pink
+  deadline: "#f59e0b",    // amber
+  request: "#fb923c",     // orange-400
   // Observation types
   fact: "#60a5fa",        // blue
   belief: "#c084fc",      // purple

@@ -1,87 +1,67 @@
 /**
- * LLM-powered memory extraction from email threads.
+ * Agent-powered memory extraction from conversation transcripts and email threads.
  *
- * Uses the Pi worker session pattern (same as chat-title.ts):
- * create session with no tools, call session.prompt(), parse response.
+ * Instead of prompting an LLM to "respond with JSON" and parsing, this module
+ * creates a Pi worker session WITH memory tools. The agent autonomously calls
+ * memory_search, memory_add_entity, memory_add_observation, etc. Tool call
+ * schemas enforce structure, so no fragile JSON parsing is needed.
  */
-
-import type { Message } from "@mariozechner/pi-ai";
 
 import {
   createPiAgentSession,
-  extractAssistantText,
   getPiAgentDefaults,
   normalizePiAgentConfig,
 } from "./pi";
-import {
-  ingest,
-  query,
-  type ExtractionResult,
-  type ResolveAction,
-} from "./memory";
+import { createMemoryTools } from "./memory-tools";
 
 // ---------------------------------------------------------------------------
-// System prompts
+// System prompt for the memory extraction agent
 // ---------------------------------------------------------------------------
 
-const EXTRACTION_PROMPT = `You are a memory extraction agent. Given an email thread, extract structured knowledge.
+const MEMORY_AGENT_SYSTEM_PROMPT = `You are a memory extraction agent. You have been given a conversation transcript (or email thread). Your job is to:
 
-Extract:
-1. **Entities**: people, organizations, projects, concepts, tools mentioned
-2. **Observations**: key facts, events, preferences, decisions, agreements, deadlines, action items
-3. **Edges**: relationships between entities (e.g. "Alice -> works_at -> Acme Corp")
+1. SEARCH existing memory first to understand what is already known
+2. EXTRACT new entities (people, organizations, projects, concepts, tools)
+3. EXTRACT new observations (facts, events, preferences, decisions)
+4. CREATE edges between related entities
+5. UPDATE or DELETE observations that are now outdated
+6. UPDATE the scratchpad with current context
 
-Rules:
-- Focus on information useful for future reference
-- Skip signatures, legal disclaimers, marketing content, auto-generated footers
-- For people: extract full names when available, use email username as fallback
-- For observations: be specific and self-contained (don't use pronouns without referents)
-- Entity names should be normalized (e.g. "John Smith" not "john" or "Smith, John")
+IMPORTANT RULES:
+- Always search before adding — avoid duplicates
+- Be selective — only extract information worth remembering long-term
+- Skip signatures, disclaimers, marketing content, boilerplate
+- Entity names should be normalized (e.g., "John Smith" not "john")
+- Observations should be self-contained (no dangling pronouns)
+- When you find conflicting info, update the old observation and explain why
+- Do NOT produce any final text output — just use the tools to write to memory
 
-Respond with ONLY valid JSON matching this exact schema:
-{
-  "entities": [
-    { "name": "string", "entityType": "person|organization|project|concept|tool|event|preference", "description": "string", "aliases": ["string"] }
-  ],
-  "observations": [
-    { "content": "string", "observationType": "fact|event|preference|belief|procedure|reflection", "entityNames": ["string"] }
-  ],
-  "edges": [
-    { "sourceName": "string", "targetName": "string", "relationshipType": "string", "description": "string" }
-  ]
-}
-
-If there is nothing meaningful to extract, return: {"entities":[],"observations":[],"edges":[]}`;
-
-const RESOLUTION_PROMPT = `You are a memory conflict resolver. Given newly extracted knowledge and existing memory entries, decide what to do with each new observation.
-
-For each new observation (by index), choose:
-- **ADD**: This is genuinely new information not already in memory
-- **UPDATE**: This refines or supersedes an existing entry (provide existingId)
-- **DELETE**: This contradicts and invalidates an existing entry (provide existingId)
-- **NONE**: This is already known and unchanged (skip it)
-
-Prefer ADD for new information. Prefer NONE if the observation is semantically equivalent to an existing one.
-Only use UPDATE if the new observation is strictly more specific or more recent than the existing one.
-Only use DELETE if there is a clear contradiction.
-
-Existing memory entries:
-{EXISTING}
-
-New extractions to resolve:
-{NEW}
-
-Respond with ONLY a valid JSON array:
-[{"index": 0, "action": "ADD|UPDATE|DELETE|NONE", "existingId": "optional-id", "reason": "brief explanation"}]`;
+WORKFLOW:
+1. Start with memory_search using key terms from the content
+2. Read relevant scratchpad blocks (user_profile, active_context)
+3. Create entities for any new people, organizations, projects, etc.
+4. Add observations for important facts, events, preferences, decisions
+5. Add edges to connect related entities
+6. If you find outdated observations, update or delete them
+7. Update active_context scratchpad with a summary of what you learned`;
 
 // ---------------------------------------------------------------------------
-// LLM call helpers
+// Public API
 // ---------------------------------------------------------------------------
 
-async function callWorkerLLM(
+/**
+ * Extract knowledge from a transcript and ingest it into the memory graph
+ * using an autonomous agent session with memory tools.
+ *
+ * The agent will search existing memory, create entities, add observations,
+ * build edges, and update the scratchpad — all via structured tool calls.
+ */
+export async function extractAndIngestThread(
   userId: string,
-  prompt: string,
-): Promise<string> {
+  threadContent: string,
+  _sourceMessageId?: string,
+): Promise<void> {
+  const memoryTools = createMemoryTools(userId);
   const defaults = await getPiAgentDefaults(userId);
   const workerConfig = normalizePiAgentConfig(defaults.worker);
 
@@ -90,147 +70,18 @@ async function callWorkerLLM(
     config: workerConfig,
     activeToolNames: [],
     disableProjectResources: true,
+    customTools: memoryTools,
   });
 
-  await session.prompt(prompt);
-
-  const assistantMessage = [...session.messages]
-    .reverse()
-    .find((m): m is Message => m.role === "assistant");
-
-  if (!assistantMessage) {
-    throw new Error("No assistant response from worker LLM");
-  }
-
-  return extractAssistantText(assistantMessage);
-}
-
-function parseJsonResponse<T>(text: string): T {
-  // Strip markdown code fences if present
-  let cleaned = text.trim();
-  if (cleaned.startsWith("```")) {
-    cleaned = cleaned.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "");
-  }
-
-  return JSON.parse(cleaned) as T;
-}
-
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
-
-/**
- * LLM Call 1: Extract entities, observations, and edges from email thread content.
- */
-export async function extractFromThread(
-  userId: string,
-  threadContent: string,
-): Promise<ExtractionResult> {
   const prompt = [
-    EXTRACTION_PROMPT,
+    MEMORY_AGENT_SYSTEM_PROMPT,
     "",
-    "--- EMAIL THREAD ---",
+    "--- CONTENT TO EXTRACT FROM ---",
     threadContent,
     "--- END ---",
+    "",
+    "Begin by searching memory for key terms from the content above, then extract and store relevant knowledge using the available tools.",
   ].join("\n");
 
-  const response = await callWorkerLLM(userId, prompt);
-  return parseJsonResponse<ExtractionResult>(response);
-}
-
-/**
- * LLM Call 2: Resolve conflicts between new extractions and existing memory.
- * If there are no existing memories to conflict with, returns ADD for everything.
- */
-export async function resolveConflicts(
-  userId: string,
-  extraction: ExtractionResult,
-): Promise<ResolveAction[]> {
-  // Quick path: if no observations, nothing to resolve
-  if (extraction.observations.length === 0) {
-    return [];
-  }
-
-  // Query existing memory for potential conflicts
-  const queryTexts = extraction.observations.map((o) => o.content);
-  const existingResults = await Promise.all(
-    queryTexts.slice(0, 5).map((q) =>
-      query(q, { userId, topK: 3, threshold: 0.6, includeGraph: false, includeScratchpad: false }),
-    ),
-  );
-
-  // Collect unique existing observations
-  const existingObs = new Map<string, { id: string; content: string }>();
-  for (const result of existingResults) {
-    for (const obs of result.observations) {
-      existingObs.set(obs.id, { id: obs.id, content: obs.content });
-    }
-  }
-
-  // If no existing memories, ADD everything
-  if (existingObs.size === 0) {
-    return extraction.observations.map((_, index) => ({
-      index,
-      action: "ADD" as const,
-      reason: "No existing memories to conflict with",
-    }));
-  }
-
-  // Build context for the LLM
-  const existingContext = Array.from(existingObs.values())
-    .map((o) => `[${o.id}] ${o.content}`)
-    .join("\n");
-
-  const newContext = extraction.observations
-    .map((o, i) => `[${i}] ${o.content}`)
-    .join("\n");
-
-  const prompt = RESOLUTION_PROMPT
-    .replace("{EXISTING}", existingContext)
-    .replace("{NEW}", newContext);
-
-  const response = await callWorkerLLM(userId, prompt);
-  const resolutions = parseJsonResponse<ResolveAction[]>(response);
-
-  // Ensure every observation has a resolution (default to ADD if missing)
-  const resolvedIndices = new Set(resolutions.map((r) => r.index));
-  for (let i = 0; i < extraction.observations.length; i++) {
-    if (!resolvedIndices.has(i)) {
-      resolutions.push({
-        index: i,
-        action: "ADD",
-        reason: "No resolution provided by LLM, defaulting to ADD",
-      });
-    }
-  }
-
-  return resolutions;
-}
-
-/**
- * Combined pipeline: extract → resolve → ingest.
- * Returns the IDs of ingested entities, observations, and edges.
- */
-export async function extractAndIngestThread(
-  userId: string,
-  threadContent: string,
-  sourceMessageId?: string,
-): Promise<{
-  entityIds: string[];
-  observationIds: string[];
-  edgeIds: string[];
-}> {
-  const extraction = await extractFromThread(userId, threadContent);
-
-  // Short-circuit: nothing to ingest
-  if (
-    extraction.entities.length === 0 &&
-    extraction.observations.length === 0 &&
-    extraction.edges.length === 0
-  ) {
-    return { entityIds: [], observationIds: [], edgeIds: [] };
-  }
-
-  const resolutions = await resolveConflicts(userId, extraction);
-  return ingest(userId, extraction, resolutions, sourceMessageId);
+  await session.prompt(prompt);
 }

@@ -23,6 +23,7 @@ import {
 import type {
   AuthCredential,
   Skill as PiSkill,
+  ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
 import type { ThinkingLevel } from "@mariozechner/pi-agent-core";
 import type { AssistantMessage, Message, Model } from "@mariozechner/pi-ai";
@@ -365,6 +366,12 @@ export async function createPiAgentSession(args: {
    * and don't pay the disk-scan cost on every chat.
    */
   disableProjectResources?: boolean;
+  /**
+   * Custom tool definitions forwarded to `createAgentSession`. These are
+   * registered in addition to the built-in tools selected by
+   * `activeToolNames`.
+   */
+  customTools?: ToolDefinition[];
 }) {
   const { authStorage, modelRegistry } = await createPiModelRegistryForUser(
     args.userId,
@@ -421,6 +428,7 @@ export async function createPiAgentSession(args: {
     model: resolved.model,
     thinkingLevel: resolved.config.thinkingLevel as ThinkingLevel,
     tools,
+    customTools: args.customTools,
   });
 
   session.setSteeringMode(resolved.config.steeringMode);

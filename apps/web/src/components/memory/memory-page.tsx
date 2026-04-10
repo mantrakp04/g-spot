@@ -5,6 +5,8 @@ import { motion } from "motion/react";
 import {
   Brain,
   CircleDot,
+  Eye,
+  EyeOff,
   GitBranch,
   Layers,
 } from "lucide-react";
@@ -29,7 +31,26 @@ const TYPE_COLORS: Record<string, string> = {
   belief: "#c084fc",
   procedure: "#2dd4bf",
   reflection: "#e879f9",
+  deadline: "#f59e0b",
+  request: "#fb923c",
 };
+
+/** The canonical ordered list of all possible node types. */
+const ALL_TYPES = [
+  "belief",
+  "concept",
+  "deadline",
+  "event",
+  "fact",
+  "organization",
+  "person",
+  "preference",
+  "procedure",
+  "project",
+  "reflection",
+  "request",
+  "tool",
+] as const;
 
 function StatsOverlay({
   entities,
@@ -71,25 +92,82 @@ function StatsOverlay({
   );
 }
 
-function Legend({ types }: { types: string[] }) {
-  if (types.length === 0) return null;
+function Legend({
+  activeTypes,
+  hiddenTypes,
+  onToggleType,
+  onShowAll,
+  onHideAll,
+}: {
+  activeTypes: Set<string>;
+  hiddenTypes: Set<string>;
+  onToggleType: (type: string) => void;
+  onShowAll: () => void;
+  onHideAll: () => void;
+}) {
+  const allVisible = hiddenTypes.size === 0;
 
   return (
     <motion.div
       initial={{ y: 10, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
       transition={{ delay: 0.3 }}
-      className="memory-legend absolute bottom-4 left-4 z-20 flex flex-wrap items-center gap-2 rounded-lg px-3 py-2"
+      className="memory-legend absolute bottom-4 left-4 z-20 flex flex-wrap items-center gap-1.5 rounded-lg px-3 py-2"
     >
-      {types.map((type) => (
-        <div key={type} className="flex items-center gap-1.5">
-          <div
-            className="size-2 rounded-full"
-            style={{ backgroundColor: TYPE_COLORS[type] ?? "#94a3b8" }}
-          />
-          <span className="text-[10px] text-white/35">{type}</span>
-        </div>
-      ))}
+      {ALL_TYPES.map((type) => {
+        const presentInData = activeTypes.has(type);
+        const hidden = hiddenTypes.has(type);
+        const color = TYPE_COLORS[type] ?? "#94a3b8";
+
+        return (
+          <button
+            key={type}
+            type="button"
+            disabled={!presentInData}
+            onClick={() => onToggleType(type)}
+            className={
+              "flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-0.5 transition-all duration-200" +
+              (presentInData
+                ? " hover:bg-white/5"
+                : " cursor-default opacity-30")
+            }
+            style={{ opacity: !presentInData ? 0.3 : hidden ? 0.45 : 1 }}
+          >
+            <div
+              className="size-2 rounded-full transition-colors duration-200"
+              style={{
+                backgroundColor: hidden ? "rgba(148,163,184,0.2)" : color,
+              }}
+            />
+            <span
+              className={
+                "text-[10px] transition-all duration-200" +
+                (hidden
+                  ? " text-white/15 line-through"
+                  : " text-white/35")
+              }
+            >
+              {type}
+            </span>
+          </button>
+        );
+      })}
+
+      {/* Divider */}
+      <div className="mx-1 h-3 w-px bg-white/10" />
+
+      {/* Show/hide all toggle */}
+      <button
+        type="button"
+        onClick={allVisible ? onHideAll : onShowAll}
+        className="flex cursor-pointer items-center justify-center rounded-md p-1 text-white/30 transition-colors duration-200 hover:bg-white/5 hover:text-white/50"
+      >
+        {allVisible ? (
+          <Eye className="size-3.5" />
+        ) : (
+          <EyeOff className="size-3.5" />
+        )}
+      </button>
     </motion.div>
   );
 }
@@ -122,26 +200,51 @@ export function MemoryPage() {
   const statsQuery = useMemoryStats();
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+  const [hiddenTypes, setHiddenTypes] = useState<Set<string>>(new Set());
 
   const data = graphQuery.data;
   const isEmpty =
     !data ||
     (data.entities.length === 0 && data.observations.length === 0);
 
-  // Build flat list of types present in the graph
+  // Build set of types present in the graph
   const activeTypes = useMemo(() => {
-    if (!data) return [];
+    if (!data) return new Set<string>();
     const types = new Set<string>();
     for (const e of data.entities) types.add(e.entity_type);
     for (const o of data.observations) types.add(o.observation_type);
-    return Array.from(types).sort();
+    return types;
   }, [data]);
 
-  // Build graph nodes for detail panel
+  // ---- Filter data by hidden types before passing to canvas / detail panel ----
+  const filteredEntities = useMemo(() => {
+    if (!data || hiddenTypes.size === 0) return data?.entities ?? [];
+    return data.entities.filter((e) => !hiddenTypes.has(e.entity_type));
+  }, [data, hiddenTypes]);
+
+  const filteredObservations = useMemo(() => {
+    if (!data || hiddenTypes.size === 0) return data?.observations ?? [];
+    return data.observations.filter((o) => !hiddenTypes.has(o.observation_type));
+  }, [data, hiddenTypes]);
+
+  const filteredEdges = useMemo(() => {
+    if (!data || hiddenTypes.size === 0) return data?.edges ?? [];
+    const visibleIds = new Set([
+      ...filteredEntities.map((e) => e.id),
+      ...filteredObservations.map((o) => o.id),
+    ]);
+    return data.edges.filter(
+      (e) => visibleIds.has(e.source_id) && visibleIds.has(e.target_id),
+    );
+  }, [data, hiddenTypes, filteredEntities, filteredObservations]);
+
+  const filteredIsEmpty =
+    filteredEntities.length === 0 && filteredObservations.length === 0;
+
+  // Build graph nodes for detail panel (using filtered data)
   const allNodes = useMemo((): GraphNode[] => {
-    if (!data) return [];
     const nodes: GraphNode[] = [];
-    for (const e of data.entities) {
+    for (const e of filteredEntities) {
       nodes.push({
         id: e.id,
         kind: "entity",
@@ -153,7 +256,7 @@ export function MemoryPage() {
         radius: 14, pinned: false,
       });
     }
-    for (const o of data.observations) {
+    for (const o of filteredObservations) {
       nodes.push({
         id: o.id,
         kind: "observation",
@@ -166,13 +269,12 @@ export function MemoryPage() {
       });
     }
     return nodes;
-  }, [data]);
+  }, [filteredEntities, filteredObservations]);
 
   const allEdges = useMemo((): SimEdge[] => {
-    if (!data) return [];
     const edges: SimEdge[] = [];
     const nodeIds = new Set(allNodes.map((n) => n.id));
-    for (const e of data.edges) {
+    for (const e of filteredEdges) {
       if (nodeIds.has(e.source_id) && nodeIds.has(e.target_id)) {
         edges.push({
           id: e.id,
@@ -183,7 +285,7 @@ export function MemoryPage() {
         });
       }
     }
-    for (const o of data.observations) {
+    for (const o of filteredObservations) {
       for (const entityId of o.entityIds) {
         if (nodeIds.has(entityId)) {
           edges.push({
@@ -197,7 +299,7 @@ export function MemoryPage() {
       }
     }
     return edges;
-  }, [data, allNodes]);
+  }, [filteredEdges, filteredObservations, allNodes]);
 
   const selectedNode = useMemo(
     () => allNodes.find((n) => n.id === selectedNodeId) ?? null,
@@ -211,6 +313,26 @@ export function MemoryPage() {
   const handleHover = useCallback((id: string | null) => {
     setHoveredNodeId(id);
   }, []);
+
+  const handleToggleType = useCallback((type: string) => {
+    setHiddenTypes((prev) => {
+      const next = new Set(prev);
+      if (next.has(type)) {
+        next.delete(type);
+      } else {
+        next.add(type);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleShowAll = useCallback(() => {
+    setHiddenTypes(new Set());
+  }, []);
+
+  const handleHideAll = useCallback(() => {
+    setHiddenTypes(new Set(activeTypes));
+  }, [activeTypes]);
 
   if (graphQuery.isLoading) {
     return (
@@ -251,16 +373,28 @@ export function MemoryPage() {
       )}
 
       {/* Legend */}
-      <Legend types={activeTypes} />
+      <Legend
+        activeTypes={activeTypes}
+        hiddenTypes={hiddenTypes}
+        onToggleType={handleToggleType}
+        onShowAll={handleShowAll}
+        onHideAll={handleHideAll}
+      />
 
       {/* Canvas */}
       {isEmpty ? (
         <EmptyState />
+      ) : filteredIsEmpty ? (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <p className="text-[13px] text-white/30">
+            All node types are hidden
+          </p>
+        </div>
       ) : (
         <MemoryGraphCanvas
-          entities={data.entities}
-          observations={data.observations}
-          edges={data.edges}
+          entities={filteredEntities}
+          observations={filteredObservations}
+          edges={filteredEdges}
           selectedNodeId={selectedNodeId}
           hoveredNodeId={hoveredNodeId}
           onSelectNode={handleSelect}

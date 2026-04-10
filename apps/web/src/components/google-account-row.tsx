@@ -8,7 +8,7 @@ import { Skeleton } from "@g-spot/ui/components/skeleton";
 import { cn } from "@g-spot/ui/lib/utils";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import type { OAuthConnection } from "@stackframe/react";
-import { Download, Loader2, RefreshCw, X } from "lucide-react";
+import { Download, Loader2, RefreshCw, RotateCcw, X } from "lucide-react";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
 
@@ -67,6 +67,31 @@ export function GoogleAccountRow({
     onSuccess: () => {
       toast.info("Sync cancelled");
       syncProgress.refetch();
+    },
+  });
+
+  const retryMutation = useMutation({
+    mutationFn: async () => {
+      const token = await getOAuthToken(account);
+      return trpcClient.gmailSync.retryFailed.mutate({
+        providerAccountId: account.providerAccountId,
+        accessToken: token,
+      });
+    },
+    onSuccess: (result) => {
+      if (result.succeeded > 0 && result.failed === 0) {
+        toast.success(`All ${result.succeeded} retried items succeeded`);
+      } else if (result.succeeded > 0) {
+        toast.success(
+          `${result.succeeded} succeeded, ${result.failed} still failing`,
+        );
+      } else {
+        toast.error(`All ${result.failed} retried items failed again`);
+      }
+      syncProgress.refetch();
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : "Retry failed");
     },
   });
 
@@ -211,6 +236,27 @@ export function GoogleAccountRow({
       {syncData?.status === "error" && syncData.error && (
         <div className="mt-1.5 ml-10 rounded-sm border border-destructive/20 bg-destructive/5 px-2 py-1">
           <p className="text-[10px] text-destructive">{syncData.error}</p>
+        </div>
+      )}
+
+      {/* Retry failed items */}
+      {!isSyncing && syncData && syncData.failedThreads > 0 && (
+        <div className="mt-1.5 ml-10 flex items-center gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-auto gap-1 px-1.5 py-0.5 text-[11px] text-amber-400 hover:text-amber-300"
+            onClick={() => retryMutation.mutate()}
+            disabled={retryMutation.isPending}
+          >
+            {retryMutation.isPending ? (
+              <Loader2 className="size-3 animate-spin" />
+            ) : (
+              <RotateCcw className="size-3" />
+            )}
+            Retry {syncData.failedThreads} failed
+          </Button>
         </div>
       )}
     </li>

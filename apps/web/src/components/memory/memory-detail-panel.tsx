@@ -259,6 +259,8 @@ const TYPE_COLORS: Record<string, string> = {
   belief: "#c084fc",
   procedure: "#2dd4bf",
   reflection: "#e879f9",
+  deadline: "#f59e0b",
+  request: "#fb923c",
 };
 
 function getTypeColor(subtype: string): string {

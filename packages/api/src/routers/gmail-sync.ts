@@ -11,6 +11,7 @@ import { authedProcedure, router } from "../index";
 import {
   cancelSync,
   getActiveSync,
+  retryFailedThreads,
   startSync,
 } from "../lib/gmail-sync";
 import { getProfile } from "../lib/gmail-client";
@@ -103,5 +104,34 @@ export const gmailSyncRouter = router({
       );
       if (!account) return [];
       return getUnresolvedFailures(account.id);
+    }),
+
+  /**
+   * Retry failed sync items. Optionally pass specific failure IDs,
+   * or omit to retry all unresolved failures for the account.
+   */
+  retryFailed: authedProcedure
+    .input(
+      z.object({
+        providerAccountId: z.string(),
+        accessToken: z.string(),
+        failureIds: z.array(z.string()).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const account = await getGmailAccount(
+        ctx.userId,
+        input.providerAccountId,
+      );
+      if (!account) {
+        throw new Error("Gmail account not found");
+      }
+
+      return retryFailedThreads(
+        ctx.userId,
+        account.id,
+        input.accessToken,
+        input.failureIds,
+      );
     }),
 });

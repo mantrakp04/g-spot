@@ -71,6 +71,41 @@ export function useUpdateChatTitleMutation() {
   });
 }
 
+/**
+ * Polls the server for per-chat runtime status (running / pending-approval
+ * / finished-unread). The sidebar uses this to render status dots. Chats
+ * absent from the returned map are idle + acknowledged.
+ *
+ * Runs at a slow cadence (every 2.5s) because the map is cheap to compute
+ * and we don't need sub-second freshness — the dot is a glance signal, not
+ * a live counter.
+ */
+export function useChatRuntimeStatuses() {
+  return useQuery({
+    queryKey: chatKeys.runtimeStatuses(),
+    queryFn: () => trpcClient.chat.runtimeStatuses.query(),
+    refetchInterval: 2500,
+    refetchIntervalInBackground: false,
+    staleTime: 0,
+  });
+}
+
+export function useMarkChatReadMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (chatId: string) =>
+      trpcClient.chat.markChatRead.mutate({ chatId }),
+    onSuccess: () => {
+      // Kick a refetch so the dot disappears immediately instead of
+      // waiting up to the 2.5s poll interval.
+      queryClient.invalidateQueries({
+        queryKey: chatKeys.runtimeStatuses(),
+      });
+    },
+  });
+}
+
 export function useDeleteChatMutation() {
   const queryClient = useQueryClient();
 

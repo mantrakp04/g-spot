@@ -19,6 +19,7 @@ export const chatKeys = {
     input ? (["chat", "list", input] as const) : (["chat", "list"] as const),
   detail: (chatId: string) => ["chat", "detail", chatId] as const,
   messages: (chatId: string) => ["chat", "messages", chatId] as const,
+  runtimeStatuses: () => ["chat", "runtime-statuses"] as const,
 };
 
 export const projectKeys = {
@@ -32,6 +33,8 @@ export const skillsKeys = {
   global: () => ["skills", "list", "global"] as const,
   project: (projectId: string) => ["skills", "list", "project", projectId] as const,
   detail: (skillId: string) => ["skills", "detail", skillId] as const,
+  catalogSearch: (query: string, limit: number) =>
+    ["skills", "catalog", "search", query, limit] as const,
 };
 
 export const googleKeys = {

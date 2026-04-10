@@ -3,8 +3,11 @@ import type { Skill } from "@g-spot/types";
 /**
  * Slash commands come in two flavors:
  * - **Action** commands run a callback when picked (clear, fork, regenerate, …).
- * - **Insert** commands paste their content into the textarea so the user can
- *   tweak before submitting. Skills are always insert-style.
+ * - **Insert** commands paste a literal slash-command into the textarea so the
+ *   user can add arguments before submitting. Skills are insert-style: they
+ *   insert `/skill:name ` (the form the Pi agent expands server-side), NOT
+ *   the skill body — the agent loads content from the materialized SKILL.md
+ *   on its side.
  */
 export type SlashCommandKind = "action" | "insert";
 
@@ -43,9 +46,11 @@ export interface BuiltinCommand {
 export interface SkillCommand {
   kind: "insert";
   source: "skill-project" | "skill-global";
+  /** Display name with the `skill:` prefix (e.g. `skill:frontend-design`). */
   name: string;
   description: string;
-  content: string;
+  /** Text that gets written into the textarea when picked. */
+  insertText: string;
   skillId: string;
 }
 
@@ -85,27 +90,28 @@ export const BUILTIN_SLASH_COMMANDS: BuiltinCommand[] = [
 ];
 
 /**
- * Merge built-ins with the user's skill list. Built-in names always win the
- * bare `/name` slot; a colliding skill is only reachable as `/skill:name`.
+ * Merge built-ins with the user's skill list. The Pi agent always registers
+ * skills under `skill:<name>` (see pi-coding-agent/core/agent-session.js
+ * line ~1689), so we use the same prefix here uniformly — that way the
+ * literal inserted into the textarea (`/skill:foo ...`) is exactly what the
+ * agent expands server-side into a `<skill>...</skill>` block.
  */
 export function mergeSlashCommands(
   skills: Skill[],
   activeProjectId: string | null,
 ): SlashCommand[] {
-  const builtinNames = new Set(BUILTIN_SLASH_COMMANDS.map((c) => c.name));
-
   const skillCommands: SkillCommand[] = skills.map((skill) => {
     const isProjectScoped =
       skill.projectId !== null && skill.projectId === activeProjectId;
-    const baseName = builtinNames.has(skill.name)
-      ? `skill:${skill.name}`
-      : skill.name;
+    const prefixed = `skill:${skill.name}`;
     return {
       kind: "insert",
       source: isProjectScoped ? "skill-project" : "skill-global",
-      name: baseName,
+      name: prefixed,
       description: skill.description,
-      content: skill.content,
+      // Trailing space so the user can immediately start typing args after
+      // picking the skill from the popover.
+      insertText: `/${prefixed} `,
       skillId: skill.id,
     };
   });
@@ -125,6 +131,10 @@ export function parseSlashQuery(value: string): { query: string } | null {
  * Filter and sort commands by query. Empty query → return everything in
  * registry order. Otherwise: prefix matches first, then substring matches,
  * then alphabetical within each bucket.
+ *
+ * Skill commands are matched against both the prefixed form (`skill:foo`)
+ * and the bare form (`foo`), so typing `/fr` can still prefix-match
+ * `skill:frontend-design` without forcing the user to type `skill:`.
  */
 export function filterSlashCommands(
   commands: SlashCommand[],
@@ -134,13 +144,22 @@ export function filterSlashCommands(
     return commands;
   }
   const lower = query.toLowerCase();
+
+  function scoreAgainst(candidate: string): number {
+    if (candidate === lower) return 100;
+    if (candidate.startsWith(lower)) return 80;
+    if (candidate.includes(lower)) return 40;
+    return -1;
+  }
+
   const scored = commands
     .map((command) => {
       const name = command.name.toLowerCase();
-      let score = -1;
-      if (name === lower) score = 100;
-      else if (name.startsWith(lower)) score = 80;
-      else if (name.includes(lower)) score = 40;
+      let score = scoreAgainst(name);
+      if (command.kind === "insert" && name.startsWith("skill:")) {
+        // Also try the bare form so `/fr` finds `skill:frontend-design`.
+        score = Math.max(score, scoreAgainst(name.slice("skill:".length)));
+      }
       return { command, score };
     })
     .filter((item) => item.score >= 0)

@@ -34,11 +34,21 @@
   right: 0.5rem;
   margin: 0;
   height: auto;
+  z-index: 20;
+  /* Streamdown's wrapper ships with `pointer-events-none` for its sticky
+   * full-width layout. We've shrunk it to a small absolutely-positioned
+   * pill, so it needs to actually receive clicks. */
+  pointer-events: auto;
 }
 
 [data-streamdown="code-block-actions"] {
   border: 0;
   background-color: color-mix(in oklch, var(--card) 70%, transparent);
+  pointer-events: auto;
+}
+
+[data-streamdown="code-block-actions"] button {
+  pointer-events: auto;
 }
 
 @supports (backdrop-filter: blur(0)) {
@@ -52,4 +62,28 @@
   background: transparent;
   border-radius: 0;
   padding: 0.75rem 1rem;
+}
+
+/* ----------------------------------------------------------------
+ * Memory graph — glass morphism overlays
+ * ---------------------------------------------------------------- */
+.memory-detail-panel {
+  background: rgba(12, 12, 20, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.03) inset,
+    0 8px 32px rgba(0, 0, 0, 0.5),
+    0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.memory-stats-bar,
+.memory-legend,
+.memory-title-bar {
+  background: rgba(12, 12, 20, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(12px) saturate(1.3);
+  -webkit-backdrop-filter: blur(12px) saturate(1.3);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
 }

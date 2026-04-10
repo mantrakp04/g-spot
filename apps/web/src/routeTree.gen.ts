@@ -15,6 +15,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as ProjectsIndexRouteImport } from './routes/projects/index'
 import { Route as ChatIndexRouteImport } from './routes/chat/index'
 import { Route as SettingsSkillsRouteImport } from './routes/settings/skills'
+import { Route as SettingsMemoryRouteImport } from './routes/settings/memory'
 import { Route as SettingsConnectionsRouteImport } from './routes/settings/connections'
 import { Route as ProjectsNewRouteImport } from './routes/projects/new'
 import { Route as ProjectsProjectIdRouteImport } from './routes/projects/$projectId'
@@ -54,6 +55,11 @@ const ChatIndexRoute = ChatIndexRouteImport.update({
 const SettingsSkillsRoute = SettingsSkillsRouteImport.update({
   id: '/settings/skills',
   path: '/settings/skills',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsMemoryRoute = SettingsMemoryRouteImport.update({
+  id: '/settings/memory',
+  path: '/settings/memory',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsConnectionsRoute = SettingsConnectionsRouteImport.update({
@@ -119,6 +125,7 @@ export interface FileRoutesByFullPath {
   '/projects/$projectId': typeof ProjectsProjectIdRouteWithChildren
   '/projects/new': typeof ProjectsNewRoute
   '/settings/connections': typeof SettingsConnectionsRoute
+  '/settings/memory': typeof SettingsMemoryRoute
   '/settings/skills': typeof SettingsSkillsRoute
   '/chat/': typeof ChatIndexRoute
   '/projects/': typeof ProjectsIndexRoute
@@ -134,6 +141,7 @@ export interface FileRoutesByTo {
   '/handler/$': typeof HandlerSplatRoute
   '/projects/new': typeof ProjectsNewRoute
   '/settings/connections': typeof SettingsConnectionsRoute
+  '/settings/memory': typeof SettingsMemoryRoute
   '/settings/skills': typeof SettingsSkillsRoute
   '/chat': typeof ChatIndexRoute
   '/projects': typeof ProjectsIndexRoute
@@ -153,6 +161,7 @@ export interface FileRoutesById {
   '/projects/$projectId': typeof ProjectsProjectIdRouteWithChildren
   '/projects/new': typeof ProjectsNewRoute
   '/settings/connections': typeof SettingsConnectionsRoute
+  '/settings/memory': typeof SettingsMemoryRoute
   '/settings/skills': typeof SettingsSkillsRoute
   '/chat/': typeof ChatIndexRoute
   '/projects/': typeof ProjectsIndexRoute
@@ -173,6 +182,7 @@ export interface FileRouteTypes {
     | '/projects/$projectId'
     | '/projects/new'
     | '/settings/connections'
+    | '/settings/memory'
     | '/settings/skills'
     | '/chat/'
     | '/projects/'
@@ -188,6 +198,7 @@ export interface FileRouteTypes {
     | '/handler/$'
     | '/projects/new'
     | '/settings/connections'
+    | '/settings/memory'
     | '/settings/skills'
     | '/chat'
     | '/projects'
@@ -206,6 +217,7 @@ export interface FileRouteTypes {
     | '/projects/$projectId'
     | '/projects/new'
     | '/settings/connections'
+    | '/settings/memory'
     | '/settings/skills'
     | '/chat/'
     | '/projects/'
@@ -221,6 +233,7 @@ export interface RootRouteChildren {
   ProjectsRoute: typeof ProjectsRouteWithChildren
   HandlerSplatRoute: typeof HandlerSplatRoute
   SettingsConnectionsRoute: typeof SettingsConnectionsRoute
+  SettingsMemoryRoute: typeof SettingsMemoryRoute
   SettingsSkillsRoute: typeof SettingsSkillsRoute
 }
 
@@ -266,6 +279,13 @@ declare module '@tanstack/react-router' {
       path: '/settings/skills'
       fullPath: '/settings/skills'
       preLoaderRoute: typeof SettingsSkillsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings/memory': {
+      id: '/settings/memory'
+      path: '/settings/memory'
+      fullPath: '/settings/memory'
+      preLoaderRoute: typeof SettingsMemoryRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings/connections': {
@@ -394,6 +414,7 @@ const rootRouteChildren: RootRouteChildren = {
   ProjectsRoute: ProjectsRouteWithChildren,
   HandlerSplatRoute: HandlerSplatRoute,
   SettingsConnectionsRoute: SettingsConnectionsRoute,
+  SettingsMemoryRoute: SettingsMemoryRoute,
   SettingsSkillsRoute: SettingsSkillsRoute,
 }
 export const routeTree = rootRouteImport

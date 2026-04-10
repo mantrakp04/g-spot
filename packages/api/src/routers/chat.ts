@@ -10,14 +10,25 @@ import {
   updateChatAgentConfig,
   updateChatTitle,
 } from "@g-spot/db/chat";
+import { getProject } from "@g-spot/db/projects";
 import { z } from "zod";
 
 import type { PiChatHistoryMessage } from "@g-spot/types";
 import { piAgentConfigSchema } from "@g-spot/types";
 
 import { authedProcedure, router } from "../index";
+import {
+  markChatRuntimeRead,
+  resolveChatToolApproval,
+  snapshotChatRuntimeStatuses,
+} from "../chat-runtime";
 import { deserializePiMessages } from "../lib/pi-chat-messages";
-import { normalizePiAgentConfig, normalizeStoredChatAgentConfig } from "../lib/pi";
+import {
+  getPiAgentDefaults,
+  normalizePiAgentConfig,
+  normalizeStoredChatAgentConfig,
+  normalizeStoredProjectAgentConfig,
+} from "../lib/pi";
 
 function withParsedAgentConfig<T extends { agentConfig?: string | null; model?: string }>(
   chat: T,
@@ -68,9 +79,24 @@ export const chatRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const agentConfig = input.agentConfig
+      // Seed new chats from the per-project agent config when the caller
+      // doesn't send one explicitly. The project-level config is itself
+      // seeded from `/chat/settings` at project creation time, so:
+      //   user defaults  →  project config  →  chat config
+      let agentConfig = input.agentConfig
         ? normalizePiAgentConfig(input.agentConfig)
         : undefined;
+
+      if (!agentConfig) {
+        const project = await getProject(ctx.userId, input.projectId);
+        if (project) {
+          const defaults = await getPiAgentDefaults(ctx.userId);
+          agentConfig = normalizeStoredProjectAgentConfig(
+            project.agentConfig,
+            defaults.chat,
+          );
+        }
+      }
 
       return createChat(ctx.userId, {
         projectId: input.projectId,
@@ -189,5 +215,54 @@ export const chatRouter = router({
     .input(z.object({ messageId: z.string() }))
     .mutation(async ({ input }) => {
       await deleteChatMessage(input.messageId);
+    }),
+
+  /**
+   * Snapshot of which of the user's chats currently have an active runtime.
+   * Used by the sidebar to show a per-chat status dot (running / pending
+   * approval / finished-unread). Chats absent from the map are
+   * idle-and-acknowledged.
+   *
+   * The web polls this at a low frequency — don't do anything expensive
+   * here.
+   */
+  runtimeStatuses: authedProcedure.query(({ ctx }) => {
+    return snapshotChatRuntimeStatuses(ctx.userId);
+  }),
+
+  /**
+   * Clear the "finished-unread" dot for a chat. Called by the web when the
+   * user opens the chat (so visiting a chat always acts as an ack) and
+   * again when a stream finishes while the chat is already visible.
+   */
+  markChatRead: authedProcedure
+    .input(z.object({ chatId: z.string().min(1) }))
+    .mutation(({ ctx, input }) => {
+      const cleared = markChatRuntimeRead(input.chatId, ctx.userId);
+      return { cleared };
+    }),
+
+  /**
+   * Resolve a pending tool-call approval. The chat stream publishes a
+   * `tool_approval_request` event when a tool call is gated by the current
+   * `PiAgentConfig.approvalPolicy`; the client renders approve/deny buttons
+   * and calls this mutation to unblock (or reject) the pending call.
+   */
+  resolveToolApproval: authedProcedure
+    .input(
+      z.object({
+        chatId: z.string().min(1),
+        toolCallId: z.string().min(1),
+        approved: z.boolean(),
+        reason: z.string().max(500).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const resolved = resolveChatToolApproval(input.chatId, ctx.userId, {
+        toolCallId: input.toolCallId,
+        approved: input.approved,
+        reason: input.reason,
+      });
+      return { resolved };
     }),
 });

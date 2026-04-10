@@ -38,7 +38,7 @@ export function NavUser() {
       />
       <DropdownMenuContent
         align="end"
-        className="min-w-56 rounded-none"
+        className="min-w-56"
         side="right"
         sideOffset={4}
       >

@@ -125,8 +125,8 @@ export function SkillEditorDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[85vh] flex-col gap-0 p-0 sm:max-w-4xl">
+        <DialogHeader className="shrink-0 border-b border-border/60 px-4 pt-4 pb-3">
           <DialogTitle>{isEditing ? "Edit skill" : "New skill"}</DialogTitle>
           <DialogDescription>
             Skills are reusable prompt bundles. They appear as{" "}
@@ -135,7 +135,11 @@ export function SkillEditorDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form
+          onSubmit={handleSubmit}
+          className="flex min-h-0 flex-1 flex-col"
+        >
+          <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
           <div className="space-y-2">
             <Label htmlFor="skill-name">Name</Label>
             <Input
@@ -178,7 +182,10 @@ export function SkillEditorDialog({
                 setForm((f) => ({ ...f, content: e.target.value }))
               }
               disabled={isPending}
-              className="font-mono text-xs"
+              // Override `field-sizing: content` from the base component so
+              // massive imported skill bodies don't push the dialog past the
+              // viewport. The textarea scrolls internally above this cap.
+              className="max-h-64 font-mono text-xs [field-sizing:fixed]"
             />
           </div>
 
@@ -230,8 +237,9 @@ export function SkillEditorDialog({
               {error}
             </p>
           ) : null}
+          </div>
 
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t border-border/60 px-4 py-3">
             <Button
               type="button"
               variant="ghost"

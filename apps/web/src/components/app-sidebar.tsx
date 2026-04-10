@@ -22,6 +22,7 @@ import {
   ChevronsLeft,
   SparklesIcon,
   FolderIcon,
+  BrainIcon,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -34,7 +35,10 @@ import {
 } from "@g-spot/ui/components/dropdown-menu";
 import { useDrafts } from "@/contexts/drafts-context";
 import { useSectionCounts } from "@/contexts/section-counts-context";
-import { useDeleteChatMutation } from "@/hooks/use-chat-data";
+import {
+  useChatRuntimeStatuses,
+  useDeleteChatMutation,
+} from "@/hooks/use-chat-data";
 import { useProjects } from "@/hooks/use-projects";
 import { SidebarProjectItem } from "@/components/projects/sidebar-project-item";
 import { getLastProjectId, setLastProjectId } from "@/lib/active-project";
@@ -186,6 +190,8 @@ export function AppSidebar({ onToggleCollapse }: AppSidebarProps) {
   }, []);
 
   const deleteChat = useDeleteChatMutation();
+  const runtimeStatusesQuery = useChatRuntimeStatuses();
+  const runtimeStatuses = runtimeStatusesQuery.data ?? {};
 
   useEffect(() => {
     if (isOnChat) {
@@ -267,14 +273,13 @@ export function AppSidebar({ onToggleCollapse }: AppSidebarProps) {
       </div>
 
       {/* Compose button */}
-      <div className="border-b border-sidebar-border p-2">
-        <Button
-          variant="outline"
-          size="sm"
-          className="w-full justify-start gap-2"
+      <div className="flex flex-col border-b border-sidebar-border p-2">
+        <button
+          type="button"
           onClick={handleCompose}
+          className="flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-sidebar-accent"
         >
-          <Pencil className="size-3.5" />
+          <Pencil className="size-3 shrink-0 text-muted-foreground" />
           <span>Compose</span>
           {drafts.length > 0 && (
             <Badge
@@ -284,7 +289,7 @@ export function AppSidebar({ onToggleCollapse }: AppSidebarProps) {
               {drafts.length}
             </Badge>
           )}
-        </Button>
+        </button>
       </div>
 
       {/* Section list + Chat list */}
@@ -293,9 +298,9 @@ export function AppSidebar({ onToggleCollapse }: AppSidebarProps) {
           <nav className="flex flex-col gap-0.5 p-2">
             {isLoading && (
               <>
-                <Skeleton className="h-7 w-full rounded-md" />
-                <Skeleton className="h-7 w-full rounded-md" />
-                <Skeleton className="h-7 w-full rounded-md" />
+                <Skeleton className="h-7 rounded-md" />
+                <Skeleton className="h-7 rounded-md" />
+                <Skeleton className="h-7 rounded-md" />
               </>
             )}
 
@@ -321,15 +326,14 @@ export function AppSidebar({ onToggleCollapse }: AppSidebarProps) {
                 {sections && sections.length > 0 && (
                   <Separator className="my-1" />
                 )}
-                <Button
-                  variant="ghost"
-                  size="xs"
-                  className="justify-start gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                <button
+                  type="button"
                   onClick={() => setBuilderOpen(true)}
+                  className="flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground"
                 >
-                  <Plus className="size-3" />
-                  Add section
-                </Button>
+                  <Plus className="size-3 shrink-0" />
+                  <span>Add section</span>
+                </button>
               </>
             )}
           </nav>
@@ -372,6 +376,10 @@ export function AppSidebar({ onToggleCollapse }: AppSidebarProps) {
                       <SparklesIcon className="size-3.5" />
                       Global skills
                     </DropdownMenuItem>
+                    <DropdownMenuItem render={<Link to="/settings/memory" />}>
+                      <BrainIcon className="size-3.5" />
+                      Memory graph
+                    </DropdownMenuItem>
                   </DropdownMenuGroup>
                   <DropdownMenuSeparator />
                   <DropdownMenuGroup>
@@ -393,18 +401,18 @@ export function AppSidebar({ onToggleCollapse }: AppSidebarProps) {
               <div className="flex h-full min-h-0 flex-col gap-0.5 overflow-y-auto pr-0.5">
                 {projectsQuery.isLoading && (
                   <>
-                    <Skeleton className="mx-1 h-7 rounded-md" />
-                    <Skeleton className="mx-1 h-7 rounded-md" />
+                    <Skeleton className="h-7 rounded-md" />
+                    <Skeleton className="h-7 rounded-md" />
                   </>
                 )}
 
                 {!projectsQuery.isLoading && projects.length === 0 && (
                   <Link
                     to="/projects/new"
-                    className="mx-1 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground"
+                    className="flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground"
                   >
                     <Plus className="size-3 shrink-0" />
-                    Create a project to start chatting
+                    <span>Create a project to start chatting</span>
                   </Link>
                 )}
 
@@ -417,16 +425,17 @@ export function AppSidebar({ onToggleCollapse }: AppSidebarProps) {
                     isOpen={openProjectIds.has(project.id)}
                     onToggle={(open) => handleToggleProject(project.id, open)}
                     onDeleteChat={handleDeleteChat}
+                    runtimeStatuses={runtimeStatuses}
                   />
                 ))}
 
                 {!projectsQuery.isLoading && projects.length > 0 && (
                   <Link
                     to="/projects/new"
-                    className="mx-1 mt-1 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground"
+                    className="mt-1 flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground"
                   >
                     <Plus className="size-3 shrink-0" />
-                    New project
+                    <span>New project</span>
                   </Link>
                 )}
               </div>

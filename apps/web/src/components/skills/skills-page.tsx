@@ -11,11 +11,12 @@ import {
 import { Skeleton } from "@g-spot/ui/components/skeleton";
 import { cn } from "@g-spot/ui/lib/utils";
 import { Link } from "@tanstack/react-router";
-import { ArrowLeft, Pencil, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Pencil, Plus, Sparkles, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
 import { SkillEditorDialog } from "@/components/skills/skill-editor-dialog";
+import { SkillExplorerDialog } from "@/components/skills/skill-explorer-dialog";
 import {
   useDeleteSkillMutation,
   useGlobalSkills,
@@ -52,6 +53,7 @@ export function SkillsPage({
 
   const skillsQuery = projectId === null ? globalQuery : projectQuery;
   const [editorOpen, setEditorOpen] = useState(false);
+  const [explorerOpen, setExplorerOpen] = useState(false);
   const [editingSkill, setEditingSkill] = useState<Skill | null>(null);
 
   function openCreate() {
@@ -102,10 +104,20 @@ export function SkillsPage({
                 {description}
               </p>
             </div>
-            <Button onClick={openCreate} className="gap-2">
-              <Plus className="size-4" />
-              New skill
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setExplorerOpen(true)}
+                className="gap-2"
+              >
+                <Sparkles className="size-4" />
+                Explore skills
+              </Button>
+              <Button onClick={openCreate} className="gap-2">
+                <Plus className="size-4" />
+                New skill
+              </Button>
+            </div>
           </header>
         </div>
 
@@ -120,13 +132,22 @@ export function SkillsPage({
               <CardTitle>No skills yet</CardTitle>
               <CardDescription>
                 Skills are reusable prompt bundles that show up as slash
-                commands in chat. Create one to get started.
+                commands in chat. Create one from scratch, or browse the
+                public skills.sh directory.
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="flex flex-wrap gap-2">
               <Button onClick={openCreate} className="gap-2">
                 <Plus className="size-4" />
                 Create skill
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setExplorerOpen(true)}
+                className="gap-2"
+              >
+                <Sparkles className="size-4" />
+                Explore skills
               </Button>
             </CardContent>
           </Card>
@@ -194,6 +215,12 @@ export function SkillsPage({
         open={editorOpen}
         onOpenChange={setEditorOpen}
         skill={editingSkill}
+        projectId={projectId}
+      />
+
+      <SkillExplorerDialog
+        open={explorerOpen}
+        onOpenChange={setExplorerOpen}
         projectId={projectId}
       />
     </div>

@@ -54,6 +54,8 @@ export async function createProject(
     path: string;
     customInstructions?: string | null;
     appendPrompt?: string | null;
+    /** JSON-stringified `PiAgentConfig`. Opaque here; parsed at the api layer. */
+    agentConfig?: string;
   },
 ): Promise<{ id: string }> {
   const id = nanoid();
@@ -67,6 +69,7 @@ export async function createProject(
       path: input.path,
       customInstructions: input.customInstructions ?? null,
       appendPrompt: input.appendPrompt ?? null,
+      agentConfig: input.agentConfig ?? "{}",
       createdAt: now,
       updatedAt: now,
     });
@@ -117,6 +120,26 @@ export async function updateProject(
   await db
     .update(projects)
     .set(values)
+    .where(and(eq(projects.id, projectId), eq(projects.userId, userId)));
+}
+
+/**
+ * Update just the per-project Pi agent config. Kept separate from
+ * `updateProject` so its invocation sites make it obvious that agent_config
+ * is being mutated (and so the stricter update input schema doesn't have to
+ * accept a large JSON blob).
+ */
+export async function updateProjectAgentConfig(
+  userId: string,
+  projectId: string,
+  agentConfigJson: string,
+): Promise<void> {
+  await db
+    .update(projects)
+    .set({
+      agentConfig: agentConfigJson,
+      updatedAt: new Date().toISOString(),
+    })
     .where(and(eq(projects.id, projectId), eq(projects.userId, userId)));
 }
 

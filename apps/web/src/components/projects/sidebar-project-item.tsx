@@ -15,6 +15,10 @@ import {
 } from "lucide-react";
 import { useCallback } from "react";
 
+import {
+  ChatStatusDot,
+  type ChatRuntimeDotStatus,
+} from "@/components/chat/chat-status-dot";
 import { useChats } from "@/hooks/use-chat-data";
 
 interface SidebarProjectItemProps {
@@ -27,6 +31,12 @@ interface SidebarProjectItemProps {
   isOpen: boolean;
   onToggle: (open: boolean) => void;
   onDeleteChat: (event: React.MouseEvent, chatId: string) => void;
+  /**
+   * `chatId → status` for every chat with an active runtime. Each chat row
+   * looks itself up; the project header doesn't render a dot — only chats
+   * do.
+   */
+  runtimeStatuses: Record<string, ChatRuntimeDotStatus>;
 }
 
 /**
@@ -42,6 +52,7 @@ export function SidebarProjectItem({
   isOpen,
   onToggle,
   onDeleteChat,
+  runtimeStatuses,
 }: SidebarProjectItemProps) {
   const navigate = useNavigate();
 
@@ -104,41 +115,45 @@ export function SidebarProjectItem({
         </Link>
       </div>
 
-      <CollapsibleContent className="pl-2">
+      <CollapsibleContent>
         {chatsLoading && (
-          <div className="space-y-0.5 py-0.5">
-            <Skeleton className="h-6 w-full rounded-md" />
-            <Skeleton className="h-6 w-4/5 rounded-md" />
-          </div>
+          <>
+            <Skeleton className="h-7 rounded-md" />
+            <Skeleton className="h-7 w-4/5 rounded-md" />
+          </>
         )}
 
         {!chatsLoading && chats.length === 0 && (
-          <p className="px-2 py-1.5 pl-7 text-[11px] text-muted-foreground/70">
+          <p className="px-2 py-1.5 text-[11px] text-muted-foreground/70">
             No chats yet
           </p>
         )}
 
-        {chats.map((chat) => (
-          <Link
-            key={chat.id}
-            to="/projects/$projectId/chat/$chatId"
-            params={{ projectId: project.id, chatId: chat.id }}
-            className={cn(
-              "group/chat ml-5 flex min-w-0 items-center gap-1 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-sidebar-accent",
-              activeChatId === chat.id && "bg-sidebar-accent",
-            )}
-          >
-            <span className="min-w-0 flex-1 truncate">{chat.title}</span>
-            <button
-              type="button"
-              className="shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover/chat:opacity-100"
-              onClick={(e) => onDeleteChat(e, chat.id)}
-              aria-label="Delete chat"
+        {chats.map((chat) => {
+          const chatStatus = runtimeStatuses[chat.id] ?? null;
+          return (
+            <Link
+              key={chat.id}
+              to="/projects/$projectId/chat/$chatId"
+              params={{ projectId: project.id, chatId: chat.id }}
+              className={cn(
+                "group/chat flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-sidebar-accent",
+                activeChatId === chat.id && "bg-sidebar-accent",
+              )}
             >
-              <Trash2 className="size-3.5" />
-            </button>
-          </Link>
-        ))}
+              <ChatStatusDot status={chatStatus} />
+              <span className="min-w-0 flex-1 truncate">{chat.title}</span>
+              <button
+                type="button"
+                className="shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover/chat:opacity-100"
+                onClick={(e) => onDeleteChat(e, chat.id)}
+                aria-label="Delete chat"
+              >
+                <Trash2 className="size-3.5" />
+              </button>
+            </Link>
+          );
+        })}
       </CollapsibleContent>
     </Collapsible>
   );

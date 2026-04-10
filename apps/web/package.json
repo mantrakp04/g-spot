@@ -29,6 +29,7 @@
     "@tanstack/react-query": "^5.95.2",
     "@tanstack/react-query-persist-client": "^5.95.2",
     "@tanstack/react-router": "^1.168.8",
+    "@tanstack/react-table": "^8.21.3",
     "@trpc/client": "catalog:",
     "@trpc/server": "catalog:",
     "@trpc/tanstack-react-query": "^11.16.0",

@@ -1,29 +1,18 @@
-import { useState, useEffect, useMemo } from "react";
+import { useEffect, useMemo, type HTMLAttributes, type ReactElement } from "react";
 
-import type { FilterCondition, ColumnConfig } from "@g-spot/types/filters";
-import { getDefaultColumns, GMAIL_COLUMN_META } from "@g-spot/types/filters";
-import { Skeleton } from "@g-spot/ui/components/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@g-spot/ui/components/table";
-import { TooltipProvider } from "@g-spot/ui/components/tooltip";
+import type { ColumnConfig, FilterCondition } from "@g-spot/types/filters";
+import { getDefaultColumns, normalizeColumns } from "@g-spot/types/filters";
 import { useUser } from "@stackframe/react";
-import { Loader2 } from "lucide-react";
 
 import type { GmailThread } from "@/lib/gmail/types";
-import { ColumnHeader } from "./column-layout";
-import { GmailThreadRow } from "./gmail-thread-row";
-import { SectionEmpty } from "./section-empty";
 import { useGmailLabelCatalog } from "@/hooks/use-gmail-options";
 import { useGmailThreadCount } from "@/hooks/use-gmail-thread-count";
 import { useGmailThreads } from "@/hooks/use-gmail-threads";
-import { useInfiniteScroll } from "@/hooks/use-infinite-scroll";
-import { useResizableSectionColumns } from "@/hooks/use-resizable-section-columns";
+import { useUpdateSectionMutation } from "@/hooks/use-sections";
+import { buildGmailColumns } from "./columns/gmail-columns";
+import { InboxDataTable } from "./inbox-data-table";
+import { GmailThreadPreview, RowPreviewPopover } from "./row-preview";
+import { SectionEmpty } from "./section-empty";
 
 type GmailThreadTableProps = {
   sectionId: string;
@@ -35,35 +24,6 @@ type GmailThreadTableProps = {
   onSelectThread?: (thread: GmailThread, threads: GmailThread[]) => void;
   columns?: ColumnConfig[];
 };
-
-function GmailSkeleton({ rows = 7 }: { rows?: number }) {
-  return (
-    <Table>
-      <TableBody>
-        {Array.from({ length: rows }, (_, i) => (
-          <TableRow key={i} className="pointer-events-none">
-            <TableCell className="w-48 pl-3">
-              <div className="flex items-center gap-2.5">
-                <Skeleton className="size-1.5 rounded-full" />
-                <Skeleton className="size-6 rounded-full" />
-                <Skeleton className="h-3.5 w-24" />
-              </div>
-            </TableCell>
-            <TableCell className="w-full">
-              <Skeleton className="h-3.5 w-64" />
-            </TableCell>
-            <TableCell className="hidden sm:table-cell">
-              <Skeleton className="size-3" />
-            </TableCell>
-            <TableCell className="pr-3 text-right">
-              <Skeleton className="ml-auto h-3 w-12" />
-            </TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
-  );
-}
 
 export function GmailThreadTable({
   sectionId,
@@ -93,84 +53,82 @@ export function GmailThreadTable({
     onCountChange?.(displayCount, countIsApproximate);
   }, [countIsApproximate, displayCount, onCountChange]);
 
-  const [scrollContainer, setScrollContainer] = useState<HTMLElement | null>(null);
-  const sentinelRef = useInfiniteScroll({
-    hasNextPage: hasNextPage ?? false,
-    isFetchingNextPage,
-    fetchNextPage: () => void fetchNextPage(),
-    root: scrollContainer,
-  });
+  const updateSectionMutation = useUpdateSectionMutation();
 
   const threads = useMemo(() => {
     const flat = data?.pages.flatMap((p) => p.threads) ?? [];
     if (!sortAsc) return flat;
     return [...flat].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   }, [data, sortAsc]);
+
   const labelCatalogById = useMemo(
     () => Object.fromEntries((labelCatalog ?? []).map((label) => [label.id, label])),
     [labelCatalog],
   );
 
-  const { columns: baseColumns, resizingColumnId, beginResize } = useResizableSectionColumns(
-    sectionId,
-    "gmail",
-    columnsProp && columnsProp.length > 0 ? columnsProp : getDefaultColumns("gmail"),
+  // Key the memo on the *content* of columnsProp, not its reference — the
+  // parent re-creates this array on every render (parseJson), so relying on
+  // reference equality would thrash every child memo each render.
+  const columnsPropKey = columnsProp ? JSON.stringify(columnsProp) : "";
+  const columnConfig = useMemo<ColumnConfig[]>(
+    () =>
+      normalizeColumns(
+        "gmail",
+        columnsProp && columnsProp.length > 0 ? columnsProp : getDefaultColumns("gmail"),
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [columnsPropKey],
   );
-  const visibleColumns = baseColumns.filter((c) => c.visible);
 
-  // ── Rendering ─────────────────────────────────────────────────────────
+  const tableColumns = useMemo(
+    () =>
+      buildGmailColumns({
+        columnConfig: columnConfig.map((c) => ({
+          id: c.id,
+          visible: c.visible,
+          truncation: c.truncation ?? "end",
+          label: c.label,
+        })),
+        labelCatalog: labelCatalogById,
+      }),
+    [columnConfig, labelCatalogById],
+  );
+
   if (!user) return <SectionEmpty source="gmail" message="Sign in to view email threads" />;
-  if (!googleAccount) return <SectionEmpty source="gmail" message="Connect your Google account to view email threads" />;
-  if (isLoading) return <GmailSkeleton />;
-  if (isError) return <SectionEmpty source="gmail" message={error?.message ?? "Failed to load email threads"} />;
-  if (threads.length === 0) return <SectionEmpty source="gmail" />;
-
-  const hasFromColumn = visibleColumns.some((c) => c.id === "from");
+  if (!googleAccount)
+    return (
+      <SectionEmpty source="gmail" message="Connect your Google account to view email threads" />
+    );
 
   return (
-    <TooltipProvider>
-      <div ref={setScrollContainer} className="max-h-[28rem] overflow-y-auto [&_[data-slot=table-container]]:overflow-visible">
-        <Table className="table-fixed">
-          <TableHeader className="sticky top-0 z-10 bg-card">
-            <TableRow className="hover:bg-transparent">
-              {!hasFromColumn && <TableHead className="w-8" />}
-              {visibleColumns.map((col) => {
-                const meta = GMAIL_COLUMN_META[col.id as keyof typeof GMAIL_COLUMN_META];
-                if (!meta) return null;
-                return (
-                  <ColumnHeader
-                    key={col.id}
-                    meta={meta}
-                    column={col}
-                    className={col.id === "from" ? "pl-3" : undefined}
-                    isResizing={resizingColumnId === col.id}
-                    onResizeStart={(event) => beginResize(col.id, event)}
-                  />
-                );
-              })}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {threads.map((thread) => (
-              <GmailThreadRow
-                key={thread.id}
-                thread={thread}
-                isSelected={selectedThreadId === thread.threadId}
-                onClick={onSelectThread ? (t) => onSelectThread(t, threads) : undefined}
-                columns={baseColumns}
-                labelCatalog={labelCatalogById}
-              />
-            ))}
-          </TableBody>
-        </Table>
-
-        {hasNextPage && <div ref={sentinelRef} className="h-1" />}
-        {isFetchingNextPage && (
-          <div className="flex justify-center py-2">
-            <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
-          </div>
-        )}
-      </div>
-    </TooltipProvider>
+    <InboxDataTable
+      columns={tableColumns}
+      data={threads}
+      getRowId={(thread) => thread.id}
+      columnConfig={columnConfig}
+      fillColumnId="subject"
+      onColumnConfigChange={(next) =>
+        updateSectionMutation.mutate({ id: sectionId, columns: next })
+      }
+      rowClassName={(thread) =>
+        selectedThreadId === thread.threadId ? "bg-accent" : undefined
+      }
+      onRowClick={onSelectThread ? (thread) => onSelectThread(thread, threads) : undefined}
+      rowWrapper={(thread, element) => (
+        <RowPreviewPopover preview={<GmailThreadPreview thread={thread} />}>
+          {element as ReactElement<HTMLAttributes<HTMLElement>>}
+        </RowPreviewPopover>
+      )}
+      hasNextPage={hasNextPage ?? false}
+      isFetchingNextPage={isFetchingNextPage}
+      fetchNextPage={() => void fetchNextPage()}
+      isLoading={isLoading}
+      emptyState={<SectionEmpty source="gmail" />}
+      errorState={
+        isError
+          ? <SectionEmpty source="gmail" message={error?.message ?? "Failed to load email threads"} />
+          : undefined
+      }
+    />
   );
 }

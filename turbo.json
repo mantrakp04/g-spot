@@ -33,6 +33,10 @@
     },
     "db:local": {
       "cache": false
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "cache": false
     }
   }
 }

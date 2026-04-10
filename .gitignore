@@ -51,3 +51,7 @@ tmp
 temp
 local.db
 local-storage
+memory.db
+memory.db-wal
+memory.db-shm
+extensions/

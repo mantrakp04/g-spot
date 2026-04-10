@@ -312,6 +312,32 @@ export function normalizeStoredChatAgentConfig(chat: {
   });
 }
 
+/**
+ * Parse the JSON blob stored on `projects.agent_config`. Empty / malformed
+ * values fall back to the given `fallback` (typically the user's Pi defaults).
+ */
+export function normalizeStoredProjectAgentConfig(
+  projectAgentConfig: string | null | undefined,
+  fallback: PiAgentConfig,
+): PiAgentConfig {
+  if (typeof projectAgentConfig !== "string" || projectAgentConfig.length === 0) {
+    return fallback;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(projectAgentConfig);
+  } catch {
+    return fallback;
+  }
+
+  if (!parsed || typeof parsed !== "object" || Object.keys(parsed).length === 0) {
+    return fallback;
+  }
+
+  return normalizePiAgentConfig(parsed, fallback);
+}
+
 export type PiAgentSessionProject = {
   id: string;
   path: string;

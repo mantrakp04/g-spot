@@ -136,8 +136,10 @@ export const SlashCommandPopover = forwardRef<
         clearValue();
         return;
       }
-      // Skill insert: replace the slash text with the skill content.
-      setValue(command.content);
+      // Skill insert: replace the slash query with the literal `/skill:name `
+      // slash command. The Pi agent expands this server-side into the full
+      // SKILL.md block — we never ship skill content through the textarea.
+      setValue(command.insertText);
     },
     [clearValue, commandContext, setValue],
   );

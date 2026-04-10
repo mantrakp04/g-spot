@@ -5,6 +5,23 @@ export { chats, chatMessages } from "./chat";
 export { fileHashes, fileMetadata } from "./files";
 export { projects } from "./projects";
 export { skills } from "./skills";
+export {
+  memoryEntities,
+  memoryObservations,
+  memoryEdges,
+  memoryBlocks,
+  memoryBlockHistory,
+  memoryAuditLog,
+} from "./memory";
+export {
+  gmailAccounts,
+  gmailLabels,
+  gmailThreads,
+  gmailMessages,
+  gmailAttachments,
+  gmailSyncState,
+  gmailSyncFailures,
+} from "./gmail";
 
 export const sections = sqliteTable(
   "sections",

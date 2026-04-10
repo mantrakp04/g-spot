@@ -26,10 +26,10 @@
     }
   },
   "overrides": {
-    "@mariozechner/pi-agent-core": "file:/tmp/pi-mono/packages/agent",
-    "@mariozechner/pi-ai": "file:/tmp/pi-mono/packages/ai",
-    "@mariozechner/pi-coding-agent": "file:/tmp/pi-mono/packages/coding-agent",
-    "@mariozechner/pi-tui": "file:/tmp/pi-mono/packages/tui"
+    "@mariozechner/pi-agent-core": "^0.65.0",
+    "@mariozechner/pi-ai": "^0.65.0",
+    "@mariozechner/pi-coding-agent": "^0.65.0",
+    "@mariozechner/pi-tui": "^0.65.0"
   },
   "type": "module",
   "scripts": {
@@ -45,14 +45,15 @@
     "db:studio": "turbo -F @g-spot/db db:studio",
     "db:generate": "turbo -F @g-spot/db db:generate",
     "db:migrate": "turbo -F @g-spot/db db:migrate",
-    "db:local": "turbo -F @g-spot/db db:local"
+    "db:local": "turbo -F @g-spot/db db:local",
+    "test": "turbo test"
   },
   "dependencies": {
     "@g-spot/env": "workspace:*",
-    "@mariozechner/pi-agent-core": "file:/tmp/pi-mono/packages/agent",
-    "@mariozechner/pi-ai": "file:/tmp/pi-mono/packages/ai",
-    "@mariozechner/pi-coding-agent": "file:/tmp/pi-mono/packages/coding-agent",
-    "@mariozechner/pi-tui": "file:/tmp/pi-mono/packages/tui",
+    "@mariozechner/pi-agent-core": "^0.65.0",
+    "@mariozechner/pi-ai": "^0.65.0",
+    "@mariozechner/pi-coding-agent": "^0.65.0",
+    "@mariozechner/pi-tui": "^0.65.0",
     "dotenv": "catalog:",
     "jose": "^6.2.2",
     "zod": "catalog:"

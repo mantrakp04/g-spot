@@ -19,6 +19,12 @@ export const env = createEnv({
     NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
     STACK_PROJECT_ID: z.string().min(1),
     STACK_SECRET_SERVER_KEY: z.string().min(1),
+    // Gmail sync
+    GMAIL_SYNC_CONCURRENCY: z.coerce.number().int().min(1).max(50).default(20),
+    MEMORY_WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(20).default(8),
+    MEMORY_QUEUE_HIGH_WATERMARK: z.coerce.number().int().min(8).max(100).default(32),
+    MEMORY_QUEUE_LOW_WATERMARK: z.coerce.number().int().min(4).max(50).default(16),
+    GMAIL_RATE_LIMIT_RPS: z.coerce.number().int().min(1).max(100).default(50),
   },
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,

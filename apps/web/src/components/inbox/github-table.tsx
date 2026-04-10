@@ -1,27 +1,22 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, type HTMLAttributes, type ReactElement } from "react";
 
-import type { FilterCondition, ColumnConfig } from "@g-spot/types/filters";
-import { getDefaultColumns, PR_COLUMN_META, ISSUE_COLUMN_META } from "@g-spot/types/filters";
-import {
-  Table,
-  TableBody,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@g-spot/ui/components/table";
+import type { ColumnConfig, FilterCondition } from "@g-spot/types/filters";
+import { getDefaultColumns, normalizeColumns } from "@g-spot/types/filters";
 import { useUser } from "@stackframe/react";
-import { Loader2 } from "lucide-react";
 
-import { ColumnHeader } from "./column-layout";
-import { GitHubIssueRow } from "./github-issue-row";
-import { GitHubPRRow } from "./github-pr-row";
-import { SectionEmpty } from "./section-empty";
-import { SectionSkeleton } from "./section-skeleton";
-import { useGitHubItems } from "@/hooks/use-github-items";
-import { useInfiniteScroll } from "@/hooks/use-infinite-scroll";
-import { useReadState } from "@/hooks/use-read-state";
-import { useResizableSectionColumns } from "@/hooks/use-resizable-section-columns";
 import type { GitHubIssue, GitHubPullRequest } from "@/lib/github/types";
+import { useGitHubItems } from "@/hooks/use-github-items";
+import { useReadState } from "@/hooks/use-read-state";
+import { useUpdateSectionMutation } from "@/hooks/use-sections";
+import { buildIssueColumns } from "./columns/github-issue-columns";
+import { buildPrColumns } from "./columns/github-pr-columns";
+import { InboxDataTable } from "./inbox-data-table";
+import {
+  GitHubIssuePreview,
+  GitHubPRPreview,
+  RowPreviewPopover,
+} from "./row-preview";
+import { SectionEmpty } from "./section-empty";
 
 type GitHubTableProps = {
   source: "github_pr" | "github_issue";
@@ -61,77 +56,109 @@ export function GitHubTable({
   const readStateKey = source === "github_pr" ? "github-prs" : "github-issues";
   const { isUnread, markAsRead } = useReadState(`${readStateKey}:${sectionId}`);
 
-  const [scrollContainer, setScrollContainer] = useState<HTMLElement | null>(null);
-  const sentinelRef = useInfiniteScroll({
-    hasNextPage: hasNextPage ?? false,
-    isFetchingNextPage,
-    fetchNextPage: () => void fetchNextPage(),
-    root: scrollContainer,
-  });
+  const updateSectionMutation = useUpdateSectionMutation();
 
-  const columnMeta = source === "github_pr" ? PR_COLUMN_META : ISSUE_COLUMN_META;
-  const { columns: baseColumns, resizingColumnId, beginResize } = useResizableSectionColumns(
-    sectionId,
-    source,
-    columnsProp && columnsProp.length > 0 ? columnsProp : getDefaultColumns(source),
+  // Key the memo on the *content* of columnsProp, not its reference — the
+  // parent re-creates this array on every render (parseJson), so relying on
+  // reference equality would thrash every child memo each render.
+  const columnsPropKey = columnsProp ? JSON.stringify(columnsProp) : "";
+  const columnConfig = useMemo<ColumnConfig[]>(
+    () =>
+      normalizeColumns(
+        source,
+        columnsProp && columnsProp.length > 0 ? columnsProp : getDefaultColumns(source),
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [columnsPropKey, source],
   );
-  const visibleColumns = baseColumns.filter((c) => c.visible);
 
-  // ── Rendering ─────────────────────────────────────────────────────────
+  const items = useMemo(
+    () =>
+      data?.pages.flatMap((page) => {
+        const p = page as Record<string, unknown>;
+        return (page.items ?? p.pullRequests ?? p.issues ?? []) as unknown[];
+      }) ?? [],
+    [data],
+  );
+
+  const configForColumns = useMemo(
+    () =>
+      columnConfig.map((c) => ({
+        id: c.id,
+        visible: c.visible,
+        truncation: c.truncation ?? "end",
+        label: c.label,
+      })),
+    [columnConfig],
+  );
+
+  const prColumns = useMemo(
+    () => buildPrColumns({ columnConfig: configForColumns, isUnread }),
+    [configForColumns, isUnread],
+  );
+  const issueColumns = useMemo(
+    () => buildIssueColumns({ columnConfig: configForColumns, isUnread }),
+    [configForColumns, isUnread],
+  );
+
   const label = source === "github_pr" ? "pull requests" : "issues";
 
   if (!user) return <SectionEmpty source={source} message={`Sign in to view ${label}`} />;
-  if (!githubAccount) return <SectionEmpty source={source} message={`Connect your GitHub account to view ${label}`} />;
-  if (isLoading) return <SectionSkeleton rows={7} />;
-  if (isError) return <SectionEmpty source={source} message={error?.message ?? `Failed to load ${label}`} />;
+  if (!githubAccount)
+    return (
+      <SectionEmpty source={source} message={`Connect your GitHub account to view ${label}`} />
+    );
 
-  const items = data?.pages.flatMap((page) => {
-    const p = page as Record<string, unknown>;
-    return (page.items ?? p.pullRequests ?? p.issues ?? []) as typeof page.items;
-  }) ?? [];
+  const sharedProps = {
+    columnConfig,
+    onColumnConfigChange: (next: ColumnConfig[]) =>
+      updateSectionMutation.mutate({ id: sectionId, columns: next }),
+    fillColumnId: "title",
+    hasNextPage: hasNextPage ?? false,
+    isFetchingNextPage,
+    fetchNextPage: () => void fetchNextPage(),
+    isLoading,
+    emptyState: <SectionEmpty source={source} />,
+    errorState: isError ? (
+      <SectionEmpty source={source} message={error?.message ?? `Failed to load ${label}`} />
+    ) : undefined,
+  };
 
-  if (items.length === 0) return <SectionEmpty source={source} />;
+  if (source === "github_pr") {
+    return (
+      <InboxDataTable<GitHubPullRequest>
+        {...sharedProps}
+        columns={prColumns}
+        data={items as GitHubPullRequest[]}
+        getRowId={(pr) => pr.id}
+        onRowClick={(pr) => {
+          markAsRead(pr.id);
+          window.open(pr.url, "_blank", "noopener");
+        }}
+        rowWrapper={(pr, element) => (
+          <RowPreviewPopover preview={<GitHubPRPreview pr={pr} />}>
+            {element as ReactElement<HTMLAttributes<HTMLElement>>}
+          </RowPreviewPopover>
+        )}
+      />
+    );
+  }
 
   return (
-    <div ref={setScrollContainer} className="max-h-[28rem] overflow-y-auto [&_[data-slot=table-container]]:overflow-visible">
-      <Table className="table-fixed">
-        <TableHeader className="sticky top-0 z-10 bg-card">
-          <TableRow className="hover:bg-transparent">
-            {visibleColumns.map((col) => {
-              const meta = columnMeta[col.id as keyof typeof columnMeta];
-              if (!meta) return null;
-              return (
-                <ColumnHeader
-                  key={col.id}
-                  meta={meta}
-                  column={col}
-                  className={col.id === "title" ? "pl-3" : undefined}
-                  isResizing={resizingColumnId === col.id}
-                  onResizeStart={(event) => beginResize(col.id, event)}
-                />
-              );
-            })}
-            <TableHead className="w-8" />
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {items.map((item) => {
-            const isPR = source === "github_pr" || item.itemType === "pull_request";
-            return isPR ? (
-              <GitHubPRRow key={item.id} pr={item as GitHubPullRequest} isUnread={isUnread(item.id)} onMarkRead={markAsRead} columns={baseColumns} />
-            ) : (
-              <GitHubIssueRow key={item.id} issue={item as GitHubIssue} isUnread={isUnread(item.id)} onMarkRead={markAsRead} columns={baseColumns} />
-            );
-          })}
-        </TableBody>
-      </Table>
-
-      {hasNextPage && <div ref={sentinelRef} className="h-1" />}
-      {isFetchingNextPage && (
-        <div className="flex justify-center py-2">
-          <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
-        </div>
+    <InboxDataTable<GitHubIssue>
+      {...sharedProps}
+      columns={issueColumns}
+      data={items as GitHubIssue[]}
+      getRowId={(issue) => issue.id}
+      onRowClick={(issue) => {
+        markAsRead(issue.id);
+        window.open(issue.url, "_blank", "noopener");
+      }}
+      rowWrapper={(issue, element) => (
+        <RowPreviewPopover preview={<GitHubIssuePreview issue={issue} />}>
+          {element as ReactElement<HTMLAttributes<HTMLElement>>}
+        </RowPreviewPopover>
       )}
-    </div>
+    />
   );
 }

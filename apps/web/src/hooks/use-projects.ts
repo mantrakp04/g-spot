@@ -1,4 +1,8 @@
-import type { CreateProjectInput, UpdateProjectInput } from "@g-spot/types";
+import type {
+  CreateProjectInput,
+  PiAgentConfig,
+  UpdateProjectInput,
+} from "@g-spot/types";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { chatKeys, projectKeys } from "@/lib/query-keys";
@@ -47,6 +51,21 @@ export function useUpdateProjectMutation() {
   return useMutation({
     mutationFn: (input: UpdateProjectInput) =>
       trpcClient.projects.update.mutate(input),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: projectKeys.list() });
+      queryClient.invalidateQueries({
+        queryKey: projectKeys.detail(variables.id),
+      });
+    },
+  });
+}
+
+export function useUpdateProjectAgentConfigMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (input: { id: string; agentConfig: PiAgentConfig }) =>
+      trpcClient.projects.updateAgentConfig.mutate(input),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: projectKeys.list() });
       queryClient.invalidateQueries({

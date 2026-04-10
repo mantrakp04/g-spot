@@ -7,12 +7,14 @@ import { nanoid } from "nanoid";
 
 import {
   abortChatRuntimeRun,
+  awaitChatToolApproval,
   finishChatRuntimeStream,
   getChatRuntime,
   getChatRuntimeReconnectStream,
   startChatRuntimeStream,
 } from "./chat-runtime";
 import { refreshChatTitle } from "./chat-title";
+import { extractChatTurnToMemory } from "./lib/memory-ingest-hook";
 import {
   createPiAgentSession,
   normalizeStoredChatAgentConfig,
@@ -23,6 +25,7 @@ import {
   deserializePiMessages,
   serializePiMessage,
 } from "./lib/pi-chat-messages";
+import { decidePermission } from "./lib/pi-permissions";
 import {
   disposeSkillsRoot,
   materializeSkills,
@@ -61,6 +64,23 @@ function isPersistablePiMessage(message: unknown): message is Message {
 
   const role = (message as { role?: unknown }).role;
   return role === "user" || role === "assistant" || role === "toolResult";
+}
+
+/**
+ * Compare two user messages by their content. Used to detect that the
+ * incoming user message is the trigger row that the client just persisted
+ * via `chat.replaceMessages` (regenerate / edit flow). Timestamps differ
+ * between calls so we ignore them and only compare role + content.
+ */
+function userMessageContentMatches(
+  stored: Message,
+  incoming: Message,
+): boolean {
+  if (stored.role !== "user" || incoming.role !== "user") {
+    return false;
+  }
+
+  return JSON.stringify(stored.content) === JSON.stringify(incoming.content);
 }
 
 export async function handleChatStream(request: Request): Promise<Response> {
@@ -110,6 +130,26 @@ export async function handleChatStream(request: Request): Promise<Response> {
       await getChatMessages(body.chatId),
     );
     const history = storedMessages.map((row) => row.parsedMessage);
+
+    // Regenerate / edit flow: the client persists the truncated history
+    // (including the trigger user message) via `chat.replaceMessages` and
+    // then re-sends that user message via this stream. If we don't dedupe
+    // here, we'd both add it to the agent's in-memory history a second time
+    // and persist it as a brand-new row, leaving a duplicate user bubble in
+    // the chat. Detect that case by comparing the last persisted message
+    // against the incoming user message — when they match, drop it from the
+    // in-memory history (so `sendUserMessage` is the single source) and
+    // remember the existing row id so the persistence subscriber can reuse
+    // it instead of inserting a duplicate.
+    let preExistingTriggerRowId: string | null = null;
+    if (storedMessages.length > 0) {
+      const lastStored = storedMessages[storedMessages.length - 1]!;
+      if (userMessageContentMatches(lastStored.parsedMessage, userMessage)) {
+        history.pop();
+        preExistingTriggerRowId = lastStored.id;
+      }
+    }
+
     const { session, config } = await createPiAgentSession({
       userId,
       config: chatConfig,
@@ -123,6 +163,59 @@ export async function handleChatStream(request: Request): Promise<Response> {
       abortCurrentRun: () => session.abort(),
     });
 
+    // Install the permission / approval hook. `session.agent.beforeToolCall`
+    // was already set to an extension-runner bridge by `AgentSession`, but
+    // since we run with `noExtensions`, that bridge is a no-op — so
+    // overwriting it here is safe and the cleanest way to inject policy.
+    //
+    // The hook runs async, so `require-approval` can await a promise that
+    // resolves once the client calls `chat.resolveToolApproval`. See
+    // `awaitChatToolApproval` in `chat-runtime.ts`.
+    session.agent.beforeToolCall = async ({ toolCall, args }) => {
+      const decision = decidePermission(
+        toolCall.name,
+        args,
+        chatConfig,
+      );
+
+      if (decision.kind === "block") {
+        return { block: true, reason: decision.reason };
+      }
+
+      if (decision.kind === "require-approval") {
+        stream.publish({
+          type: "tool_approval_request",
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+          args,
+          reason: decision.reason,
+        });
+
+        const response = await awaitChatToolApproval(
+          body.chatId,
+          toolCall.id,
+          { toolName: toolCall.name, args },
+        );
+
+        stream.publish({
+          type: "tool_approval_resolved",
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+          approved: response.approved,
+          reason: response.reason,
+        });
+
+        if (!response.approved) {
+          return {
+            block: true,
+            reason: response.reason ?? "User denied this tool call.",
+          };
+        }
+      }
+
+      return undefined;
+    };
+
     const persistenceTasks: Promise<void>[] = [];
     let triggerMessageId: string | null = null;
 
@@ -130,6 +223,19 @@ export async function handleChatStream(request: Request): Promise<Response> {
       stream.publish(event);
 
       if (event.type !== "message_end" || !isPersistablePiMessage(event.message)) {
+        return;
+      }
+
+      // First user message_end is the trigger. If the row already exists in
+      // DB (regenerate / edit dedupe above), reuse its id and skip the
+      // duplicate insert; otherwise create a fresh row id like normal.
+      if (
+        event.message.role === "user" &&
+        triggerMessageId === null &&
+        preExistingTriggerRowId !== null
+      ) {
+        triggerMessageId = preExistingTriggerRowId;
+        preExistingTriggerRowId = null;
         return;
       }
 
@@ -160,6 +266,13 @@ export async function handleChatStream(request: Request): Promise<Response> {
             fallbackConfig: config,
             triggerMessageId,
             project,
+          });
+
+          // Extract knowledge into memory graph (fire-and-forget)
+          void extractChatTurnToMemory({
+            userId,
+            chatId: body.chatId,
+            messages: finalMessages,
           });
         }
       } catch (error) {

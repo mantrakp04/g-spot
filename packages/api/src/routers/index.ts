@@ -1,6 +1,9 @@
 import { publicProcedure, router } from "../index";
 import { chatRouter } from "./chat";
 import { connectionsRouter } from "./connections";
+import { gmailRouter } from "./gmail";
+import { gmailSyncRouter } from "./gmail-sync";
+import { memoryRouter } from "./memory";
 import { piRouter } from "./pi";
 import { projectsRouter } from "./projects";
 import { sectionsRouter } from "./sections";
@@ -16,6 +19,9 @@ export const appRouter = router({
   chat: chatRouter,
   projects: projectsRouter,
   skills: skillsRouter,
+  memory: memoryRouter,
+  gmail: gmailRouter,
+  gmailSync: gmailSyncRouter,
 });
 
 export type AppRouter = typeof appRouter;

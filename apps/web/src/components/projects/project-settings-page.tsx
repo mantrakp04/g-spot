@@ -1,3 +1,4 @@
+import type { PiAgentConfig } from "@g-spot/types";
 import { Badge } from "@g-spot/ui/components/badge";
 import { Button } from "@g-spot/ui/components/button";
 import {
@@ -17,12 +18,19 @@ import { ArrowLeft, ChevronRight, Loader2, SparklesIcon, Trash2 } from "lucide-r
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { PiAgentConfigForm } from "@/components/pi/pi-agent-config-form";
+import { usePiCatalog } from "@/hooks/use-pi";
 import {
   useDeleteProjectMutation,
   useProject,
   useProjectChatCount,
+  useUpdateProjectAgentConfigMutation,
   useUpdateProjectMutation,
 } from "@/hooks/use-projects";
+import {
+  areAgentConfigsEqual,
+  normalizeAgentConfig,
+} from "@/lib/pi-agent-config";
 
 interface ProjectSettingsPageProps {
   projectId: string;
@@ -33,20 +41,44 @@ export function ProjectSettingsPage({ projectId }: ProjectSettingsPageProps) {
   const projectQuery = useProject(projectId);
   const chatCountQuery = useProjectChatCount(projectId);
   const updateProject = useUpdateProjectMutation();
+  const updateProjectAgentConfig = useUpdateProjectAgentConfigMutation();
   const deleteProject = useDeleteProjectMutation();
+  const piCatalog = usePiCatalog();
+  const allModels = piCatalog.data?.models ?? [];
+  const tools = piCatalog.data?.tools ?? [];
+  const configuredProviders = useMemo(
+    () =>
+      new Set(
+        (piCatalog.data?.configuredProviders ?? []).map(
+          (provider) => provider.provider,
+        ),
+      ),
+    [piCatalog.data?.configuredProviders],
+  );
 
   const [name, setName] = useState("");
   const [customInstructions, setCustomInstructions] = useState("");
   const [appendPrompt, setAppendPrompt] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [agentConfigDraft, setAgentConfigDraft] = useState<PiAgentConfig | null>(
+    null,
+  );
 
   useEffect(() => {
     if (projectQuery.data) {
       setName(projectQuery.data.name);
       setCustomInstructions(projectQuery.data.customInstructions ?? "");
       setAppendPrompt(projectQuery.data.appendPrompt ?? "");
+      setAgentConfigDraft(
+        normalizeAgentConfig(projectQuery.data.agentConfig, allModels),
+      );
     }
-  }, [projectQuery.data]);
+  }, [allModels, projectQuery.data]);
+
+  const isAgentConfigDirty = useMemo(() => {
+    if (!projectQuery.data || !agentConfigDraft) return false;
+    return !areAgentConfigsEqual(projectQuery.data.agentConfig, agentConfigDraft);
+  }, [agentConfigDraft, projectQuery.data]);
 
   const isDirty = useMemo(() => {
     if (!projectQuery.data) return false;
@@ -72,6 +104,23 @@ export function ProjectSettingsPage({ projectId }: ProjectSettingsPageProps) {
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Could not update project";
+      toast.error(message);
+    }
+  }
+
+  async function handleSaveAgentConfig() {
+    if (!agentConfigDraft || !isAgentConfigDirty) return;
+    try {
+      await updateProjectAgentConfig.mutateAsync({
+        id: projectId,
+        agentConfig: agentConfigDraft,
+      });
+      toast.success("Project agent config updated");
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Could not update project agent config";
       toast.error(message);
     }
   }
@@ -212,6 +261,54 @@ export function ProjectSettingsPage({ projectId }: ProjectSettingsPageProps) {
             >
               {updateProject.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
               Save changes
+            </Button>
+          </CardFooter>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Agent config</CardTitle>
+            <CardDescription>
+              Per-project Pi agent defaults. New chats in this project start
+              from these values — the user-level defaults at{" "}
+              <Link
+                to="/chat/settings"
+                className="underline underline-offset-2 hover:text-foreground"
+              >
+                /chat/settings
+              </Link>{" "}
+              are only used when a new project is first created.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {agentConfigDraft ? (
+              <PiAgentConfigForm
+                value={agentConfigDraft}
+                onChange={setAgentConfigDraft}
+                models={allModels}
+                tools={tools}
+                configuredProviders={configuredProviders}
+                modelLabel="Chat model"
+                modelDescription="Applied to new chats created in this project."
+              />
+            ) : (
+              <Skeleton className="h-64 w-full rounded-xl" />
+            )}
+          </CardContent>
+          <CardFooter className="justify-end">
+            <Button
+              type="button"
+              size="sm"
+              className="gap-2"
+              disabled={
+                !isAgentConfigDirty || updateProjectAgentConfig.isPending
+              }
+              onClick={() => void handleSaveAgentConfig()}
+            >
+              {updateProjectAgentConfig.isPending ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : null}
+              Save agent config
             </Button>
           </CardFooter>
         </Card>

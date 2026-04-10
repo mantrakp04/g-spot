@@ -129,7 +129,38 @@ export type GSpotErrorEvent = {
   message: string;
 };
 
-export type ChatStreamEvent = PiSdkSessionEvent | GSpotErrorEvent;
+/**
+ * Fired by the server when a tool call is gated by the chat's approval
+ * policy. The client renders approve/deny buttons on the matching tool
+ * invocation and calls `chat.resolveToolApproval` to unblock it.
+ */
+export type ToolApprovalRequestEvent = {
+  type: "tool_approval_request";
+  toolCallId: string;
+  toolName: string;
+  args: unknown;
+  reason: string;
+};
+
+/**
+ * Fired by the server once a pending approval is resolved — either because
+ * the client called `chat.resolveToolApproval` or because the runtime
+ * cancelled it (abort, reconnect). The client uses this to tear down its
+ * "awaiting approval" UI.
+ */
+export type ToolApprovalResolvedEvent = {
+  type: "tool_approval_resolved";
+  toolCallId: string;
+  toolName: string;
+  approved: boolean;
+  reason?: string;
+};
+
+export type ChatStreamEvent =
+  | PiSdkSessionEvent
+  | GSpotErrorEvent
+  | ToolApprovalRequestEvent
+  | ToolApprovalResolvedEvent;
 
 function base64ImageUrl(data: string, mimeType: string) {
   return `data:${mimeType};base64,${data}`;
@@ -374,6 +405,82 @@ export function applyPiToolResultToMessages(
   }
 
   return messages;
+}
+
+/**
+ * Mutate (immutably) the most recent tool part matching `toolCallId` across
+ * `messages`. Used by the approval-request / -resolved stream events to
+ * transition a single tool invocation through approval states without
+ * touching any other parts.
+ */
+function updateToolPart(
+  messages: UIMessage[],
+  toolCallId: string,
+  update: (
+    part: ToolUIPart | DynamicToolUIPart,
+  ) => ToolUIPart | DynamicToolUIPart,
+): UIMessage[] {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i]!;
+    if (message.role !== "assistant") {
+      continue;
+    }
+
+    let applied = false;
+    const nextParts = message.parts.map((part) => {
+      if (applied || !isAnyToolPart(part) || part.toolCallId !== toolCallId) {
+        return part;
+      }
+      applied = true;
+      return update(part);
+    });
+
+    if (!applied) {
+      continue;
+    }
+
+    const next = [...messages];
+    next[i] = { ...message, parts: nextParts };
+    return next;
+  }
+
+  return messages;
+}
+
+export function applyToolApprovalRequestToMessages(
+  messages: UIMessage[],
+  event: ToolApprovalRequestEvent,
+): UIMessage[] {
+  return updateToolPart(messages, event.toolCallId, (part) => ({
+    ...part,
+    state: "approval-requested",
+    approval: {
+      id: event.toolCallId,
+      // `reason` is the human-readable "why approval is needed" text that
+      // the server emitted. Stored alongside the eventual approval.reason
+      // field so the UI can surface both the prompt and the response.
+      reason: event.reason,
+    },
+  }));
+}
+
+export function applyToolApprovalResolvedToMessages(
+  messages: UIMessage[],
+  event: ToolApprovalResolvedEvent,
+): UIMessage[] {
+  return updateToolPart(messages, event.toolCallId, (part) => ({
+    ...part,
+    // If the user denied, the tool is about to surface as an error; if they
+    // approved, Pi will fire the normal `tool_execution_*` events and the
+    // state will move forward from here. In both cases we park on
+    // `approval-responded` until the real transition happens.
+    state: "approval-responded",
+    approval: {
+      id: event.toolCallId,
+      approved: event.approved,
+      reason: event.reason,
+    },
+  }));
 }
 
 /**

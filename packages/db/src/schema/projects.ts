@@ -20,6 +20,13 @@ export const projects = sqliteTable(
     customInstructions: text("custom_instructions"),
     /** Appended to the system prompt when set. */
     appendPrompt: text("append_prompt"),
+    /**
+     * Per-project Pi agent config (JSON-encoded `PiAgentConfig`). Seeded at
+     * creation time from the user's defaults (`/chat/settings`). Acts as the
+     * fallback any time a chat inside this project does not have its own
+     * per-chat override set. Empty string "{}" is treated as "no override".
+     */
+    agentConfig: text("agent_config").notNull().default("{}"),
     createdAt: text("created_at")
       .notNull()
       .default(sql`(current_timestamp)`),

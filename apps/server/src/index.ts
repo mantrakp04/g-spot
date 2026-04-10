@@ -8,6 +8,7 @@ import { handleFileUpload, handleFileDownload } from "@g-spot/api/file-handler";
 import { createContext } from "@g-spot/api/context";
 import { appRouter } from "@g-spot/api/routers/index";
 import { env } from "@g-spot/env/server";
+import { startDecayCron } from "@g-spot/api/lib/memory-cron";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { Elysia } from "elysia";
 
@@ -106,4 +107,5 @@ export const app = new Elysia()
   .get("/", () => "OK")
   .listen(env.SERVER_PORT, () => {
     console.log(`Server is running on http://${env.SERVER_HOST}:${env.SERVER_PORT}`);
+    startDecayCron();
   });

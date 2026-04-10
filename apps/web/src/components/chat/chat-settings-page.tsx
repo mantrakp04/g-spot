@@ -32,11 +32,14 @@ import {
   useUpdatePiDefaultsMutation,
 } from "@/hooks/use-pi";
 import {
+  APPROVAL_POLICY_OPTIONS,
   getModelValue,
+  NETWORK_ACCESS_OPTIONS,
   type PiModelOption,
   normalizeAgentConfig,
   prettyProviderName,
   QUEUE_MODE_OPTIONS,
+  SANDBOX_MODE_OPTIONS,
   THINKING_LEVEL_OPTIONS,
   TRANSPORT_OPTIONS,
 } from "@/lib/pi-agent-config";
@@ -102,6 +105,9 @@ function getSharedDraftConfig(chat: PiAgentConfig, worker: PiAgentConfig): PiAge
     steeringMode: chat.steeringMode,
     followUpMode: chat.followUpMode,
     activeToolNames: chat.activeToolNames,
+    sandboxMode: chat.sandboxMode,
+    networkAccess: chat.networkAccess,
+    approvalPolicy: chat.approvalPolicy,
   };
 }
 
@@ -116,6 +122,9 @@ function applySharedDraftConfig(
     steeringMode: shared.steeringMode,
     followUpMode: shared.followUpMode,
     activeToolNames: shared.activeToolNames,
+    sandboxMode: shared.sandboxMode,
+    networkAccess: shared.networkAccess,
+    approvalPolicy: shared.approvalPolicy,
   };
 }
 
@@ -246,10 +255,7 @@ export function ChatSettingsPage() {
         ) : null}
 
         {isLoading ? (
-          <div className="grid gap-6 lg:grid-cols-2">
-            <Skeleton className="h-[720px] rounded-xl" />
-            <Skeleton className="h-[720px] rounded-xl" />
-          </div>
+          <Skeleton className="h-[720px] w-full rounded-xl" />
         ) : drafts ? (
           <Card className="rounded-xl border border-border/70 bg-background/75 backdrop-blur-sm">
             <CardHeader className="gap-3">
@@ -445,6 +451,75 @@ export function ChatSettingsPage() {
                       });
                     }}
                     options={QUEUE_MODE_OPTIONS}
+                  />
+                </SettingsField>
+
+                <SettingsField
+                  label="Filesystem sandbox"
+                  description="Read-only blocks writes entirely; workspace-write confines edits to the project path; full access lets the agent touch anything."
+                >
+                  <ConfigSelect
+                    value={sharedConfig!.sandboxMode}
+                    onValueChange={(sandboxMode) => {
+                      setDrafts((current) => {
+                        if (!current) return current;
+                        const nextShared = {
+                          ...getSharedDraftConfig(current.chat, current.worker),
+                          sandboxMode,
+                        };
+                        return {
+                          chat: applySharedDraftConfig(current.chat, nextShared),
+                          worker: applySharedDraftConfig(current.worker, nextShared),
+                        };
+                      });
+                    }}
+                    options={SANDBOX_MODE_OPTIONS}
+                  />
+                </SettingsField>
+
+                <SettingsField
+                  label="Network access"
+                  description="When off, bash commands that look network-bound (curl, git clone, npm install…) are blocked by default."
+                >
+                  <ConfigSelect
+                    value={sharedConfig!.networkAccess}
+                    onValueChange={(networkAccess) => {
+                      setDrafts((current) => {
+                        if (!current) return current;
+                        const nextShared = {
+                          ...getSharedDraftConfig(current.chat, current.worker),
+                          networkAccess,
+                        };
+                        return {
+                          chat: applySharedDraftConfig(current.chat, nextShared),
+                          worker: applySharedDraftConfig(current.worker, nextShared),
+                        };
+                      });
+                    }}
+                    options={NETWORK_ACCESS_OPTIONS}
+                  />
+                </SettingsField>
+
+                <SettingsField
+                  label="Command approval"
+                  description="Approval required will prompt you before any write or shell command runs. Auto lets them all through."
+                >
+                  <ConfigSelect
+                    value={sharedConfig!.approvalPolicy}
+                    onValueChange={(approvalPolicy) => {
+                      setDrafts((current) => {
+                        if (!current) return current;
+                        const nextShared = {
+                          ...getSharedDraftConfig(current.chat, current.worker),
+                          approvalPolicy,
+                        };
+                        return {
+                          chat: applySharedDraftConfig(current.chat, nextShared),
+                          worker: applySharedDraftConfig(current.worker, nextShared),
+                        };
+                      });
+                    }}
+                    options={APPROVAL_POLICY_OPTIONS}
                   />
                 </SettingsField>
               </div>

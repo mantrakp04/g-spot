@@ -87,6 +87,7 @@ import {
   useChatMessages,
   useCreateChatMutation,
   useForkChatMutation,
+  useMarkChatReadMutation,
   useReplaceChatMessagesMutation,
   useUpdateChatAgentConfigMutation,
 } from "@/hooks/use-chat-data";
@@ -101,21 +102,29 @@ import {
   type UIMessage,
   type UIMessagePart,
   applyPiToolResultToMessages,
+  applyToolApprovalRequestToMessages,
+  applyToolApprovalResolvedToMessages,
   getMessageText,
   piHistoryToUiMessages,
   piMessageToUiMessage,
 } from "@/lib/chat-ui";
+import { trpcClient } from "@/utils/trpc";
 import { usePiChatStream } from "@/hooks/use-pi-chat-stream";
 import {
   logChatDebug,
   summarizeUiMessage,
 } from "@/lib/chat-debug";
 import {
+  applyPermissionModePreset,
   areAgentConfigsEqual,
   FALLBACK_PI_AGENT_CONFIG,
   getModelValue,
+  getPermissionModePresetId,
   normalizeAgentConfig,
+  PERMISSION_MODE_PRESETS,
+  PERMISSION_MODE_PRESET_ORDER,
   THINKING_LEVEL_OPTIONS,
+  type PermissionModePresetId,
 } from "@/lib/pi-agent-config";
 import { chatKeys } from "@/lib/query-keys";
 import { consumePendingChatSubmission, setPendingChatSubmission } from "@/lib/pending-chat-submissions";
@@ -317,6 +326,7 @@ function ChatViewInner({
   const updatePiDefaults = useUpdatePiDefaultsMutation();
   const replaceMessages = useReplaceChatMessagesMutation();
   const forkChat = useForkChatMutation();
+  const markChatRead = useMarkChatReadMutation();
   const isDraft = chatId === null;
   const allModels = piCatalog.data?.models ?? [];
   const draftDefaultConfig = useMemo(
@@ -407,6 +417,20 @@ function ChatViewInner({
         isReconnect: ctx.isReconnect,
         event,
       });
+
+      if (event.type === "tool_approval_request") {
+        setMessages((current) =>
+          applyToolApprovalRequestToMessages(current, event),
+        );
+        return;
+      }
+
+      if (event.type === "tool_approval_resolved") {
+        setMessages((current) =>
+          applyToolApprovalResolvedToMessages(current, event),
+        );
+        return;
+      }
 
       if (
         event.type !== "message_start" &&
@@ -543,6 +567,10 @@ function ChatViewInner({
       void queryClient.invalidateQueries({
         queryKey: chatKeys.messages(id),
       });
+      // The user is currently viewing this chat (the stream is bound to
+      // this view), so the run shouldn't show up as a green "unread"
+      // dot in the sidebar. Ack it immediately.
+      markChatRead.mutate(id);
     },
   });
 
@@ -597,6 +625,19 @@ function ChatViewInner({
     },
     [hookStartStream],
   );
+
+  // Whenever a chat is mounted (or the URL switches to a new chat id),
+  // tell the server to clear any "finished-unread" dot for that chat.
+  // Visiting a chat counts as acknowledging it. We only need this once per
+  // chat-id mount; the `onStreamComplete` callback handles "ack on
+  // completion while already viewing".
+  useEffect(() => {
+    if (!chatId) return;
+    markChatRead.mutate(chatId);
+    // markChatRead is a mutation hook, omitted from deps to keep this
+    // firing exactly once per chat-id change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatId]);
 
   // Pending submission: if we navigated here from a draft submit, kick off
   // the POST. Runs before the reconnect probe via effect ordering.
@@ -935,6 +976,67 @@ function ChatViewInner({
     [agentConfig, allModels, chatId, isDraft, updateChatAgentConfig],
   );
 
+  /**
+   * Apply a permission-mode preset (`plan`/`default`/`auto`/`bypass`) to the
+   * current chat. Mirrors `handleThinkingLevelChange`: drafts store the
+   * override as the new user default so it "sticks" for the next new chat,
+   * persisted chats update only their own row.
+   */
+  const handlePermissionModeChange = useCallback(
+    async (presetId: PermissionModePresetId) => {
+      const nextAgentConfig = applyPermissionModePreset(agentConfig, presetId);
+      const previousAgentConfig = agentConfig;
+
+      setAgentConfig(nextAgentConfig);
+      logChatDebug("permission-mode-change", {
+        chatId,
+        previousAgentConfig,
+        nextAgentConfig,
+        isDraft,
+      });
+
+      try {
+        if (isDraft) {
+          await updatePiDefaults.mutateAsync({
+            chat: applyPermissionModePreset(draftDefaultConfig, presetId),
+            worker: applyPermissionModePreset(
+              draftWorkerDefaultConfig,
+              presetId,
+            ),
+          });
+          return;
+        }
+
+        if (!chatId) {
+          return;
+        }
+
+        await updateChatAgentConfig.mutateAsync({
+          chatId,
+          agentConfig: nextAgentConfig,
+        });
+      } catch (error) {
+        setAgentConfig(previousAgentConfig);
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : isDraft
+              ? "Could not save default permission mode"
+              : "Could not save chat permission mode",
+        );
+      }
+    },
+    [
+      agentConfig,
+      chatId,
+      draftDefaultConfig,
+      draftWorkerDefaultConfig,
+      isDraft,
+      updateChatAgentConfig,
+      updatePiDefaults,
+    ],
+  );
+
   const handleThinkingLevelChange = useCallback(
     async (thinkingLevel: PiAgentConfig["thinkingLevel"]) => {
       const nextAgentConfig = {
@@ -997,6 +1099,46 @@ function ChatViewInner({
   );
 
   const isStreaming = status === "streaming" || status === "submitted";
+
+  /**
+   * Send an approve / deny decision for a pending tool call. The optimistic
+   * local update happens immediately so the UI doesn't wait on the
+   * round-trip; the server will also publish a `tool_approval_resolved`
+   * stream event which applies the same transition idempotently.
+   */
+  const handleResolveApproval = useCallback(
+    async (toolCallId: string, approved: boolean, reason?: string) => {
+      if (!chatId) {
+        return;
+      }
+
+      setMessages((current) =>
+        applyToolApprovalResolvedToMessages(current, {
+          type: "tool_approval_resolved",
+          toolCallId,
+          toolName: "",
+          approved,
+          reason,
+        }),
+      );
+
+      try {
+        await trpcClient.chat.resolveToolApproval.mutate({
+          chatId,
+          toolCallId,
+          approved,
+          reason,
+        });
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Could not send approval decision",
+        );
+      }
+    },
+    [chatId],
+  );
 
   /**
    * Multi-turn agent responses produce one PiSdkMessage per turn (thinking +
@@ -1146,6 +1288,7 @@ function ChatViewInner({
               onFork={() => {
                 void handleFork(lastIndex);
               }}
+              onResolveApproval={handleResolveApproval}
             />
           ))}
         </ConversationContent>
@@ -1166,6 +1309,7 @@ function ChatViewInner({
               allModels={allModels}
               onThinkingLevelChange={handleThinkingLevelChange}
               onModelChange={handleModelChange}
+              onPermissionModeChange={handlePermissionModeChange}
               builtinHandlers={{
                 onFork: () => {
                   if (messages.length > 0) {
@@ -1212,6 +1356,9 @@ interface ChatPromptInputAreaProps {
     level: PiAgentConfig["thinkingLevel"],
   ) => Promise<void> | void;
   onModelChange: (value: string) => Promise<void> | void;
+  onPermissionModeChange: (
+    presetId: PermissionModePresetId,
+  ) => Promise<void> | void;
   builtinHandlers: BuiltinHandlers;
 }
 
@@ -1225,8 +1372,13 @@ function ChatPromptInputArea({
   allModels,
   onThinkingLevelChange,
   onModelChange,
+  onPermissionModeChange,
   builtinHandlers,
 }: ChatPromptInputAreaProps) {
+  // `agentConfig` stores the three permission fields individually, so pick
+  // the preset that matches them (or fall back to "default" as the display
+  // value — the UI label becomes "Custom" below).
+  const activePresetId = getPermissionModePresetId(agentConfig);
   const controller = usePromptInputController();
   const popoverRef = useRef<SlashCommandPopoverHandle>(null);
   const anchorRef = useRef<HTMLDivElement>(null);
@@ -1307,6 +1459,34 @@ function ChatPromptInputArea({
                     {option.label}
                   </PromptInputSelectItem>
                 ))}
+              </PromptInputSelectContent>
+            </PromptInputSelect>
+
+            <PromptInputSelect
+              // When the stored config doesn't match any preset, drop the
+              // select back to an empty value so the trigger renders
+              // "Custom" via the placeholder below.
+              value={activePresetId ?? ""}
+              onValueChange={(value) => {
+                if (!value) return;
+                void onPermissionModeChange(value as PermissionModePresetId);
+              }}
+            >
+              <PromptInputSelectTrigger
+                aria-label="Permission mode"
+                className="h-7 w-auto gap-1.5 rounded-md px-2 text-xs"
+              >
+                <PromptInputSelectValue placeholder="Custom" />
+              </PromptInputSelectTrigger>
+              <PromptInputSelectContent>
+                {PERMISSION_MODE_PRESET_ORDER.map((id) => {
+                  const preset = PERMISSION_MODE_PRESETS[id];
+                  return (
+                    <PromptInputSelectItem key={preset.id} value={preset.id}>
+                      {preset.label}
+                    </PromptInputSelectItem>
+                  );
+                })}
               </PromptInputSelectContent>
             </PromptInputSelect>
           </PromptInputTools>

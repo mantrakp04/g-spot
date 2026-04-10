@@ -7,6 +7,7 @@ import {
   GitForkIcon,
   PencilIcon,
   RefreshCwIcon,
+  ShieldAlertIcon,
   WrenchIcon,
   XIcon,
 } from "lucide-react";
@@ -48,6 +49,16 @@ interface ChatMessageProps {
   onReload?: () => void;
   onEdit?: (newText: string) => void;
   onFork?: () => void;
+  /**
+   * Called when the user approves / denies a pending tool call. The message
+   * component tracks which tool part is currently gated by walking its own
+   * parts; `chat-view.tsx` handles the actual mutation + optimistic update.
+   */
+  onResolveApproval?: (
+    toolCallId: string,
+    approved: boolean,
+    reason?: string,
+  ) => void | Promise<void>;
 }
 
 function isToolPart(part: UIMessagePart): part is ToolUIPart | DynamicToolUIPart {
@@ -61,6 +72,7 @@ export const ChatMessage = memo(function ChatMessage({
   onReload,
   onEdit,
   onFork,
+  onResolveApproval,
 }: ChatMessageProps) {
   useEffect(() => {
     logChatDebug("message-render", {
@@ -220,7 +232,9 @@ export const ChatMessage = memo(function ChatMessage({
                       const stepStatus: "pending" | "active" | "complete" =
                         part.state === "input-streaming"
                           ? "pending"
-                          : part.state === "input-available"
+                          : part.state === "input-available" ||
+                              part.state === "approval-requested" ||
+                              part.state === "approval-responded"
                             ? "active"
                             : "complete";
                       const toolName =
@@ -228,6 +242,16 @@ export const ChatMessage = memo(function ChatMessage({
                         (part.type.startsWith("tool-")
                           ? part.type.slice("tool-".length)
                           : "tool");
+                      const toolCallId = part.toolCallId;
+                      const isAwaitingApproval =
+                        part.state === "approval-requested" &&
+                        !!toolCallId &&
+                        !!onResolveApproval;
+                      const denialText =
+                        part.state === "approval-responded" &&
+                        part.approval?.approved === false
+                          ? part.approval?.reason ?? "You denied this tool call."
+                          : null;
 
                       return (
                         <ChainOfThoughtStep
@@ -249,6 +273,55 @@ export const ChatMessage = memo(function ChatMessage({
                             <ToolContent>
                               {part.input !== undefined && (
                                 <ToolInput input={part.input} />
+                              )}
+                              {isAwaitingApproval && (
+                                <div className="flex flex-col gap-2 border-t p-3">
+                                  <div className="flex items-start gap-2 text-xs text-muted-foreground">
+                                    <ShieldAlertIcon className="mt-0.5 size-4 shrink-0 text-amber-500" />
+                                    <span>
+                                      {part.approval?.reason ??
+                                        `Approve ${toolName} before it can run?`}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    <Button
+                                      size="xs"
+                                      variant="ghost"
+                                      className="gap-1 text-xs"
+                                      onClick={() => {
+                                        if (!toolCallId) return;
+                                        void onResolveApproval?.(
+                                          toolCallId,
+                                          false,
+                                          "User denied.",
+                                        );
+                                      }}
+                                    >
+                                      <XIcon className="size-3" />
+                                      Deny
+                                    </Button>
+                                    <Button
+                                      size="xs"
+                                      variant="default"
+                                      className="gap-1 text-xs"
+                                      onClick={() => {
+                                        if (!toolCallId) return;
+                                        void onResolveApproval?.(
+                                          toolCallId,
+                                          true,
+                                        );
+                                      }}
+                                    >
+                                      <CheckIcon className="size-3" />
+                                      Approve
+                                    </Button>
+                                  </div>
+                                </div>
+                              )}
+                              {denialText && (
+                                <div className="border-t p-3 text-xs text-muted-foreground">
+                                  {denialText}
+                                </div>
                               )}
                               {(part.output !== undefined || part.errorText) && (
                                 <ToolOutput
@@ -274,9 +347,14 @@ export const ChatMessage = memo(function ChatMessage({
                               : "complete"
                           }
                           description={
-                            <span className="whitespace-pre-wrap">
+                            <MessageResponse
+                              className="text-muted-foreground text-xs [&_p]:my-1 [&_pre]:my-1 [&_ul]:my-1 [&_ol]:my-1"
+                              isAnimating={
+                                isStreaming && i === thoughtParts.length - 1
+                              }
+                            >
                               {part.text}
-                            </span>
+                            </MessageResponse>
                           }
                         />
                       );
@@ -288,9 +366,9 @@ export const ChatMessage = memo(function ChatMessage({
                           key={key}
                           label="Note"
                           description={
-                            <span className="whitespace-pre-wrap">
+                            <MessageResponse className="text-muted-foreground text-xs [&_p]:my-1 [&_pre]:my-1 [&_ul]:my-1 [&_ol]:my-1">
                               {part.text}
-                            </span>
+                            </MessageResponse>
                           }
                         />
                       );

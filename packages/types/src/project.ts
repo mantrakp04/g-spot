@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { piAgentConfigSchema, type PiAgentConfig } from "./agent";
+
 /**
  * Projects are the top-level workspace unit. Every chat belongs to a project,
  * and each project is pinned to an absolute filesystem path that becomes the
@@ -35,8 +37,16 @@ export const updateProjectInputSchema = z
   })
   .strict();
 
+export const updateProjectAgentConfigInputSchema = z.object({
+  id: z.string().min(1),
+  agentConfig: piAgentConfigSchema,
+});
+
 export type CreateProjectInput = z.infer<typeof createProjectInputSchema>;
 export type UpdateProjectInput = z.infer<typeof updateProjectInputSchema>;
+export type UpdateProjectAgentConfigInput = z.infer<
+  typeof updateProjectAgentConfigInputSchema
+>;
 
 export type Project = {
   id: string;
@@ -45,6 +55,8 @@ export type Project = {
   path: string;
   customInstructions: string | null;
   appendPrompt: string | null;
+  /** Parsed per-project Pi agent config (fallback for chats in this project). */
+  agentConfig: PiAgentConfig;
   createdAt: string;
   updatedAt: string;
 };

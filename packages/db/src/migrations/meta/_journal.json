@@ -43,6 +43,13 @@
       "when": 1775692800000,
       "tag": "0005_projects_and_skills",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1775865600000,
+      "tag": "0006_project_agent_config",
+      "breakpoints": true
     }
   ]
 }

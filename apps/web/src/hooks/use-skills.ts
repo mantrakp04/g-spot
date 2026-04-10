@@ -80,3 +80,35 @@ export function useDeleteSkillMutation(projectId: string | null) {
     },
   });
 }
+
+/**
+ * Search the public skills.sh directory via our tRPC proxy. Query must be at
+ * least 2 chars (enforced by the remote API); shorter queries keep the hook
+ * disabled so the UI can show an idle state instead of paging an error.
+ */
+export function useCatalogSearch(query: string, limit = 12) {
+  const trimmed = query.trim();
+  return useQuery({
+    queryKey: skillsKeys.catalogSearch(trimmed, limit),
+    queryFn: () =>
+      trpcClient.skills.searchCatalog.query({ query: trimmed, limit }),
+    enabled: trimmed.length >= 2,
+    staleTime: 60_000,
+  });
+}
+
+export function useInstallSkillFromSourceMutation(projectId: string | null) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (input: { source: string; skillSlug: string }) =>
+      trpcClient.skills.installFromSource.mutate({
+        projectId,
+        source: input.source,
+        skillSlug: input.skillSlug,
+      }),
+    onSuccess: () => {
+      invalidateSkillScopes(queryClient, projectId);
+    },
+  });
+}

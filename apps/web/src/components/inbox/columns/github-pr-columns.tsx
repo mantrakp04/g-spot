@@ -1,38 +1,37 @@
+import type { ColumnDef } from "@tanstack/react-table";
+
+import { PR_COLUMN_META } from "@g-spot/types/filters";
 import {
   Avatar,
   AvatarFallback,
-  AvatarImage,
   AvatarGroup,
   AvatarGroupCount,
+  AvatarImage,
 } from "@g-spot/ui/components/avatar";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@g-spot/ui/components/popover";
-import { TableCell, TableRow } from "@g-spot/ui/components/table";
 import {
   Check,
   CircleDot,
   CircleX,
   Clock,
-  Eye,
   ExternalLink,
+  Eye,
   GitPullRequest,
   Loader2,
   Minus,
   XCircle,
 } from "lucide-react";
 
-import type { ColumnConfig } from "@g-spot/types/filters";
-import { getColumnTruncation, PR_COLUMN_META } from "@g-spot/types/filters";
 import type { GitHubPullRequest, GitHubStatusCheck } from "@/lib/github/types";
-import { ColumnCell } from "./column-layout";
-import { RowPreviewPopover, GitHubPRPreview, ROW_PREVIEW_BLOCK_ATTR } from "./row-preview";
-import { relativeTime, GitHubLabels } from "./shared";
-import { TruncatedText } from "./truncated-text";
+import { ROW_PREVIEW_BLOCK_ATTR } from "../row-preview";
+import { GitHubLabels, relativeTime } from "../shared";
+import { TruncatedText } from "../truncated-text";
 
-// ── Check helpers ──────────────────────────────────────────────────────────
+// ── Check helpers ─────────────────────────────────────────────────────────
 
 function checkStatusColor(check: GitHubStatusCheck) {
   if (check.status !== "COMPLETED") return "text-yellow-500";
@@ -50,7 +49,8 @@ function checkStatusColor(check: GitHubStatusCheck) {
 function checkStatusIcon(check: GitHubStatusCheck) {
   const color = checkStatusColor(check);
   if (check.status !== "COMPLETED") {
-    if (check.status === "IN_PROGRESS") return <Loader2 className={`size-3.5 shrink-0 animate-spin ${color}`} />;
+    if (check.status === "IN_PROGRESS")
+      return <Loader2 className={`size-3.5 shrink-0 animate-spin ${color}`} />;
     return <Clock className={`size-3.5 shrink-0 ${color}`} />;
   }
   switch (check.conclusion) {
@@ -71,15 +71,24 @@ function checkStatusLabel(check: GitHubStatusCheck) {
     return "Pending";
   }
   switch (check.conclusion) {
-    case "SUCCESS": return "Passed";
-    case "FAILURE": return "Failed";
-    case "CANCELLED": return "Cancelled";
-    case "TIMED_OUT": return "Timed out";
-    case "SKIPPED": return "Skipped";
-    case "ACTION_REQUIRED": return "Action required";
-    case "NEUTRAL": return "Neutral";
-    case "STALE": return "Stale";
-    default: return "Unknown";
+    case "SUCCESS":
+      return "Passed";
+    case "FAILURE":
+      return "Failed";
+    case "CANCELLED":
+      return "Cancelled";
+    case "TIMED_OUT":
+      return "Timed out";
+    case "SKIPPED":
+      return "Skipped";
+    case "ACTION_REQUIRED":
+      return "Action required";
+    case "NEUTRAL":
+      return "Neutral";
+    case "STALE":
+      return "Stale";
+    default:
+      return "Unknown";
   }
 }
 
@@ -112,7 +121,7 @@ function rollupIcon(status: GitHubPullRequest["statusCheckRollup"]) {
   }
 }
 
-// ── Review helpers ─────────────────────────────────────────────────────────
+// ── Review helpers ────────────────────────────────────────────────────────
 
 function reviewMeta(decision: GitHubPullRequest["reviewDecision"]) {
   switch (decision) {
@@ -157,16 +166,22 @@ function reviewerIcon(state: string) {
 
 function reviewerLabel(state: string) {
   switch (state) {
-    case "APPROVED": return "Approved";
-    case "CHANGES_REQUESTED": return "Changes requested";
-    case "DISMISSED": return "Dismissed";
-    case "COMMENTED": return "Commented";
-    case "REQUESTED": return "Review requested";
-    default: return "Pending";
+    case "APPROVED":
+      return "Approved";
+    case "CHANGES_REQUESTED":
+      return "Changes requested";
+    case "DISMISSED":
+      return "Dismissed";
+    case "COMMENTED":
+      return "Commented";
+    case "REQUESTED":
+      return "Review requested";
+    default:
+      return "Pending";
   }
 }
 
-// ── Status Check Popover ───────────────────────────────────────────────────
+// ── Popovers ──────────────────────────────────────────────────────────────
 
 function StatusCheckPopover({ pr }: { pr: GitHubPullRequest }) {
   const meta = rollupMeta(pr.statusCheckRollup);
@@ -174,7 +189,11 @@ function StatusCheckPopover({ pr }: { pr: GitHubPullRequest }) {
 
   const checks = pr.statusChecks ?? [];
   const passed = checks.filter((c) => c.status === "COMPLETED" && c.conclusion === "SUCCESS").length;
-  const failed = checks.filter((c) => c.status === "COMPLETED" && (c.conclusion === "FAILURE" || c.conclusion === "CANCELLED" || c.conclusion === "TIMED_OUT")).length;
+  const failed = checks.filter(
+    (c) =>
+      c.status === "COMPLETED" &&
+      (c.conclusion === "FAILURE" || c.conclusion === "CANCELLED" || c.conclusion === "TIMED_OUT"),
+  ).length;
   const pending = checks.filter((c) => c.status !== "COMPLETED").length;
 
   return (
@@ -203,7 +222,6 @@ function StatusCheckPopover({ pr }: { pr: GitHubPullRequest }) {
         className="w-72 p-0"
         onClick={(e: React.MouseEvent) => e.stopPropagation()}
       >
-        {/* Header */}
         <div className={`flex items-center gap-2 px-3 py-2.5 ${meta.bg}`}>
           {rollupIcon(pr.statusCheckRollup)}
           <span className={`text-xs font-semibold ${meta.color}`}>{meta.label}</span>
@@ -216,7 +234,6 @@ function StatusCheckPopover({ pr }: { pr: GitHubPullRequest }) {
           )}
         </div>
 
-        {/* Check list */}
         {checks.length > 0 ? (
           <div className="max-h-52 overflow-y-auto">
             {checks.map((check) => (
@@ -242,7 +259,6 @@ function StatusCheckPopover({ pr }: { pr: GitHubPullRequest }) {
           </div>
         )}
 
-        {/* Footer link */}
         <a
           href={`${pr.url}/checks`}
           target="_blank"
@@ -257,8 +273,6 @@ function StatusCheckPopover({ pr }: { pr: GitHubPullRequest }) {
     </Popover>
   );
 }
-
-// ── Review Decision Popover ────────────────────────────────────────────────
 
 function ReviewDecisionPopover({ pr }: { pr: GitHubPullRequest }) {
   const meta = reviewMeta(pr.reviewDecision);
@@ -290,13 +304,11 @@ function ReviewDecisionPopover({ pr }: { pr: GitHubPullRequest }) {
         className="w-64 p-0"
         onClick={(e: React.MouseEvent) => e.stopPropagation()}
       >
-        {/* Header */}
         <div className={`flex items-center gap-2 px-3 py-2.5 ${meta.bg}`}>
           {reviewDecisionIcon(pr.reviewDecision)}
           <span className={`text-xs font-semibold ${meta.color}`}>{meta.label}</span>
         </div>
 
-        {/* Reviewer list */}
         {pr.reviewers.length > 0 ? (
           <div className="max-h-52 overflow-y-auto">
             {pr.reviewers.map((r) => (
@@ -326,7 +338,6 @@ function ReviewDecisionPopover({ pr }: { pr: GitHubPullRequest }) {
           </div>
         )}
 
-        {/* Footer link */}
         <a
           href={pr.url}
           target="_blank"
@@ -342,7 +353,7 @@ function ReviewDecisionPopover({ pr }: { pr: GitHubPullRequest }) {
   );
 }
 
-// ── Column Cell Renderers ─────────────────────────────────────────────────
+// ── Cells ────────────────────────────────────────────────────────────────
 
 const MAX_REVIEWERS = 4;
 
@@ -363,15 +374,26 @@ function ReviewersCell({ pr }: { pr: GitHubPullRequest }) {
   );
 }
 
-export const PR_CELL_RENDERERS: Record<string, (pr: GitHubPullRequest, truncation: "end" | "middle") => React.ReactNode> = {
-  title: (pr, truncation) => (
+function TitleCell({
+  pr,
+  isUnread,
+  truncation,
+}: {
+  pr: GitHubPullRequest;
+  isUnread: boolean;
+  truncation: "end" | "middle";
+}) {
+  return (
     <div className="flex min-w-0 items-center gap-2.5">
       <div className="flex shrink-0 items-center gap-2">
+        {isUnread ? (
+          <span className="size-1.5 shrink-0 rounded-full bg-blue-500" />
+        ) : (
+          <span className="size-1.5 shrink-0 rounded-full bg-transparent" />
+        )}
         <Avatar size="sm">
           <AvatarImage src={pr.author.avatarUrl} alt={pr.author.login} />
-          <AvatarFallback>
-            {pr.author.login.slice(0, 2).toUpperCase()}
-          </AvatarFallback>
+          <AvatarFallback>{pr.author.login.slice(0, 2).toUpperCase()}</AvatarFallback>
         </Avatar>
       </div>
       <div className="min-w-0 flex-1">
@@ -386,73 +408,139 @@ export const PR_CELL_RENDERERS: Record<string, (pr: GitHubPullRequest, truncatio
         </p>
       </div>
     </div>
-  ),
-  reviewers: (pr) => <ReviewersCell pr={pr} />,
-  ci: (pr) => <StatusCheckPopover pr={pr} />,
-  review: (pr) => <ReviewDecisionPopover pr={pr} />,
-  labels: (pr) => <GitHubLabels labels={pr.labels} />,
-  changes: (pr) =>
-    pr.additions != null && pr.deletions != null ? (
-      <span className="whitespace-nowrap font-mono text-xs">
-        <span className="text-emerald-500">+{pr.additions}</span>{" "}
-        <span className="text-red-500">-{pr.deletions}</span>
-      </span>
-    ) : null,
-  updated: (pr) => (
-    <span className="whitespace-nowrap text-xs text-muted-foreground">
-      {relativeTime(pr.updatedAt)}
-    </span>
-  ),
+  );
+}
+
+// ── Column definitions ──────────────────────────────────────────────────
+
+export const TRAILING_EXTERNAL_COLUMN_ID = "_trailing_external";
+
+type PrColumnInput = {
+  columnConfig: { id: string; visible: boolean; truncation: "end" | "middle"; label: string | null }[];
+  isUnread: (id: string) => boolean;
 };
 
-// ── Row ────────────────────────────────────────────────────────────────────
-
-export function GitHubPRRow({
-  pr,
+export function buildPrColumns({
+  columnConfig,
   isUnread,
-  onMarkRead,
-  columns,
-}: {
-  pr: GitHubPullRequest;
-  isUnread?: boolean;
-  onMarkRead?: (id: string) => void;
-  columns: ColumnConfig[];
-}) {
-  const visibleColumns = columns.filter((c) => c.visible);
+}: PrColumnInput): ColumnDef<GitHubPullRequest, unknown>[] {
+  const truncationFor = (id: string) =>
+    columnConfig.find((c) => c.id === id)?.truncation ?? "end";
+  const labelOverride = (id: string) =>
+    columnConfig.find((c) => c.id === id)?.label?.trim() || null;
+  const metaFor = (id: keyof typeof PR_COLUMN_META) => PR_COLUMN_META[id];
 
-  return (
-    <RowPreviewPopover preview={<GitHubPRPreview pr={pr} />}>
-    <TableRow
-      className="group cursor-pointer"
-      onClick={() => {
-        onMarkRead?.(pr.id);
-        window.open(pr.url, "_blank", "noopener");
-      }}
-    >
-      {visibleColumns.map((col) => {
-        const render = PR_CELL_RENDERERS[col.id];
-        const meta = PR_COLUMN_META[col.id as keyof typeof PR_COLUMN_META];
-        if (!render || !meta) return null;
+  return [
+    {
+      id: "title",
+      header: () => labelOverride("title") ?? metaFor("title").label,
+      cell: ({ row }) => (
+        <TitleCell
+          pr={row.original}
+          isUnread={isUnread(row.original.id)}
+          truncation={truncationFor("title")}
+        />
+      ),
+      size: 560,
+      meta: {
+        align: metaFor("title").align,
+        truncation: metaFor("title").truncation,
+        breakpoint: metaFor("title").breakpoint,
+        cellClassName: "pl-3",
+        headerClassName: "pl-3",
+      },
+    },
+    {
+      id: "reviewers",
+      header: () => labelOverride("reviewers") ?? metaFor("reviewers").label,
+      cell: ({ row }) => <ReviewersCell pr={row.original} />,
+      size: metaFor("reviewers").width ?? 112,
+      meta: {
+        align: metaFor("reviewers").align,
+        truncation: metaFor("reviewers").truncation,
+        breakpoint: metaFor("reviewers").breakpoint,
+      },
+    },
+    {
+      id: "ci",
+      header: () => labelOverride("ci") ?? metaFor("ci").label,
+      cell: ({ row }) => <StatusCheckPopover pr={row.original} />,
+      size: metaFor("ci").width ?? 48,
+      meta: {
+        align: metaFor("ci").align,
+        breakpoint: metaFor("ci").breakpoint,
+      },
+    },
+    {
+      id: "review",
+      header: () => labelOverride("review") ?? metaFor("review").label,
+      cell: ({ row }) => <ReviewDecisionPopover pr={row.original} />,
+      size: metaFor("review").width ?? 56,
+      meta: {
+        align: metaFor("review").align,
+        breakpoint: metaFor("review").breakpoint,
+      },
+    },
+    {
+      id: "labels",
+      header: () => labelOverride("labels") ?? metaFor("labels").label,
+      cell: ({ row }) => <GitHubLabels labels={row.original.labels} />,
+      size: 120,
+      meta: {
+        align: metaFor("labels").align,
+        breakpoint: metaFor("labels").breakpoint,
+      },
+    },
+    {
+      id: "changes",
+      header: () => labelOverride("changes") ?? metaFor("changes").label,
+      cell: ({ row }) => {
+        const pr = row.original;
+        if (pr.additions == null || pr.deletions == null) return null;
         return (
-          <ColumnCell key={col.id} meta={meta} column={col} className={col.id === "title" ? "pl-3" : undefined}>
-            <>
-              {col.id === "title" && isUnread ? (
-                <span className="size-1.5 shrink-0 rounded-full bg-blue-500" />
-              ) : null}
-              {col.id === "title" && !isUnread ? (
-                <span className="size-1.5 shrink-0 rounded-full bg-transparent" />
-              ) : null}
-              {render(pr, getColumnTruncation(meta, col))}
-            </>
-          </ColumnCell>
+          <span className="whitespace-nowrap font-mono text-xs">
+            <span className="text-emerald-500">+{pr.additions}</span>{" "}
+            <span className="text-red-500">-{pr.deletions}</span>
+          </span>
         );
-      })}
-
-      {/* External link indicator on hover */}
-      <TableCell className="w-8 pr-3">
+      },
+      size: 96,
+      meta: {
+        align: metaFor("changes").align,
+        truncation: metaFor("changes").truncation,
+        breakpoint: metaFor("changes").breakpoint,
+      },
+    },
+    {
+      id: "updated",
+      header: () => labelOverride("updated") ?? metaFor("updated").label,
+      cell: ({ row }) => (
+        <span className="whitespace-nowrap text-xs text-muted-foreground">
+          {relativeTime(row.original.updatedAt)}
+        </span>
+      ),
+      size: metaFor("updated").width ?? 80,
+      meta: {
+        align: metaFor("updated").align,
+        truncation: metaFor("updated").truncation,
+        breakpoint: metaFor("updated").breakpoint,
+      },
+    },
+    // Trailing external-link indicator (not persisted, not resizable)
+    {
+      id: TRAILING_EXTERNAL_COLUMN_ID,
+      header: () => null,
+      cell: () => (
         <ExternalLink className="size-3 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
-      </TableCell>
-    </TableRow>
-    </RowPreviewPopover>
-  );
+      ),
+      size: 32,
+      enableResizing: false,
+      enableHiding: false,
+      meta: {
+        align: "center",
+        cellClassName: "pr-3",
+        headerClassName: "w-8",
+      },
+    },
+  ];
 }

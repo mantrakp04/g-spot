@@ -4,6 +4,7 @@ import type {
   PiNetworkAccess,
   PiSandboxMode,
   PiSdkModel,
+  PiWorkMode,
 } from "@g-spot/types";
 
 export type PiModelOption = Pick<PiSdkModel, "provider" | "id" | "name">;
@@ -135,6 +136,14 @@ export const APPROVAL_POLICY_OPTIONS = [
   label: string;
 }>;
 
+export const WORK_MODE_OPTIONS = [
+  { value: "local", label: "Work locally" },
+  { value: "worktree", label: "Worktree" },
+] as const satisfies ReadonlyArray<{
+  value: PiWorkMode;
+  label: string;
+}>;
+
 export const THINKING_LEVEL_OPTIONS = [
   { value: "off", label: "Off" },
   { value: "minimal", label: "Minimal" },
@@ -144,15 +153,6 @@ export const THINKING_LEVEL_OPTIONS = [
   { value: "xhigh", label: "XHigh" },
 ] as const satisfies ReadonlyArray<{
   value: PiAgentConfig["thinkingLevel"];
-  label: string;
-}>;
-
-export const TRANSPORT_OPTIONS = [
-  { value: "sse", label: "SSE" },
-  { value: "websocket", label: "WebSocket" },
-  { value: "auto", label: "Auto" },
-] as const satisfies ReadonlyArray<{
-  value: PiAgentConfig["transport"];
   label: string;
 }>;
 
@@ -168,13 +168,15 @@ export const FALLBACK_PI_AGENT_CONFIG: PiAgentConfig = {
   provider: "openai-codex",
   modelId: "gpt-5.4-mini",
   thinkingLevel: "off",
-  transport: "sse",
+  transport: "websocket",
   steeringMode: "one-at-a-time",
   followUpMode: "one-at-a-time",
   activeToolNames: ["read", "bash", "edit", "write"],
   sandboxMode: "workspace-write",
   networkAccess: "off",
   approvalPolicy: "approval-required",
+  workMode: "local",
+  branch: null,
 };
 
 export function areAgentConfigsEqual(a: PiAgentConfig, b: PiAgentConfig) {
@@ -188,6 +190,8 @@ export function areAgentConfigsEqual(a: PiAgentConfig, b: PiAgentConfig) {
     a.sandboxMode === b.sandboxMode &&
     a.networkAccess === b.networkAccess &&
     a.approvalPolicy === b.approvalPolicy &&
+    a.workMode === b.workMode &&
+    a.branch === b.branch &&
     a.activeToolNames.length === b.activeToolNames.length &&
     a.activeToolNames.every((toolName, index) => toolName === b.activeToolNames[index])
   );
@@ -203,6 +207,31 @@ export function prettyProviderName(providerId: string) {
 
 export function getModelValue(model: Pick<PiModelOption, "provider" | "id">) {
   return `${model.provider}::${model.id}`;
+}
+
+export function parseModelValue(value: string) {
+  const [provider, modelId] = value.split("::");
+  if (!provider || !modelId) {
+    return null;
+  }
+
+  return { provider, modelId };
+}
+
+export function updateAgentConfigModel(
+  config: PiAgentConfig,
+  value: string,
+): PiAgentConfig {
+  const parsed = parseModelValue(value);
+  if (!parsed) {
+    return config;
+  }
+
+  return {
+    ...config,
+    provider: parsed.provider,
+    modelId: parsed.modelId,
+  };
 }
 
 export function getProviderModels(models: PiModelOption[], provider: string) {

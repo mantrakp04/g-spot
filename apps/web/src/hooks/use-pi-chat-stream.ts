@@ -2,11 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { logChatDebug } from "@/lib/chat-debug";
 import {
+  type ChatSocketStateEvent,
   type ChatStatus,
   type ChatStreamEvent,
   type UIMessage,
+  isChatSocketStateEvent,
   isGSpotErrorEvent,
-  readChatEvents,
+  parseChatSocketMessage,
 } from "@/lib/chat-ui";
 
 type StreamMode = "idle" | "post" | "reconnect";
@@ -33,71 +35,139 @@ export type PiChatStreamApi = {
 };
 
 /**
- * Owns the network + SSE consumer lifecycle for chat streams. Does not own
- * `messages` state — the caller mutates messages from `onEvent`. The hook
- * exposes both `startStream` (POST a fresh user message) and
- * `attachToExistingStream` (GET probe to reattach to a server-side run that's
- * still buffering events). Both feed into the same internal consume loop.
- *
- * Reattach safety:
- * - A single `AbortController` guards the active reader; new starts/attaches
- *   abort the previous one.
- * - `modeRef` prevents `attachToExistingStream` from racing a live POST.
- * - Component unmount aborts the reader only — the server-side run keeps
- *   going (per `ActiveSseStream.connect()` cancel handler) so a future
- *   reconnect probe can re-attach.
+ * Owns the network + WebSocket consumer lifecycle for chat streams. Does not
+ * own `messages` state — the caller mutates messages from `onEvent`.
  */
 export function usePiChatStream(args: UsePiChatStreamArgs): PiChatStreamApi {
   const argsRef = useRef(args);
   argsRef.current = args;
 
   const [status, setStatus] = useState<ChatStatus>("ready");
-  const abortControllerRef = useRef<AbortController | null>(null);
+  const socketRef = useRef<WebSocket | null>(null);
   const modeRef = useRef<StreamMode>("idle");
 
-  const consumeStream = useCallback(
-    async (
-      body: ReadableStream<Uint8Array>,
+  const closeActiveSocket = useCallback(() => {
+    socketRef.current?.close();
+    socketRef.current = null;
+    modeRef.current = "idle";
+  }, []);
+
+  const buildSocketUrl = useCallback((targetChatId: string) => {
+    const url = new URL(argsRef.current.serverUrl);
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    url.pathname = `/api/chat/${targetChatId}/socket`;
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  }, []);
+
+  const connectSocket = useCallback(
+    (
       targetChatId: string,
-      controller: AbortController,
-      isReconnect: boolean,
-    ) => {
-      try {
-        for await (const event of readChatEvents(body)) {
-          if (controller.signal.aborted) {
-            break;
+      mode: Exclude<StreamMode, "idle">,
+      initialMessage: { type: "start"; message: UIMessage } | { type: "attach" },
+    ) =>
+      new Promise<boolean>((resolve, reject) => {
+        const socket = new WebSocket(buildSocketUrl(targetChatId));
+        let settled = false;
+        let attached = false;
+
+        socketRef.current = socket;
+        modeRef.current = mode;
+
+        const settle = (callback: () => void) => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          callback();
+        };
+
+        socket.addEventListener("open", () => {
+          socket.send(
+            JSON.stringify(
+              initialMessage.type === "start"
+                ? { type: "start", message: initialMessage.message }
+                : { type: "attach" },
+            ),
+          );
+        });
+
+        socket.addEventListener("message", (rawEvent) => {
+          const payload =
+            typeof rawEvent.data === "string" ? rawEvent.data : String(rawEvent.data);
+
+          let event: ChatStreamEvent | ChatSocketStateEvent;
+          try {
+            event = parseChatSocketMessage(payload);
+          } catch (error) {
+            const err =
+              error instanceof Error
+                ? error
+                : new Error("Invalid chat socket message");
+            settle(() => reject(err));
+            return;
+          }
+
+          if (isChatSocketStateEvent(event)) {
+            if (event.type === "socket_missing") {
+              settle(() => resolve(false));
+              socket.close();
+              return;
+            }
+
+            attached = true;
+            setStatus("streaming");
+            settle(() => resolve(true));
+            return;
           }
 
           if (isGSpotErrorEvent(event)) {
-            throw new Error(event.message);
+            const err = new Error(event.message);
+            settle(() => reject(err));
+            setStatus("error");
+            argsRef.current.onError?.(err);
+            return;
           }
 
-          argsRef.current.onEvent(event, { isReconnect });
-        }
+          argsRef.current.onEvent(event, {
+            isReconnect: mode === "reconnect",
+          });
+        });
 
-        if (!controller.signal.aborted) {
+        socket.addEventListener("close", () => {
+          if (socketRef.current === socket) {
+            socketRef.current = null;
+            modeRef.current = "idle";
+          }
+
+          if (!settled) {
+            settle(() => resolve(false));
+            return;
+          }
+
+          if (!attached) {
+            return;
+          }
+
           setStatus("ready");
           argsRef.current.onStreamComplete?.(targetChatId);
-          logChatDebug("stream-complete", { targetChatId, isReconnect });
-        }
-      } catch (error) {
-        if (controller.signal.aborted) {
-          logChatDebug("stream-aborted", { targetChatId, isReconnect });
-          return;
-        }
+          logChatDebug("stream-complete", {
+            targetChatId,
+            isReconnect: mode === "reconnect",
+          });
+        });
 
-        setStatus("error");
-        const err = error instanceof Error ? error : new Error(String(error));
-        logChatDebug("stream-error", { targetChatId, isReconnect, error: err });
-        argsRef.current.onError?.(err);
-      } finally {
-        if (abortControllerRef.current === controller) {
-          abortControllerRef.current = null;
-          modeRef.current = "idle";
-        }
-      }
-    },
-    [],
+        socket.addEventListener("error", () => {
+          const err = new Error("Chat socket failed");
+          if (!settled) {
+            settle(() => reject(err));
+          }
+          setStatus("error");
+          argsRef.current.onError?.(err);
+        });
+      }),
+    [buildSocketUrl],
   );
 
   const startStream = useCallback(
@@ -107,59 +177,29 @@ export function usePiChatStream(args: UsePiChatStreamArgs): PiChatStreamApi {
         return;
       }
 
-      abortControllerRef.current?.abort();
-      const controller = new AbortController();
-      abortControllerRef.current = controller;
+      closeActiveSocket();
       modeRef.current = "post";
       setStatus("submitted");
 
       logChatDebug("stream-start", { targetChatId });
 
       try {
-        const response = await fetch(`${argsRef.current.serverUrl}/api/chat`, {
-          method: "POST",
-          headers: await argsRef.current.getHeaders(),
-          body: JSON.stringify({
-            chatId: targetChatId,
-            message: userMessage,
-          }),
-          signal: controller.signal,
+        const attached = await connectSocket(targetChatId, "post", {
+          type: "start",
+          message: userMessage,
         });
-
-        logChatDebug("stream-response", {
-          targetChatId,
-          ok: response.ok,
-          status: response.status,
-          hasBody: Boolean(response.body),
-        });
-
-        if (!response.ok || !response.body) {
-          throw new Error(`Chat request failed (${response.status})`);
+        if (!attached) {
+          throw new Error("Chat socket did not attach");
         }
-
-        if (controller.signal.aborted) {
-          return;
-        }
-
-        setStatus("streaming");
-        await consumeStream(response.body, targetChatId, controller, false);
       } catch (error) {
-        if (controller.signal.aborted) {
-          return;
-        }
-
         setStatus("error");
         const err = error instanceof Error ? error : new Error(String(error));
         logChatDebug("stream-start-error", { targetChatId, error: err });
         argsRef.current.onError?.(err);
-
-        if (abortControllerRef.current === controller) {
-          abortControllerRef.current = null;
-          modeRef.current = "idle";
-        }
+        closeActiveSocket();
       }
     },
-    [consumeStream],
+    [closeActiveSocket, connectSocket],
   );
 
   const attachToExistingStream = useCallback(async (): Promise<boolean> => {
@@ -176,56 +216,25 @@ export function usePiChatStream(args: UsePiChatStreamArgs): PiChatStreamApi {
       return false;
     }
 
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-    modeRef.current = "reconnect";
+    closeActiveSocket();
 
     try {
-      const response = await fetch(
-        `${argsRef.current.serverUrl}/api/chat/${targetChatId}/stream`,
-        {
-          method: "GET",
-          headers: await argsRef.current.getHeaders(),
-          signal: controller.signal,
-        },
-      );
-
-      if (response.status === 204) {
+      const attached = await connectSocket(targetChatId, "reconnect", {
+        type: "attach",
+      });
+      if (attached) {
+        logChatDebug("stream-reattached", { targetChatId });
+      } else {
         logChatDebug("reconnect-no-stream", { targetChatId });
-        if (abortControllerRef.current === controller) {
-          abortControllerRef.current = null;
-          modeRef.current = "idle";
-        }
-        return false;
       }
-
-      if (!response.ok || !response.body) {
-        throw new Error(`Reconnect failed (${response.status})`);
-      }
-
-      if (controller.signal.aborted) {
-        return false;
-      }
-
-      logChatDebug("stream-reattached", { targetChatId });
-      setStatus("streaming");
-      void consumeStream(response.body, targetChatId, controller, true);
-      return true;
+      return attached;
     } catch (error) {
-      if (controller.signal.aborted) {
-        return false;
-      }
-
       const err = error instanceof Error ? error : new Error(String(error));
       logChatDebug("reconnect-error", { targetChatId, error: err });
-
-      if (abortControllerRef.current === controller) {
-        abortControllerRef.current = null;
-        modeRef.current = "idle";
-      }
+      closeActiveSocket();
       return false;
     }
-  }, [consumeStream]);
+  }, [closeActiveSocket, connectSocket]);
 
   const stopEverywhere = useCallback(async () => {
     const targetChatId = argsRef.current.chatId;
@@ -241,27 +250,19 @@ export function usePiChatStream(args: UsePiChatStreamArgs): PiChatStreamApi {
           },
         );
       } catch (error) {
-        // DELETE is best-effort. Even if it fails, we still want to detach
-        // locally so the UI is responsive.
         logChatDebug("stream-stop-delete-failed", { targetChatId, error });
       }
     }
 
-    abortControllerRef.current?.abort();
-    abortControllerRef.current = null;
-    modeRef.current = "idle";
+    closeActiveSocket();
     setStatus("ready");
-  }, []);
+  }, [closeActiveSocket]);
 
-  // Unmount cleanup: detach the local reader, but do NOT call DELETE. The
-  // server-side run keeps going and a future reconnect probe can reattach.
   useEffect(() => {
     return () => {
-      abortControllerRef.current?.abort();
-      abortControllerRef.current = null;
-      modeRef.current = "idle";
+      closeActiveSocket();
     };
-  }, []);
+  }, [closeActiveSocket]);
 
   return {
     status,

@@ -4,7 +4,7 @@ import {
   AvatarImage,
 } from "@g-spot/ui/components/avatar";
 import { cn } from "@g-spot/ui/lib/utils";
-import { getInitials } from "@/lib/oauth";
+import { getInitials } from "@/lib/initials";
 
 export type UserIdentityUser = {
   displayName: string | null;

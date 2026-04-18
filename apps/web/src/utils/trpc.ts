@@ -27,17 +27,16 @@ export const queryClient = new QueryClient({
   },
 });
 
+const trpcUrl = `${env.VITE_SERVER_URL}/trpc`;
+
 export const trpcClient = createTRPCClient<AppRouter>({
   links: [
     httpBatchLink({
-      url: `${env.VITE_SERVER_URL}/trpc`,
+      url: trpcUrl,
       headers: async () => {
         const user = await stackClientApp.getUser();
         if (!user) return {};
-        const { accessToken } = await user.getAuthJson();
-        return accessToken
-          ? { "x-stack-access-token": accessToken }
-          : {};
+        return user.getAuthHeaders();
       },
     }),
   ],

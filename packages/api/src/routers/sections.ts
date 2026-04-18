@@ -5,7 +5,7 @@ import {
   sectionColumnsSchema,
 } from "@g-spot/types/filters";
 
-import { authedProcedure, router } from "../index";
+import { publicProcedure, router } from "../index";
 import {
   createSection,
   deleteSection,
@@ -15,11 +15,11 @@ import {
 } from "@g-spot/db/sections";
 
 export const sectionsRouter = router({
-  list: authedProcedure.query(async ({ ctx }) => {
-    return listSections(ctx.userId);
+  list: publicProcedure.query(async () => {
+    return listSections();
   }),
 
-  create: authedProcedure
+  create: publicProcedure
     .input(
       z.object({
         name: z.string().min(1).max(100),
@@ -31,11 +31,11 @@ export const sectionsRouter = router({
         columns: sectionColumnsSchema.optional(),
       }),
     )
-    .mutation(async ({ ctx, input }) => {
-      return createSection(ctx.userId, input);
+    .mutation(async ({ input }) => {
+      return createSection(input);
     }),
 
-  update: authedProcedure
+  update: publicProcedure
     .input(
       z.object({
         id: z.string(),
@@ -48,19 +48,19 @@ export const sectionsRouter = router({
         columns: sectionColumnsSchema.optional(),
       }),
     )
-    .mutation(async ({ ctx, input }) => {
-      return updateSection(ctx.userId, input);
+    .mutation(async ({ input }) => {
+      return updateSection(input);
     }),
 
-  delete: authedProcedure
+  delete: publicProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(async ({ ctx, input }) => {
-      return deleteSection(ctx.userId, input.id);
+    .mutation(async ({ input }) => {
+      return deleteSection(input.id);
     }),
 
-  reorder: authedProcedure
+  reorder: publicProcedure
     .input(z.object({ orderedIds: z.array(z.string()) }))
-    .mutation(async ({ ctx, input }) => {
-      return reorderSections(ctx.userId, input.orderedIds);
+    .mutation(async ({ input }) => {
+      return reorderSections(input.orderedIds);
     }),
 });

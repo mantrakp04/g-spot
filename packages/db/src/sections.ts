@@ -1,4 +1,4 @@
-import { eq, and, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { db } from "./index";
@@ -15,32 +15,24 @@ type PersistedColumnConfig = {
 
 type SectionSource = "github_pr" | "github_issue" | "gmail";
 
-export async function listSections(userId: string) {
-  return db
-    .select()
-    .from(sections)
-    .where(eq(sections.userId, userId))
-    .orderBy(sections.position);
+export async function listSections() {
+  return db.select().from(sections).orderBy(sections.position);
 }
 
-export async function createSection(
-  userId: string,
-  input: {
-    name: string;
-    source: SectionSource;
-    filters: Array<{ field: string; operator: string; value: string; logic?: string }>;
-    showBadge: boolean;
-    repos: string[];
-    accountId: string | null;
-    columns?: PersistedColumnConfig[];
-  },
-) {
+export async function createSection(input: {
+  name: string;
+  source: SectionSource;
+  filters: Array<{ field: string; operator: string; value: string; logic?: string }>;
+  showBadge: boolean;
+  repos: string[];
+  accountId: string | null;
+  columns?: PersistedColumnConfig[];
+}) {
   const [maxRow] = await db
     .select({
       maxPos: sql<number>`coalesce(max(${sections.position}), -1)`,
     })
-    .from(sections)
-    .where(eq(sections.userId, userId));
+    .from(sections);
 
   const position = (maxRow?.maxPos ?? -1) + 1;
   const id = nanoid();
@@ -48,7 +40,6 @@ export async function createSection(
   try {
     await db.insert(sections).values({
       id,
-      userId,
       name: input.name,
       source: input.source,
       filters: JSON.stringify(input.filters),
@@ -67,19 +58,16 @@ export async function createSection(
   return { id };
 }
 
-export async function updateSection(
-  userId: string,
-  input: {
-    id: string;
-    name?: string;
-    filters?: Array<{ field: string; operator: string; value: string; logic?: string }>;
-    showBadge?: boolean;
-    collapsed?: boolean;
-    repos?: string[];
-    accountId?: string | null;
-    columns?: PersistedColumnConfig[];
-  },
-) {
+export async function updateSection(input: {
+  id: string;
+  name?: string;
+  filters?: Array<{ field: string; operator: string; value: string; logic?: string }>;
+  showBadge?: boolean;
+  collapsed?: boolean;
+  repos?: string[];
+  accountId?: string | null;
+  columns?: PersistedColumnConfig[];
+}) {
   const { id, filters, repos, accountId, columns, ...rest } = input;
   const values: Record<string, unknown> = {};
 
@@ -92,31 +80,21 @@ export async function updateSection(
   if (columns !== undefined) values.columns = JSON.stringify(columns);
   values.updatedAt = new Date().toISOString();
 
-  await db
-    .update(sections)
-    .set(values)
-    .where(and(eq(sections.id, id), eq(sections.userId, userId)));
+  await db.update(sections).set(values).where(eq(sections.id, id));
 }
 
-export async function deleteSection(userId: string, id: string) {
-  await db
-    .delete(sections)
-    .where(and(eq(sections.id, id), eq(sections.userId, userId)));
+export async function deleteSection(id: string) {
+  await db.delete(sections).where(eq(sections.id, id));
 }
 
-export async function reorderSections(userId: string, orderedIds: string[]) {
+export async function reorderSections(orderedIds: string[]) {
   await db.transaction(async (tx) => {
     const now = new Date().toISOString();
     for (let i = 0; i < orderedIds.length; i++) {
       await tx
         .update(sections)
         .set({ position: i, updatedAt: now })
-        .where(
-          and(
-            eq(sections.id, orderedIds[i]!),
-            eq(sections.userId, userId),
-          ),
-        );
+        .where(eq(sections.id, orderedIds[i]!));
     }
   });
 }

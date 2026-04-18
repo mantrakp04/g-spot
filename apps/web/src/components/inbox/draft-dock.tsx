@@ -14,6 +14,7 @@ export function DraftDock() {
     dockDrafts,
     updateField,
     setGmailDraftId,
+    setAccountId,
     minimizeDraft,
     expandDraft,
     closeDraft,
@@ -63,6 +64,7 @@ export function DraftDock() {
           googleAccount={resolveAccount(draft.accountId)}
           onUpdateField={updateField}
           onSetGmailDraftId={setGmailDraftId}
+          onSetAccountId={setAccountId}
           onMinimize={minimizeDraft}
           onExpand={expandDraft}
           onClose={closeDraft}

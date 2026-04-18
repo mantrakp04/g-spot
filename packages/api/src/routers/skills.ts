@@ -3,15 +3,6 @@ import { z } from "zod";
 
 import { getProject } from "@g-spot/db/projects";
 import {
-  createSkill,
-  deleteSkill,
-  getSkill,
-  listGlobalSkills,
-  listProjectSkills,
-  SkillNameConflictError,
-  updateSkill,
-} from "@g-spot/db/skills";
-import {
   createSkillInputSchema,
   RESERVED_SKILL_NAMES,
   updateSkillInputSchema,
@@ -19,10 +10,20 @@ import {
 
 import {
   fetchSkillFromSource,
+  listPopularCatalog,
   searchCatalog,
   SkillCatalogError,
 } from "../lib/skill-catalog";
-import { authedProcedure, router } from "../index";
+import {
+  createSkill,
+  deleteSkill,
+  getSkill,
+  listGlobalSkills,
+  listProjectSkills,
+  SkillNameConflictError,
+  updateSkill,
+} from "../lib/pi-skills";
+import { publicProcedure, router } from "../index";
 
 const RESERVED_SET = new Set<string>(RESERVED_SKILL_NAMES);
 
@@ -90,14 +91,13 @@ function fitDescription(input: string): string {
  * package managers.
  */
 async function pickAvailableSkillName(
-  userId: string,
   projectId: string | null,
   preferred: string,
 ): Promise<string> {
   const existing =
     projectId === null
-      ? await listGlobalSkills(userId)
-      : await listProjectSkills(userId, projectId);
+      ? await listGlobalSkills()
+      : await listProjectSkills(projectId);
   const taken = new Set<string>(existing.map((s) => s.name));
   const reserved = new Set<string>(RESERVED_SKILL_NAMES);
 
@@ -117,12 +117,9 @@ async function pickAvailableSkillName(
   return candidate;
 }
 
-async function ensureProjectAccess(
-  userId: string,
-  projectId: string | null,
-): Promise<void> {
+async function ensureProjectAccess(projectId: string | null): Promise<void> {
   if (projectId === null) return;
-  const project = await getProject(userId, projectId);
+  const project = await getProject(projectId);
   if (!project) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
   }
@@ -137,33 +134,33 @@ export const skillsRouter = router({
    * The merged-for-agent view (global + project, project-shadows-global) is
    * computed inside `pi.ts` from `listSkillsForAgent`, not exposed here.
    */
-  list: authedProcedure
+  list: publicProcedure
     .input(z.object({ projectId: z.string().min(1).nullable() }))
-    .query(async ({ ctx, input }) => {
+    .query(async ({ input }) => {
       if (input.projectId === null) {
-        return listGlobalSkills(ctx.userId);
+        return listGlobalSkills();
       }
-      await ensureProjectAccess(ctx.userId, input.projectId);
-      return listProjectSkills(ctx.userId, input.projectId);
+      await ensureProjectAccess(input.projectId);
+      return listProjectSkills(input.projectId);
     }),
 
-  get: authedProcedure
+  get: publicProcedure
     .input(z.object({ id: z.string().min(1) }))
-    .query(async ({ ctx, input }) => {
-      const skill = await getSkill(ctx.userId, input.id);
+    .query(async ({ input }) => {
+      const skill = await getSkill(input.id);
       if (!skill) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Skill not found" });
       }
       return skill;
     }),
 
-  create: authedProcedure
+  create: publicProcedure
     .input(createSkillInputSchema)
-    .mutation(async ({ ctx, input }) => {
+    .mutation(async ({ input }) => {
       ensureNotReserved(input.name);
-      await ensureProjectAccess(ctx.userId, input.projectId);
+      await ensureProjectAccess(input.projectId);
       try {
-        return await createSkill(ctx.userId, {
+        return await createSkill({
           projectId: input.projectId,
           name: input.name,
           description: input.description,
@@ -176,16 +173,16 @@ export const skillsRouter = router({
       }
     }),
 
-  update: authedProcedure
+  update: publicProcedure
     .input(updateSkillInputSchema)
-    .mutation(async ({ ctx, input }) => {
+    .mutation(async ({ input }) => {
       ensureNotReserved(input.name);
-      const existing = await getSkill(ctx.userId, input.id);
+      const existing = await getSkill(input.id);
       if (!existing) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Skill not found" });
       }
       try {
-        await updateSkill(ctx.userId, input.id, {
+        await updateSkill(input.id, {
           name: input.name,
           description: input.description,
           content: input.content,
@@ -195,18 +192,18 @@ export const skillsRouter = router({
       } catch (err) {
         throw translateSkillError(err);
       }
-      const updated = await getSkill(ctx.userId, input.id);
+      const updated = await getSkill(input.id);
       return updated!;
     }),
 
-  delete: authedProcedure
+  delete: publicProcedure
     .input(z.object({ id: z.string().min(1) }))
-    .mutation(async ({ ctx, input }) => {
-      const existing = await getSkill(ctx.userId, input.id);
+    .mutation(async ({ input }) => {
+      const existing = await getSkill(input.id);
       if (!existing) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Skill not found" });
       }
-      await deleteSkill(ctx.userId, input.id);
+      await deleteSkill(input.id);
       return { id: input.id };
     }),
 
@@ -215,7 +212,7 @@ export const skillsRouter = router({
    * queries shorter than two characters, so we enforce the same lower
    * bound at the router boundary to fail fast.
    */
-  searchCatalog: authedProcedure
+  searchCatalog: publicProcedure
     .input(
       z.object({
         query: z.string().min(2).max(128),
@@ -230,6 +227,20 @@ export const skillsRouter = router({
       }
     }),
 
+  popularCatalog: publicProcedure
+    .input(
+      z.object({
+        limit: z.number().int().min(1).max(25).default(12),
+      }),
+    )
+    .query(async ({ input }) => {
+      try {
+        return await listPopularCatalog(input.limit);
+      } catch (err) {
+        throw translateSkillError(err);
+      }
+    }),
+
   /**
    * Install a skill the user picked from the explorer. We pull the raw
    * SKILL.md from GitHub, parse its frontmatter, and persist it into the
@@ -238,7 +249,7 @@ export const skillsRouter = router({
    * the user explicitly chose to install this, and a hard failure would
    * be frustrating.
    */
-  installFromSource: authedProcedure
+  installFromSource: publicProcedure
     .input(
       z.object({
         projectId: z.string().min(1).nullable(),
@@ -246,8 +257,8 @@ export const skillsRouter = router({
         skillSlug: z.string().min(1).max(128),
       }),
     )
-    .mutation(async ({ ctx, input }) => {
-      await ensureProjectAccess(ctx.userId, input.projectId);
+    .mutation(async ({ input }) => {
+      await ensureProjectAccess(input.projectId);
 
       let fetched: Awaited<ReturnType<typeof fetchSkillFromSource>>;
       try {
@@ -266,13 +277,12 @@ export const skillsRouter = router({
       }
 
       const finalName = await pickAvailableSkillName(
-        ctx.userId,
         input.projectId,
         preferredRaw,
       );
 
       try {
-        const created = await createSkill(ctx.userId, {
+        const created = await createSkill({
           projectId: input.projectId,
           name: finalName,
           description: fitDescription(fetched.description),

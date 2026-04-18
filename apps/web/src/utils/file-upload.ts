@@ -13,15 +13,14 @@ export interface UploadedFile {
 export async function uploadFile(file: File): Promise<UploadedFile> {
   const user = await stackClientApp.getUser();
   if (!user) throw new Error("Not authenticated");
-  const { accessToken } = await user.getAuthJson();
-  if (!accessToken) throw new Error("No access token");
+  const authHeaders = await user.getAuthHeaders();
 
   const formData = new FormData();
   formData.append("file", file);
 
   const res = await fetch(`${env.VITE_SERVER_URL}/api/files/upload`, {
     method: "POST",
-    headers: { "x-stack-access-token": accessToken },
+    headers: authHeaders,
     body: formData,
   });
 

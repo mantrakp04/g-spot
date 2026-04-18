@@ -38,8 +38,7 @@ function getCachedTheme(url: string): Theme | null {
     }
 
     return parsed.theme
-  } catch (error) {
-    console.warn("Failed to get cached theme:", error)
+  } catch {
     return null
   }
 }
@@ -51,8 +50,7 @@ function setCachedTheme(url: string, theme: Theme): void {
       timestamp: Date.now(),
     }
     localStorage.setItem(getCacheKey(url), JSON.stringify(cached))
-  } catch (error) {
-    console.warn("Failed to cache theme:", error)
+  } catch {
   }
 }
 

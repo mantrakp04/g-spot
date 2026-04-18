@@ -14,7 +14,7 @@ Backend source of truth for the Pi migration:
 
 - The backend no longer uses the Vercel AI SDK.
 - The bespoke OpenAI OAuth callback server was removed.
-- Chat streaming now uses Pi `AgentSession` events over SSE.
+- Chat streaming now uses Pi `AgentSession` events over WebSocket.
 - Chat persistence now stores Pi `Message` objects.
 - Chat records now persist a full `agentConfig` instead of relying on a single `model` string.
 - Provider auth/config now lives under the generic `pi` tRPC router.
@@ -26,7 +26,7 @@ Each chat/default uses this shape:
 - `provider: string`
 - `modelId: string`
 - `thinkingLevel: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"`
-- `transport: "sse" | "websocket" | "auto"`
+- `transport: "websocket"`
 - `steeringMode: "one-at-a-time" | "all"`
 - `followUpMode: "one-at-a-time" | "all"`
 - `activeToolNames: ("read" | "bash" | "edit" | "write" | "grep" | "find" | "ls")[]`
@@ -124,13 +124,20 @@ POST [chat stream endpoint](/Users/barreloflube/Desktop/g-spot/packages/api/src/
 
 The server accepts the existing message-style payload for compatibility.
 
-Reconnect endpoint:
+WebSocket endpoint:
 
-- `GET /api/chat/:chatId/stream`
+- `GET /api/chat/:chatId/socket`
 
-### SSE payload
+Client messages:
 
-The stream sends raw Pi `AgentSessionEvent` JSON objects as `data:` events.
+- `{ "type": "start", "message": ... }`
+- `{ "type": "attach" }`
+
+Server messages:
+
+- `{ "type": "socket_attached" }`
+- `{ "type": "socket_missing" }`
+- raw Pi `AgentSessionEvent` JSON objects
 
 There is also a non-SDK error payload shaped like:
 
@@ -164,5 +171,5 @@ Use the Pi event `type` field to drive UI state.
   - default worker config
   - API-key auth
   - OAuth auth status and flows
-- Consume the Pi SSE event stream for chat state instead of `useChat`.
+- Consume the Pi WebSocket event stream for chat state instead of `useChat`.
 - Keep existing chat list/detail/fork/delete behavior working.

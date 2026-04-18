@@ -1,4 +1,5 @@
 "use client"
+
 import * as ResizablePrimitive from "react-resizable-panels"
 
 import { cn } from "@g-spot/ui/lib/utils"
@@ -40,13 +41,10 @@ function ResizableHandle({
       {...props}
     >
       {withHandle && (
-        <div className="z-10 flex h-6 w-1 shrink-0 rounded-md bg-border" />
+        <div className="z-10 flex h-6 w-1 shrink-0 rounded-lg bg-border" />
       )}
     </ResizablePrimitive.Separator>
   )
 }
 
-type ResizablePanelHandle = ResizablePrimitive.PanelImperativeHandle
-
 export { ResizableHandle, ResizablePanel, ResizablePanelGroup }
-export type { ResizablePanelHandle }

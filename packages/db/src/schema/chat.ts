@@ -7,7 +7,6 @@ export const chats = sqliteTable(
   "chats",
   {
     id: text("id").primaryKey(),
-    userId: text("user_id").notNull(),
     projectId: text("project_id")
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
@@ -22,12 +21,7 @@ export const chats = sqliteTable(
       .default(sql`(current_timestamp)`),
   },
   (table) => [
-    index("chats_user_idx").on(table.userId),
-    index("chats_user_project_updated_idx").on(
-      table.userId,
-      table.projectId,
-      table.updatedAt,
-    ),
+    index("chats_project_updated_idx").on(table.projectId, table.updatedAt),
   ],
 );
 

@@ -8,9 +8,11 @@
 
 import { Throttler } from "@tanstack/pacer";
 
+import { createCronJob, type ManagedCronJob } from "./cron";
 import { decayTick } from "./memory";
 
 const DECAY_INTERVAL_MS = 60 * 60 * 1000; // 60 minutes
+const DECAY_CRON = "@hourly";
 
 /**
  * Per-user decay throttlers. Each user gets their own throttler so one
@@ -38,12 +40,7 @@ function getOrCreateThrottler(userId: string): Throttler<() => void> {
 
 async function runDecayForUser(userId: string): Promise<void> {
   try {
-    const stats = await decayTick(userId);
-    if (stats.decayed > 0 || stats.pruned > 0 || stats.edgesPruned > 0) {
-      console.log(
-        `[memory-cron] Decay tick for ${userId}: ${stats.decayed} decayed, ${stats.pruned} pruned, ${stats.edgesPruned} edges pruned`,
-      );
-    }
+    await decayTick();
   } catch (error) {
     console.error(`[memory-cron] Decay tick failed for ${userId}:`, error);
   }
@@ -61,35 +58,35 @@ export function scheduleDecayTick(userId: string): void {
 }
 
 // ---------------------------------------------------------------------------
-// Global interval — catches users who haven't chatted recently
+// Global cron — catches users who haven't chatted recently
 // ---------------------------------------------------------------------------
 
-let globalIntervalId: ReturnType<typeof setInterval> | null = null;
+let decayCronJob: ManagedCronJob | null = null;
 
 /**
- * Start the global decay interval. Call once at server startup.
- * Runs decay for ALL known users every DECAY_INTERVAL_MS.
+ * Start the global decay cron. Call once at server startup.
+ * Runs decay for all known users on the hourly schedule.
  */
 export function startDecayCron(): void {
-  if (globalIntervalId) return;
+  if (decayCronJob) return;
 
-  globalIntervalId = setInterval(() => {
-    for (const userId of userThrottlers.keys()) {
-      getOrCreateThrottler(userId).maybeExecute();
-    }
-  }, DECAY_INTERVAL_MS);
-
-  console.log("[memory-cron] Decay cron started (interval: 60min)");
+  decayCronJob = createCronJob({
+    name: "memory-cron",
+    cron: DECAY_CRON,
+    handler: async () => {
+      for (const userId of userThrottlers.keys()) {
+        getOrCreateThrottler(userId).maybeExecute();
+      }
+    },
+  });
 }
 
 /**
- * Stop the global decay interval. Call on server shutdown.
+ * Stop the global decay cron. Call on server shutdown.
  */
 export function stopDecayCron(): void {
-  if (globalIntervalId) {
-    clearInterval(globalIntervalId);
-    globalIntervalId = null;
-  }
+  decayCronJob?.stop();
+  decayCronJob = null;
 }
 
 /**

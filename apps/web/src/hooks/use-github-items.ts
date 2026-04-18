@@ -3,7 +3,7 @@ import type { OAuthConnection } from "@stackframe/react";
 import type { FilterCondition } from "@g-spot/types/filters";
 import type { GitHubItemPage } from "@/lib/github/types";
 import { searchGitHubItems } from "@/lib/github/api";
-import { getOAuthToken } from "@/lib/oauth";
+import { getConnectedAccountAccessToken } from "@/lib/connected-account";
 import { githubKeys } from "@/lib/query-keys";
 import { persistedStaleWhileRevalidateQueryOptions } from "@/utils/query-defaults";
 
@@ -30,10 +30,13 @@ export function useGitHubItems(
       sortAsc: sortAsc ?? false,
     }),
     queryFn: async ({ pageParam }): Promise<GitHubItemPage> => {
-      const token = await getOAuthToken(account!);
+      const accessToken = await getConnectedAccountAccessToken(account!, [
+        "repo",
+        "read:org",
+      ]);
       return searchGitHubItems(
         itemType,
-        token,
+        accessToken,
         filters,
         pageParam,
         repos,

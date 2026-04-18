@@ -7,7 +7,7 @@ vi.mock("../pi", () => ({
       provider: "test",
       modelId: "test-model",
       thinkingLevel: "off",
-      transport: "sse",
+      transport: "websocket",
       steeringMode: "one-at-a-time",
       followUpMode: "one-at-a-time",
       activeToolNames: [],

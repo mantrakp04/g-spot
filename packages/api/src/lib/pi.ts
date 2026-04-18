@@ -22,7 +22,6 @@ import {
 } from "@mariozechner/pi-coding-agent";
 import type {
   AuthCredential,
-  Skill as PiSkill,
   ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
 import type { ThinkingLevel } from "@mariozechner/pi-agent-core";
@@ -30,12 +29,14 @@ import type { AssistantMessage, Message, Model } from "@mariozechner/pi-ai";
 import type { Transport } from "@mariozechner/pi-ai";
 import { getOAuthProviders } from "@mariozechner/pi-ai/oauth";
 import {
+  getPiState,
+  upsertPiState,
+} from "@g-spot/db/pi";
+import type { PiStateRow } from "@g-spot/db/schema/pi";
+import {
   DEFAULT_PI_ACTIVE_TOOL_NAMES,
-  PI_DEFAULT_CHAT_CONFIG_METADATA_KEY,
-  PI_DEFAULT_WORKER_CONFIG_METADATA_KEY,
-  PI_PROVIDER_CREDENTIALS_METADATA_KEY,
   piAgentConfigSchema,
-  piServerMetadataSchema,
+  piStoredCredentialsSchema,
   type PiAgentConfig,
   type PiAgentDefaults,
   type PiBuiltinToolName,
@@ -43,8 +44,6 @@ import {
   type PiSdkModel,
   type PiSdkToolInfo,
 } from "@g-spot/types";
-
-import { getServerMetadata, patchServerMetadata } from "./stack-server";
 
 const BUILTIN_TOOL_REGISTRY = {
   read: readTool,
@@ -73,9 +72,17 @@ function mergeAgentConfig(
   value: unknown,
   fallback: PiAgentConfig,
 ): PiAgentConfig {
+  const normalizedValue =
+    value && typeof value === "object"
+      ? {
+          ...value,
+          transport: "websocket",
+        }
+      : { transport: "websocket" };
+
   const parsed = piAgentConfigSchema.safeParse({
     ...fallback,
-    ...(value && typeof value === "object" ? value : {}),
+    ...normalizedValue,
   });
 
   const config = parsed.success ? parsed.data : fallback;
@@ -98,18 +105,26 @@ function mergeAgentConfig(
 }
 
 function normalizeStoredCredentials(
-  metadata: Record<string, unknown>,
+  encodedCredentials: string | null | undefined,
 ): Record<string, AuthCredential> {
-  const parsed = piServerMetadataSchema.safeParse(metadata);
+  if (typeof encodedCredentials !== "string" || encodedCredentials.length === 0) {
+    return {};
+  }
+
+  let parsedJson: unknown;
+  try {
+    parsedJson = JSON.parse(encodedCredentials);
+  } catch {
+    return {};
+  }
+
+  const parsed = piStoredCredentialsSchema.safeParse(parsedJson);
   if (!parsed.success) {
     return {};
   }
 
-  const rawCredentials =
-    parsed.data[PI_PROVIDER_CREDENTIALS_METADATA_KEY] ?? {};
-
   return Object.fromEntries(
-    Object.entries(rawCredentials).filter((entry): entry is [string, AuthCredential] => {
+    Object.entries(parsed.data).filter((entry): entry is [string, AuthCredential] => {
       const [, credential] = entry;
       return (
         credential.type === "api_key" ||
@@ -127,55 +142,68 @@ export function getDefaultWorkerConfig() {
   return { ...DEFAULT_WORKER_CONFIG };
 }
 
-export async function getPiUserMetadata(userId: string) {
-  const metadata = await getServerMetadata(userId);
-  const parsed = piServerMetadataSchema.safeParse(metadata);
+function parseStoredAgentConfig(
+  encodedConfig: string | null | undefined,
+  fallback: PiAgentConfig,
+) {
+  if (typeof encodedConfig !== "string" || encodedConfig.length === 0) {
+    return fallback;
+  }
+
+  let parsedJson: unknown;
+  try {
+    parsedJson = JSON.parse(encodedConfig);
+  } catch {
+    return fallback;
+  }
+
+  return mergeAgentConfig(parsedJson, fallback);
+}
+
+export async function getPiUserState(): Promise<{
+  row: PiStateRow | null;
+  defaults: PiAgentDefaults;
+  credentials: Record<string, AuthCredential>;
+}> {
+  const row = await getPiState();
+  const defaults = {
+    chat: parseStoredAgentConfig(row?.chatDefaults, DEFAULT_CHAT_CONFIG),
+    worker: parseStoredAgentConfig(row?.workerDefaults, DEFAULT_WORKER_CONFIG),
+  };
+  const credentials = normalizeStoredCredentials(row?.credentials);
 
   return {
-    raw: metadata,
-    parsed: parsed.success ? parsed.data : {},
-    credentials: normalizeStoredCredentials(metadata),
+    row,
+    defaults,
+    credentials,
   };
 }
 
-export async function getPiAgentDefaults(userId: string): Promise<PiAgentDefaults> {
-  const metadata = await getPiUserMetadata(userId);
-
-  return {
-    chat: mergeAgentConfig(
-      metadata.parsed[PI_DEFAULT_CHAT_CONFIG_METADATA_KEY],
-      DEFAULT_CHAT_CONFIG,
-    ),
-    worker: mergeAgentConfig(
-      metadata.parsed[PI_DEFAULT_WORKER_CONFIG_METADATA_KEY],
-      DEFAULT_WORKER_CONFIG,
-    ),
-  };
+export async function getPiAgentDefaults(): Promise<PiAgentDefaults> {
+  const state = await getPiUserState();
+  return state.defaults;
 }
 
 export async function patchPiAgentDefaults(
-  userId: string,
   patch: Partial<{
     chat: PiAgentConfig;
     worker: PiAgentConfig;
   }>,
 ) {
-  const defaults = await getPiAgentDefaults(userId);
+  const defaults = await getPiAgentDefaults();
 
-  await patchServerMetadata(userId, {
+  await upsertPiState({
     ...(patch.chat
       ? {
-          [PI_DEFAULT_CHAT_CONFIG_METADATA_KEY]: mergeAgentConfig(
-            patch.chat,
-            defaults.chat,
+          chatDefaults: JSON.stringify(
+            mergeAgentConfig(patch.chat, defaults.chat),
           ),
         }
       : {}),
     ...(patch.worker
       ? {
-          [PI_DEFAULT_WORKER_CONFIG_METADATA_KEY]: mergeAgentConfig(
-            patch.worker,
-            defaults.worker,
+          workerDefaults: JSON.stringify(
+            mergeAgentConfig(patch.worker, defaults.worker),
           ),
         }
       : {}),
@@ -183,37 +211,44 @@ export async function patchPiAgentDefaults(
 }
 
 export async function upsertPiCredential(
-  userId: string,
   provider: string,
   credential: AuthCredential,
 ) {
-  const metadata = await getPiUserMetadata(userId);
+  const state = await getPiUserState();
 
-  await patchServerMetadata(userId, {
-    [PI_PROVIDER_CREDENTIALS_METADATA_KEY]: {
-      ...metadata.credentials,
+  await upsertPiState({
+    credentials: JSON.stringify({
+      ...state.credentials,
       [provider]: credential,
-    },
+    }),
   });
 }
 
-export async function removePiCredential(userId: string, provider: string) {
-  const metadata = await getPiUserMetadata(userId);
-  const nextCredentials = { ...metadata.credentials };
+export async function removePiCredential(provider: string) {
+  const state = await getPiUserState();
+  const nextCredentials = { ...state.credentials };
   delete nextCredentials[provider];
 
-  await patchServerMetadata(userId, {
-    [PI_PROVIDER_CREDENTIALS_METADATA_KEY]: nextCredentials,
+  await upsertPiState({
+    credentials: JSON.stringify(nextCredentials),
   });
 }
 
-export async function createPiAuthStorageForUser(userId: string) {
-  const metadata = await getPiUserMetadata(userId);
-  return AuthStorage.inMemory(metadata.credentials);
+export async function createPiAuthStorage() {
+  const state = await getPiUserState();
+  return AuthStorage.inMemory(state.credentials);
 }
 
-export async function createPiModelRegistryForUser(userId: string) {
-  const authStorage = await createPiAuthStorageForUser(userId);
+export async function createPiModelRegistry() {
+  const authStorage = await createPiAuthStorage();
+  return {
+    authStorage,
+    modelRegistry: ModelRegistry.inMemory(authStorage),
+  };
+}
+
+export function createPiPublicModelRegistry() {
+  const authStorage = AuthStorage.inMemory({});
   return {
     authStorage,
     modelRegistry: ModelRegistry.inMemory(authStorage),
@@ -347,19 +382,16 @@ export type PiAgentSessionProject = {
 };
 
 export async function createPiAgentSession(args: {
-  userId: string;
   config: PiAgentConfig;
   activeToolNames?: PiBuiltinToolName[];
   /**
    * Project the session is bound to. Determines `cwd`, the system prompt
-   * (`customInstructions` / `appendPrompt`), and which DB-stored skills get
-   * surfaced to the agent. When omitted (legacy callers / no-project flows),
+   * (`customInstructions` / `appendPrompt`), and which Pi project resources
+   * get surfaced to the agent. When omitted (legacy callers / no-project flows),
    * the session falls back to the server's `process.cwd()` and no project
    * resources are loaded.
    */
   project?: PiAgentSessionProject;
-  /** Pre-materialized skills to inject via `skillsOverride`. */
-  materializedSkills?: PiSkill[];
   /**
    * Skip on-disk skill / extension / theme / prompt discovery rooted at the
    * project's cwd. Used by the title worker so background runs stay hermetic
@@ -373,9 +405,7 @@ export async function createPiAgentSession(args: {
    */
   customTools?: ToolDefinition[];
 }) {
-  const { authStorage, modelRegistry } = await createPiModelRegistryForUser(
-    args.userId,
-  );
+  const { authStorage, modelRegistry } = await createPiModelRegistry();
   const resolved = resolvePiModel(modelRegistry, args.config);
   if (!resolved) {
     throw new Error(
@@ -396,7 +426,6 @@ export async function createPiAgentSession(args: {
   });
 
   const cwd = args.project?.path ?? process.cwd();
-  const materializedSkills = args.materializedSkills ?? [];
   const disableExtras = args.disableProjectResources === true;
 
   const resourceLoader = new DefaultResourceLoader({
@@ -406,15 +435,8 @@ export async function createPiAgentSession(args: {
     appendSystemPrompt: args.project?.appendPrompt ?? undefined,
     noExtensions: disableExtras,
     noPromptTemplates: disableExtras,
+    noSkills: disableExtras,
     noThemes: disableExtras,
-    // We always own skill discovery via `skillsOverride` below — disable
-    // on-disk scanning so we don't accidentally double-load or get a stale
-    // copy from a `.pi/skills/` directory inside the project root.
-    noSkills: true,
-    skillsOverride: () => ({
-      skills: materializedSkills,
-      diagnostics: [],
-    }),
   });
   await resourceLoader.reload();
 
@@ -431,6 +453,7 @@ export async function createPiAgentSession(args: {
     customTools: args.customTools,
   });
 
+  await session.bindExtensions({});
   session.setSteeringMode(resolved.config.steeringMode);
   session.setFollowUpMode(resolved.config.followUpMode);
 

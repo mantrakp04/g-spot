@@ -5,7 +5,9 @@
  * (Buffer instead of atob, no DOM for HTML entity decoding).
  */
 
-const GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me";
+import { acquireGmailToken } from "./gmail-rate-limiter";
+
+export const GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me";
 
 // ---------------------------------------------------------------------------
 // Types — raw Gmail API shapes
@@ -84,13 +86,25 @@ export class GmailApiError extends Error {
     public status: number,
     public statusText: string,
     public retryAfter?: number,
+    public reason?: string,
+    public detail?: string,
   ) {
-    super(`Gmail API error: ${status} ${statusText}`);
+    const suffix = reason || detail ? ` — ${[reason, detail].filter(Boolean).join(": ")}` : "";
+    super(`Gmail API error: ${status} ${statusText}${suffix}`);
     this.name = "GmailApiError";
   }
 
   get isRateLimit(): boolean {
-    return this.status === 429;
+    if (this.status === 429) return true;
+    if (this.status === 403 && this.reason) {
+      return (
+        this.reason === "rateLimitExceeded"
+        || this.reason === "userRateLimitExceeded"
+        || this.reason === "quotaExceeded"
+        || this.reason === "dailyLimitExceeded"
+      );
+    }
+    return false;
   }
 
   get isAuthError(): boolean {
@@ -98,28 +112,46 @@ export class GmailApiError extends Error {
   }
 }
 
-async function fetchGmail<T>(url: string, token: string): Promise<T> {
+export async function fetchGmailJson<T>(url: string, token: string): Promise<T> {
+  await acquireGmailToken();
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },
   });
 
   if (!res.ok) {
     const retryAfter = res.headers.get("Retry-After");
+    const body = await res.text().catch(() => "");
+    let reason: string | undefined;
+    let detail: string | undefined;
+    try {
+      const parsed = JSON.parse(body) as {
+        error?: { message?: string; errors?: Array<{ reason?: string }> };
+      };
+      reason = parsed.error?.errors?.[0]?.reason;
+      detail = parsed.error?.message;
+    } catch {
+      detail = body.slice(0, 200);
+    }
     throw new GmailApiError(
       res.status,
       res.statusText,
       retryAfter ? Number(retryAfter) : undefined,
+      reason,
+      detail,
     );
   }
 
-  return res.json() as Promise<T>;
+  return await res.json() as T;
 }
 
 // ---------------------------------------------------------------------------
 // Header helpers
 // ---------------------------------------------------------------------------
 
-function getHeader(msg: GmailApiMessage, name: string): string {
+export function getHeader(
+  msg: { payload?: { headers?: Array<{ name: string; value: string }> } },
+  name: string,
+): string {
   return (
     msg.payload?.headers?.find(
       (h) => h.name.toLowerCase() === name.toLowerCase(),
@@ -127,7 +159,7 @@ function getHeader(msg: GmailApiMessage, name: string): string {
   );
 }
 
-function parseFromHeader(raw: string): { name: string; email: string } {
+export function parseFromHeader(raw: string): { name: string; email: string } {
   const namedMatch = raw.match(/^(.+?)\s*<(.+?)>$/);
   if (namedMatch) {
     return {
@@ -146,11 +178,11 @@ function parseFromHeader(raw: string): { name: string; email: string } {
 // Body decoding — server-safe (no DOM)
 // ---------------------------------------------------------------------------
 
-function decodeBase64Url(data: string): string {
+export function decodeBase64Url(data: string): string {
   return Buffer.from(data, "base64url").toString("utf-8");
 }
 
-function extractBody(
+export function extractBody(
   part: GmailPayloadPart,
 ): { html: string | null; text: string | null } {
   if (part.mimeType === "text/html" && part.body?.data) {
@@ -173,7 +205,7 @@ function extractBody(
 }
 
 /** Strip HTML tags to get plain text (server-safe, no DOM). */
-function stripHtml(html: string): string {
+export function stripHtml(html: string): string {
   return html
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<\/p>/gi, "\n")
@@ -189,7 +221,7 @@ function stripHtml(html: string): string {
 }
 
 /** Decode HTML entities in snippet text (server-safe). */
-function decodeHtmlEntities(text: string): string {
+export function decodeHtmlEntities(text: string): string {
   return text
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
@@ -234,7 +266,7 @@ function extractAttachments(msg: GmailApiMessage): ParsedAttachment[] {
 export async function getProfile(
   token: string,
 ): Promise<{ emailAddress: string; historyId: string }> {
-  const data = await fetchGmail<{
+  const data = await fetchGmailJson<{
     emailAddress: string;
     historyId: string;
   }>(`${GMAIL_API}/profile`, token);
@@ -256,7 +288,7 @@ export async function listAllThreadIds(
     if (query) params.set("q", query);
     if (pageToken) params.set("pageToken", pageToken);
 
-    const data = await fetchGmail<{
+    const data = await fetchGmailJson<{
       threads?: Array<{ id: string }>;
       nextPageToken?: string;
     }>(`${GMAIL_API}/threads?${params.toString()}`, token);
@@ -278,7 +310,7 @@ export async function getThreadDetail(
   token: string,
   threadId: string,
 ): Promise<GmailApiThread> {
-  return fetchGmail<GmailApiThread>(
+  return fetchGmailJson<GmailApiThread>(
     `${GMAIL_API}/threads/${encodeURIComponent(threadId)}?format=full`,
     token,
   );
@@ -308,7 +340,7 @@ export async function getHistory(
       });
       if (pageToken) params.set("pageToken", pageToken);
 
-      const data = await fetchGmail<{
+      const data = await fetchGmailJson<{
         history?: Array<{
           messages?: Array<{ id: string; threadId: string }>;
           messagesAdded?: Array<{ message: { threadId: string } }>;
@@ -346,11 +378,46 @@ export async function getHistory(
  * Get all labels for the account.
  */
 export async function listLabels(token: string): Promise<GmailApiLabel[]> {
-  const data = await fetchGmail<{ labels: GmailApiLabel[] }>(
+  const data = await fetchGmailJson<{ labels: GmailApiLabel[] }>(
     `${GMAIL_API}/labels`,
     token,
   );
   return data.labels ?? [];
+}
+
+export async function watchMailbox(
+  token: string,
+  input: {
+    topicName: string;
+    labelIds?: string[];
+    labelFilterBehavior?: "include" | "exclude";
+  },
+): Promise<{ historyId: string; expiration: string }> {
+  const res = await fetch(`${GMAIL_API}/watch`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      topicName: input.topicName,
+      ...(input.labelIds?.length ? { labelIds: input.labelIds } : {}),
+      ...(input.labelFilterBehavior
+        ? { labelFilterBehavior: input.labelFilterBehavior }
+        : {}),
+    }),
+  });
+
+  if (!res.ok) {
+    const retryAfter = res.headers.get("Retry-After");
+    throw new GmailApiError(
+      res.status,
+      res.statusText,
+      retryAfter ? Number(retryAfter) : undefined,
+    );
+  }
+
+  return await res.json() as { historyId: string; expiration: string };
 }
 
 /**
@@ -374,7 +441,7 @@ export function parseGmailMessage(msg: GmailApiMessage): ParsedMessage {
     toHeader: getHeader(msg, "To"),
     ccHeader: getHeader(msg, "Cc"),
     subject: getHeader(msg, "Subject") || "(no subject)",
-    date: getHeader(msg, "Date") || new Date(Number(msg.internalDate ?? 0)).toISOString(),
+    date: new Date(Number(msg.internalDate)).toISOString(),
     bodyHtml: body.html,
     bodyText: bodyText,
     snippet: decodeHtmlEntities(msg.snippet ?? ""),

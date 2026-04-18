@@ -13,7 +13,7 @@ import { useCallback, useState } from "react";
 import { toast } from "sonner";
 
 import { useGoogleProfile } from "@/hooks/use-gmail-options";
-import { getInitials, getOAuthToken } from "@/lib/oauth";
+import { getInitials } from "@/lib/initials";
 import { trpcClient } from "@/utils/trpc";
 
 export function GoogleAccountRow({
@@ -22,10 +22,11 @@ export function GoogleAccountRow({
   onRemove,
 }: {
   account: OAuthConnection;
-  onReconnect: () => void;
+  onReconnect: () => Promise<void>;
   onRemove: () => Promise<void>;
 }) {
   const [removing, setRemoving] = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
   const q = useGoogleProfile(account);
 
   // ----- Sync state -----
@@ -41,18 +42,28 @@ export function GoogleAccountRow({
     },
   });
 
-  const startSyncMutation = useMutation({
-    mutationFn: async (mode: "full" | "incremental") => {
-      const token = await getOAuthToken(account);
-      return trpcClient.gmailSync.startSync.mutate({
+  const syncFailures = useQuery({
+    queryKey: ["gmail-sync", "failures", account.providerAccountId],
+    queryFn: () =>
+      trpcClient.gmailSync.getFailures.query({
         providerAccountId: account.providerAccountId,
-        accessToken: token,
-        mode,
-      });
+      }),
+    refetchInterval: () => {
+      const status = syncProgress.data?.status;
+      return status === "running" || status === "paused" ? 1500 : false;
     },
+  });
+
+  const startSyncMutation = useMutation({
+    mutationFn: (intent: "auto" | "retry_failed") =>
+      trpcClient.gmailSync.startSync.mutate({
+        providerAccountId: account.providerAccountId,
+        intent,
+      }),
     onSuccess: () => {
       toast.success("Gmail sync started");
       syncProgress.refetch();
+      syncFailures.refetch();
     },
     onError: (err) => {
       toast.error(err instanceof Error ? err.message : "Failed to start sync");
@@ -67,39 +78,17 @@ export function GoogleAccountRow({
     onSuccess: () => {
       toast.info("Sync cancelled");
       syncProgress.refetch();
-    },
-  });
-
-  const retryMutation = useMutation({
-    mutationFn: async () => {
-      const token = await getOAuthToken(account);
-      return trpcClient.gmailSync.retryFailed.mutate({
-        providerAccountId: account.providerAccountId,
-        accessToken: token,
-      });
-    },
-    onSuccess: (result) => {
-      if (result.succeeded > 0 && result.failed === 0) {
-        toast.success(`All ${result.succeeded} retried items succeeded`);
-      } else if (result.succeeded > 0) {
-        toast.success(
-          `${result.succeeded} succeeded, ${result.failed} still failing`,
-        );
-      } else {
-        toast.error(`All ${result.failed} retried items failed again`);
-      }
-      syncProgress.refetch();
-    },
-    onError: (err) => {
-      toast.error(err instanceof Error ? err.message : "Retry failed");
+      syncFailures.refetch();
     },
   });
 
   const handleSync = useCallback(() => {
-    // Use incremental if we've synced before, full otherwise
-    const hasHistory = syncProgress.data?.status === "completed";
-    startSyncMutation.mutate(hasHistory ? "incremental" : "full");
-  }, [syncProgress.data, startSyncMutation]);
+    startSyncMutation.mutate("auto");
+  }, [startSyncMutation]);
+
+  const handleRetry = useCallback(() => {
+    startSyncMutation.mutate("retry_failed");
+  }, [startSyncMutation]);
 
   async function handleRemove() {
     setRemoving(true);
@@ -107,6 +96,15 @@ export function GoogleAccountRow({
       await onRemove();
     } finally {
       setRemoving(false);
+    }
+  }
+
+  async function handleReconnect() {
+    setReconnecting(true);
+    try {
+      await onReconnect();
+    } finally {
+      setReconnecting(false);
     }
   }
 
@@ -136,6 +134,17 @@ export function GoogleAccountRow({
 
   const isSyncing = syncProgress.data?.status === "running";
   const syncData = syncProgress.data;
+  const showSyncProgress = Boolean(
+    syncData
+      && (isSyncing
+        || syncData.status === "paused"
+        || syncData.failedThreads > 0),
+  );
+  const failureSummary = summarizeFailures(syncFailures.data ?? []);
+  const latestFailure = syncFailures.data?.[0] ?? null;
+  const { fetchFailed, processFailed } = countFailuresByPhase(
+    syncFailures.data ?? [],
+  );
 
   return (
     <li className="group/row px-4 py-2.5 transition-colors hover:bg-muted/30">
@@ -166,18 +175,7 @@ export function GoogleAccountRow({
             !isSyncing && "opacity-0 group-hover/row:opacity-100",
           )}
         >
-          {isSyncing ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-6 text-muted-foreground hover:text-destructive"
-              onClick={() => cancelSyncMutation.mutate()}
-              title="Cancel sync"
-            >
-              <X className="size-3" strokeWidth={2.5} />
-            </Button>
-          ) : (
+          {!isSyncing && (
             <Button
               type="button"
               variant="ghost"
@@ -186,9 +184,9 @@ export function GoogleAccountRow({
               onClick={handleSync}
               disabled={startSyncMutation.isPending}
               title={
-                syncData?.status === "completed"
-                  ? "Sync new emails"
-                  : "Sync all emails"
+                syncData?.status === "paused"
+                  ? "Resume sync"
+                  : "Start sync"
               }
             >
               {startSyncMutation.isPending ? (
@@ -203,10 +201,14 @@ export function GoogleAccountRow({
             variant="ghost"
             size="icon"
             className="size-6 text-muted-foreground hover:text-foreground"
-            onClick={onReconnect}
+            onClick={() => void handleReconnect()}
+            disabled={reconnecting}
             title="Reconnect"
           >
-            <RefreshCw className="size-3" strokeWidth={2} />
+            <RefreshCw
+              className={cn("size-3", reconnecting && "animate-spin")}
+              strokeWidth={2}
+            />
           </Button>
           <Button
             type="button"
@@ -223,12 +225,13 @@ export function GoogleAccountRow({
       </div>
 
       {/* Sync progress bar */}
-      {isSyncing && syncData && (
+      {showSyncProgress && syncData && (
         <SyncProgressBar
           total={syncData.totalThreads}
           fetched={syncData.fetchedThreads}
           processed={syncData.processedThreads}
-          failed={syncData.failedThreads}
+          fetchFailed={fetchFailed}
+          processFailed={processFailed}
         />
       )}
 
@@ -239,25 +242,52 @@ export function GoogleAccountRow({
         </div>
       )}
 
-      {/* Retry failed items */}
-      {!isSyncing && syncData && syncData.failedThreads > 0 && (
+      {failureSummary && (
+        <div className="mt-1.5 ml-10 rounded-sm border border-amber-500/20 bg-amber-500/5 px-2 py-1">
+          <p className="text-[10px] text-amber-300">
+            Failed stages: {failureSummary}
+          </p>
+          {latestFailure && (
+            <p className="mt-0.5 line-clamp-2 text-[10px] text-muted-foreground">
+              Latest: {formatFailureStage(latestFailure.stage)} failed: {latestFailure.errorMessage}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Cancel / retry */}
+      {isSyncing ? (
         <div className="mt-1.5 ml-10 flex items-center gap-2">
           <Button
             type="button"
             variant="ghost"
             size="sm"
-            className="h-auto gap-1 px-1.5 py-0.5 text-[11px] text-amber-400 hover:text-amber-300"
-            onClick={() => retryMutation.mutate()}
-            disabled={retryMutation.isPending}
+            className="h-auto gap-1 px-1.5 py-0.5 text-[11px] text-muted-foreground hover:text-destructive"
+            onClick={() => cancelSyncMutation.mutate()}
+            disabled={cancelSyncMutation.isPending}
           >
-            {retryMutation.isPending ? (
-              <Loader2 className="size-3 animate-spin" />
-            ) : (
-              <RotateCcw className="size-3" />
-            )}
-            Retry {syncData.failedThreads} failed
+            <X className="size-3" strokeWidth={2.5} />
+            Cancel sync
           </Button>
         </div>
+      ) : (
+        syncData && syncData.status !== "paused" && syncData.failedThreads > 0 && (
+          <div className="mt-1.5 ml-10 flex items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-auto gap-1 px-1.5 py-0.5 text-[11px] text-amber-400 hover:text-amber-300"
+              onClick={handleRetry}
+              disabled={startSyncMutation.isPending}
+            >
+              <RotateCcw
+                className={cn("size-3", startSyncMutation.isPending && "animate-spin")}
+              />
+              {`Retry ${syncData.failedThreads} failed`}
+            </Button>
+          </div>
+        )
       )}
     </li>
   );
@@ -267,49 +297,75 @@ function SyncProgressBar({
   total,
   fetched,
   processed,
-  failed,
+  fetchFailed,
+  processFailed,
 }: {
   total: number;
   fetched: number;
   processed: number;
-  failed: number;
+  fetchFailed: number;
+  processFailed: number;
 }) {
-  const fetchPct = total > 0 ? (fetched / total) * 100 : 0;
-  const processPct = total > 0 ? (processed / total) * 100 : 0;
+  return (
+    <div className="mt-2 ml-10 space-y-2">
+      <PhaseBar
+        label="Fetch"
+        total={total}
+        done={fetched}
+        failed={fetchFailed}
+        doneClass="bg-blue-500/70"
+        doneText="text-blue-400"
+      />
+      <PhaseBar
+        label="Process"
+        total={total}
+        done={processed}
+        failed={processFailed}
+        doneClass="bg-emerald-500/70"
+        doneText="text-emerald-400"
+      />
+    </div>
+  );
+}
+
+function PhaseBar({
+  label,
+  total,
+  done,
+  failed,
+  doneClass,
+  doneText,
+}: {
+  label: string;
+  total: number;
+  done: number;
+  failed: number;
+  doneClass: string;
+  doneText: string;
+}) {
+  const donePct = total > 0 ? (done / total) * 100 : 0;
+  const failedPct = total > 0 ? (failed / total) * 100 : 0;
 
   return (
-    <div className="mt-2 ml-10 space-y-1">
-      {/* Progress bar */}
+    <div className="space-y-1">
       <div className="flex h-1.5 overflow-hidden rounded-full bg-muted/50">
-        {/* Processed (complete) */}
         <div
-          className="h-full bg-emerald-500/70 transition-all duration-500"
-          style={{ width: `${processPct}%` }}
+          className={cn("h-full transition-all duration-500", doneClass)}
+          style={{ width: `${donePct}%` }}
         />
-        {/* Fetched but not yet processed */}
-        <div
-          className="h-full bg-blue-500/50 transition-all duration-500"
-          style={{ width: `${Math.max(0, fetchPct - processPct)}%` }}
-        />
-        {/* Failed */}
         {failed > 0 && (
           <div
             className="h-full bg-destructive/50 transition-all duration-500"
-            style={{ width: `${(failed / total) * 100}%` }}
+            style={{ width: `${failedPct}%` }}
           />
         )}
       </div>
-
-      {/* Stats */}
       <div className="flex items-center gap-2 text-[10px] tabular-nums text-muted-foreground">
+        <span className="text-muted-foreground/70">{label}</span>
         <span>
-          <span className="text-emerald-400">{processed}</span>
+          <span className={doneText}>{done}</span>
           {" / "}
-          {total} processed
-        </span>
-        <span className="text-muted-foreground/30">|</span>
-        <span>
-          <span className="text-blue-400">{fetched}</span> fetched
+          {total}
         </span>
         {failed > 0 && (
           <>
@@ -320,4 +376,44 @@ function SyncProgressBar({
       </div>
     </div>
   );
+}
+
+function countFailuresByPhase(failures: Array<{ stage: string }>) {
+  let fetchFailed = 0;
+  let processFailed = 0;
+  for (const failure of failures) {
+    if (failure.stage === "fetch") fetchFailed++;
+    else processFailed++;
+  }
+  return { fetchFailed, processFailed };
+}
+
+function formatFailureStage(stage: string) {
+  switch (stage) {
+    case "fetch":
+      return "Fetch";
+    case "extract":
+      return "Extract";
+    case "resolve":
+      return "Resolve";
+    case "ingest":
+      return "Ingest";
+    default:
+      return stage;
+  }
+}
+
+function summarizeFailures(
+  failures: Array<{ stage: string }>,
+) {
+  if (failures.length === 0) return null;
+
+  const counts = new Map<string, number>();
+  for (const failure of failures) {
+    counts.set(failure.stage, (counts.get(failure.stage) ?? 0) + 1);
+  }
+
+  return Array.from(counts.entries())
+    .map(([stage, count]) => `${count} ${formatFailureStage(stage).toLowerCase()}`)
+    .join(", ");
 }

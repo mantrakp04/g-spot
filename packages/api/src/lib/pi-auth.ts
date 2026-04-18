@@ -4,7 +4,7 @@ import { nanoid } from "nanoid";
 import type { PiOAuthProviderSummary } from "@g-spot/types";
 
 import {
-  createPiAuthStorageForUser,
+  createPiAuthStorage,
   getPiOAuthProviderCatalog,
   upsertPiCredential,
 } from "./pi";
@@ -28,7 +28,6 @@ type PiOAuthAuthState = OAuthAuthInfo;
 
 type PiOAuthSessionRecord = {
   id: string;
-  userId: string;
   providerId: string;
   providerName: string;
   usesCallbackServer: boolean;
@@ -93,7 +92,7 @@ function toPublicSession(record: PiOAuthSessionRecord) {
 }
 
 async function runOauthSession(record: PiOAuthSessionRecord) {
-  const authStorage = await createPiAuthStorageForUser(record.userId);
+  const authStorage = await createPiAuthStorage();
 
   try {
     await authStorage.login(record.providerId, {
@@ -145,7 +144,7 @@ async function runOauthSession(record: PiOAuthSessionRecord) {
       throw new Error("Pi login finished without storing credentials.");
     }
 
-    await upsertPiCredential(record.userId, record.providerId, credential);
+    await upsertPiCredential(record.providerId, credential);
     record.status = "completed";
     touch(record);
   } catch (error) {
@@ -176,7 +175,7 @@ export function getPiOAuthSession(sessionId: string) {
   return record ? toPublicSession(record) : null;
 }
 
-export async function startPiOAuthSession(userId: string, providerId: string) {
+export async function startPiOAuthSession(providerId: string) {
   cleanupOauthSessions();
 
   const provider = listPiOAuthProviders().find(
@@ -188,7 +187,6 @@ export async function startPiOAuthSession(userId: string, providerId: string) {
 
   const record: PiOAuthSessionRecord = {
     id: nanoid(),
-    userId,
     providerId,
     providerName: provider.name,
     usesCallbackServer: provider.usesCallbackServer,

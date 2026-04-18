@@ -1,6 +1,5 @@
 import { getChat, getChatMessages, saveChatMessage } from "@g-spot/db/chat";
 import { getProject } from "@g-spot/db/projects";
-import { listSkillsForAgent } from "@g-spot/db/skills";
 import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent";
 import type { Message } from "@mariozechner/pi-ai";
 import { nanoid } from "nanoid";
@@ -10,11 +9,12 @@ import {
   awaitChatToolApproval,
   finishChatRuntimeStream,
   getChatRuntime,
-  getChatRuntimeReconnectStream,
   startChatRuntimeStream,
+  subscribeToChatRuntimeStream,
 } from "./chat-runtime";
 import { refreshChatTitle } from "./chat-title";
 import { extractChatTurnToMemory } from "./lib/memory-ingest-hook";
+import { ensureWorktree } from "./lib/git";
 import {
   createPiAgentSession,
   normalizeStoredChatAgentConfig,
@@ -26,11 +26,6 @@ import {
   serializePiMessage,
 } from "./lib/pi-chat-messages";
 import { decidePermission } from "./lib/pi-permissions";
-import {
-  disposeSkillsRoot,
-  materializeSkills,
-} from "./lib/skill-materializer";
-import { verifyStackToken } from "./lib/verify-token";
 
 type ChatStreamRequestBody = {
   chatId: string;
@@ -38,23 +33,69 @@ type ChatStreamRequestBody = {
   message?: unknown;
 };
 
-function sseResponse(stream: ReadableStream<Uint8Array>) {
-  return new Response(stream, {
-    headers: {
-      "content-type": "text/event-stream; charset=utf-8",
-      "cache-control": "no-cache, no-transform",
-      connection: "keep-alive",
-    },
-  });
+type ChatSocketClientMessage =
+  | {
+      type: "start";
+      prompt?: string;
+      message?: unknown;
+    }
+  | {
+      type: "attach";
+    };
+
+type ChatSocket = {
+  raw: {
+    send: (data: string) => unknown;
+  };
+  data: {
+    params: {
+      chatId: string;
+    };
+  };
+};
+
+const chatSocketSubscriptions = new WeakMap<
+  ChatSocket,
+  () => void
+>();
+
+function publishSocketMessage(
+  ws: ChatSocket,
+  message: unknown,
+) {
+  ws.raw.send(JSON.stringify(message));
 }
 
-async function authenticateChatRequest(request: Request) {
-  const accessToken = request.headers.get("x-stack-access-token");
-  if (!accessToken) {
-    return null;
+function detachChatSocket(
+  ws: ChatSocket,
+) {
+  const unsubscribe = chatSocketSubscriptions.get(ws);
+  if (!unsubscribe) {
+    return;
   }
 
-  return verifyStackToken(accessToken);
+  unsubscribe();
+  chatSocketSubscriptions.delete(ws);
+}
+
+function attachChatSocket(
+  ws: ChatSocket,
+  chatId: string,
+) {
+  detachChatSocket(ws);
+
+  const unsubscribe = subscribeToChatRuntimeStream(chatId, (event) => {
+    publishSocketMessage(ws, event);
+  });
+
+  if (!unsubscribe) {
+    publishSocketMessage(ws, { type: "socket_missing" });
+    return false;
+  }
+
+  chatSocketSubscriptions.set(ws, unsubscribe);
+  publishSocketMessage(ws, { type: "socket_attached" });
+  return true;
 }
 
 function isPersistablePiMessage(message: unknown): message is Message {
@@ -83,49 +124,65 @@ function userMessageContentMatches(
   return JSON.stringify(stored.content) === JSON.stringify(incoming.content);
 }
 
-export async function handleChatStream(request: Request): Promise<Response> {
-  const userId = await authenticateChatRequest(request);
-  if (!userId) {
-    return new Response("Unauthorized", { status: 401 });
-  }
-
-  const body = (await request.json()) as ChatStreamRequestBody;
-  const chat = await getChat(userId, body.chatId);
+async function startChatRun(body: ChatStreamRequestBody): Promise<void> {
+  const chat = await getChat(body.chatId);
   if (!chat) {
-    return new Response("Chat not found", { status: 404 });
+    throw new Error("Chat not found");
   }
 
-  const projectRow = await getProject(userId, chat.projectId);
+  const projectRow = await getProject(chat.projectId);
   if (!projectRow) {
-    return new Response("Project not found for chat", { status: 500 });
+    throw new Error("Project not found for chat");
+  }
+
+  const chatConfig = normalizeStoredChatAgentConfig(chat);
+  let projectPath = projectRow.path;
+
+  if (chatConfig.workMode === "worktree") {
+    try {
+      const worktreePath = await ensureWorktree({
+        projectPath: projectRow.path,
+        chatId: body.chatId,
+        branch: chatConfig.branch,
+      });
+
+      if (worktreePath) {
+        projectPath = worktreePath;
+      }
+    } catch (error) {
+      const { stream } = startChatRuntimeStream(body.chatId, {
+        abortCurrentRun: () => undefined,
+      });
+
+      stream.publish({
+        type: "gspot_error",
+        message:
+          error instanceof Error
+            ? `Could not create worktree: ${error.message}`
+            : "Could not create worktree.",
+      });
+      finishChatRuntimeStream(body.chatId);
+      return;
+    }
   }
 
   const project: PiAgentSessionProject = {
     id: projectRow.id,
-    path: projectRow.path,
+    path: projectPath,
     customInstructions: projectRow.customInstructions,
     appendPrompt: projectRow.appendPrompt,
   };
 
-  const chatConfig = normalizeStoredChatAgentConfig(chat);
-
   const userMessage = await createUserMessageFromUnknown(body.message, body.prompt);
   if (!userMessage) {
-    return new Response("Missing user message", { status: 400 });
+    throw new Error("Missing user message");
   }
 
   const runtime = await getChatRuntime(body.chatId, {
-    userId,
     configKey: JSON.stringify({ project: project.id, ...chatConfig }),
   });
 
-  let skillsRoot: string | null = null;
-
   try {
-    const skillRecords = await listSkillsForAgent(userId, project.id);
-    const materialized = await materializeSkills(project.id, skillRecords);
-    skillsRoot = materialized.skillsRoot;
-
     const storedMessages = await deserializePiMessages(
       await getChatMessages(body.chatId),
     );
@@ -151,30 +208,31 @@ export async function handleChatStream(request: Request): Promise<Response> {
     }
 
     const { session, config } = await createPiAgentSession({
-      userId,
       config: chatConfig,
       project,
-      materializedSkills: materialized.skills,
     });
 
     session.agent.state.messages = [...history];
 
-    const { stream, readable } = startChatRuntimeStream(body.chatId, {
+    const { stream } = startChatRuntimeStream(body.chatId, {
       abortCurrentRun: () => session.abort(),
     });
 
-    // Install the permission / approval hook. `session.agent.beforeToolCall`
-    // was already set to an extension-runner bridge by `AgentSession`, but
-    // since we run with `noExtensions`, that bridge is a no-op — so
-    // overwriting it here is safe and the cleanest way to inject policy.
-    //
-    // The hook runs async, so `require-approval` can await a promise that
-    // resolves once the client calls `chat.resolveToolApproval`. See
-    // `awaitChatToolApproval` in `chat-runtime.ts`.
-    session.agent.beforeToolCall = async ({ toolCall, args }) => {
+    // Preserve Pi extension tool-call hooks, then layer g-spot's permission
+    // policy and approval gate on top. The hook runs async, so
+    // `require-approval` can await a promise that resolves once the client
+    // calls `chat.resolveToolApproval`. See `awaitChatToolApproval` in
+    // `chat-runtime.ts`.
+    const extensionBeforeToolCall = session.agent.beforeToolCall;
+    session.agent.beforeToolCall = async (context) => {
+      const extensionDecision = await extensionBeforeToolCall?.(context);
+      if (extensionDecision?.block) {
+        return extensionDecision;
+      }
+
       const decision = decidePermission(
-        toolCall.name,
-        args,
+        context.toolCall.name,
+        context.args,
         chatConfig,
       );
 
@@ -185,22 +243,22 @@ export async function handleChatStream(request: Request): Promise<Response> {
       if (decision.kind === "require-approval") {
         stream.publish({
           type: "tool_approval_request",
-          toolCallId: toolCall.id,
-          toolName: toolCall.name,
-          args,
+          toolCallId: context.toolCall.id,
+          toolName: context.toolCall.name,
+          args: context.args,
           reason: decision.reason,
         });
 
         const response = await awaitChatToolApproval(
           body.chatId,
-          toolCall.id,
-          { toolName: toolCall.name, args },
+          context.toolCall.id,
+          { toolName: context.toolCall.name, args: context.args },
         );
 
         stream.publish({
           type: "tool_approval_resolved",
-          toolCallId: toolCall.id,
-          toolName: toolCall.name,
+          toolCallId: context.toolCall.id,
+          toolName: context.toolCall.name,
           approved: response.approved,
           reason: response.reason,
         });
@@ -213,7 +271,7 @@ export async function handleChatStream(request: Request): Promise<Response> {
         }
       }
 
-      return undefined;
+      return extensionDecision;
     };
 
     const persistenceTasks: Promise<void>[] = [];
@@ -260,7 +318,6 @@ export async function handleChatStream(request: Request): Promise<Response> {
         const finalMessages = session.messages.filter(isPersistablePiMessage);
         if (triggerMessageId) {
           void refreshChatTitle({
-            userId,
             chatId: body.chatId,
             messages: finalMessages,
             fallbackConfig: config,
@@ -270,7 +327,6 @@ export async function handleChatStream(request: Request): Promise<Response> {
 
           // Extract knowledge into memory graph (fire-and-forget)
           void extractChatTurnToMemory({
-            userId,
             chatId: body.chatId,
             messages: finalMessages,
           });
@@ -283,58 +339,100 @@ export async function handleChatStream(request: Request): Promise<Response> {
       } finally {
         unsubscribe();
         finishChatRuntimeStream(body.chatId);
-        void disposeSkillsRoot(skillsRoot);
       }
     })();
-
-    return sseResponse(readable);
   } catch (error) {
     await runtime.abortCurrentRun?.();
-    void disposeSkillsRoot(skillsRoot);
     console.error("[pi.chat] failed", {
       chatId: body.chatId,
-      userId,
       error,
     });
+    throw error;
+  }
+}
+
+export async function handleChatStream(request: Request): Promise<Response> {
+  try {
+    const body = (await request.json()) as ChatStreamRequestBody;
+    await startChatRun(body);
+    return new Response(null, { status: 202 });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Stream failed";
+    const status =
+      message === "Missing user message"
+        ? 400
+        : message === "Chat not found"
+          ? 404
+          : 502;
 
     return new Response(
-      JSON.stringify({
-        error: error instanceof Error ? error.message : "Stream failed",
-      }),
+      JSON.stringify({ error: message }),
       {
-        status: 502,
+        status,
         headers: { "content-type": "application/json" },
       },
     );
   }
 }
 
-export async function handleChatStreamReconnect(
-  request: Request,
+export async function handleChatStreamAbort(
+  _request: Request,
   chatId: string,
 ): Promise<Response> {
-  const userId = await authenticateChatRequest(request);
-  if (!userId) {
-    return new Response("Unauthorized", { status: 401 });
-  }
-
-  const stream = getChatRuntimeReconnectStream(chatId, userId);
-  if (!stream) {
-    return new Response(null, { status: 204 });
-  }
-
-  return sseResponse(stream);
+  await abortChatRuntimeRun(chatId);
+  return new Response(null, { status: 204 });
 }
 
-export async function handleChatStreamAbort(
-  request: Request,
-  chatId: string,
-): Promise<Response> {
-  const userId = await authenticateChatRequest(request);
-  if (!userId) {
-    return new Response("Unauthorized", { status: 401 });
+export function handleChatSocketOpen(_ws: ChatSocket) {}
+
+export async function handleChatSocketMessage(
+  ws: ChatSocket,
+  rawMessage: unknown,
+) {
+  let message: ChatSocketClientMessage;
+  const payload =
+    typeof rawMessage === "string"
+      ? rawMessage
+      : Buffer.isBuffer(rawMessage)
+        ? rawMessage.toString()
+        : JSON.stringify(rawMessage);
+
+  try {
+    message = JSON.parse(payload) as ChatSocketClientMessage;
+  } catch {
+    publishSocketMessage(ws, {
+      type: "gspot_error",
+      message: "Invalid chat socket payload",
+    });
+    return;
   }
 
-  await abortChatRuntimeRun(chatId, userId);
-  return new Response(null, { status: 204 });
+  const chatId = ws.data.params.chatId;
+
+  if (message.type === "attach") {
+    attachChatSocket(ws, chatId);
+    return;
+  }
+
+  detachChatSocket(ws);
+
+  try {
+    await startChatRun({
+      chatId,
+      prompt: message.prompt,
+      message: message.message,
+    });
+    attachChatSocket(ws, chatId);
+  } catch (error) {
+    publishSocketMessage(ws, {
+      type: "gspot_error",
+      message: error instanceof Error ? error.message : "Chat stream failed",
+    });
+  }
+}
+
+export function handleChatSocketClose(
+  ws: ChatSocket,
+) {
+  detachChatSocket(ws);
 }

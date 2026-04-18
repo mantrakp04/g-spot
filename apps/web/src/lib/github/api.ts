@@ -10,8 +10,6 @@ const SEARCH_PAGE_SIZE = 7;
 
 export type GitHubItemType = "pr" | "issue";
 
-// ─── GraphQL Queries ────────────────────────────────────────────────────────
-
 const PR_QUERY_BODY = (reviewRequestFragment: string) => `
   query SearchGitHubPullRequests($searchQuery: String!, $cursor: String, $first: Int!) {
     search(query: $searchQuery, type: ISSUE, first: $first, after: $cursor) {
@@ -78,7 +76,6 @@ const SEARCH_PULL_REQUESTS_QUERY_USER_ONLY = PR_QUERY_BODY(
   "... on User { login avatarUrl }",
 );
 
-/** Tracks whether the token lacks org scopes so we skip the Team query on subsequent calls. */
 let hasOrgAccess: boolean | null = null;
 
 const SEARCH_ISSUES_QUERY = `
@@ -113,8 +110,6 @@ const SEARCH_ISSUES_QUERY = `
   }
 `;
 
-// ─── Raw Response Types ─────────────────────────────────────────────────────
-
 type PullRequestNode = {
   id: string;
   number: number;
@@ -137,8 +132,19 @@ type PullRequestNode = {
           state: string;
           contexts: {
             nodes: Array<
-              | { __typename: "CheckRun"; name: string; conclusion: string | null; status: string; detailsUrl: string | null }
-              | { __typename: "StatusContext"; context: string; state: string; targetUrl: string | null }
+              | {
+                  __typename: "CheckRun";
+                  name: string;
+                  conclusion: string | null;
+                  status: string;
+                  detailsUrl: string | null;
+                }
+              | {
+                  __typename: "StatusContext";
+                  context: string;
+                  state: string;
+                  targetUrl: string | null;
+                }
             >;
           } | null;
         } | null;
@@ -177,9 +183,6 @@ type SearchPageInfo = {
 type PullRequestSearchResponse = { search: { nodes: PullRequestNode[] } & SearchPageInfo };
 type IssueSearchResponse = { search: { nodes: IssueNode[] } & SearchPageInfo };
 
-// ─── Unified Search Query Builder ───────────────────────────────────────────
-
-/** Simple `qualifier:value` / `-qualifier:value` fields */
 const SIMPLE_QUALIFIERS: Record<string, string> = {
   author: "author",
   assignee: "assignee",
@@ -194,16 +197,26 @@ const SIMPLE_QUALIFIERS: Record<string, string> = {
 };
 
 const RANGE_FIELDS = new Set([
-  "created", "updated", "merged", "closed", "comments", "interactions",
+  "created",
+  "updated",
+  "merged",
+  "closed",
+  "comments",
+  "interactions",
 ]);
 
 function formatRangeValue(operator: string, value: string): string {
   switch (operator) {
-    case "gt": return `>${value}`;
-    case "lt": return `<${value}`;
-    case "gte": return `>=${value}`;
-    case "lte": return `<=${value}`;
-    default: return value;
+    case "gt":
+      return `>${value}`;
+    case "lt":
+      return `<${value}`;
+    case "gte":
+      return `>=${value}`;
+    case "lte":
+      return `<=${value}`;
+    default:
+      return value;
   }
 }
 
@@ -237,8 +250,8 @@ export function buildGitHubSearchQuery(
     } else if (RANGE_FIELDS.has(field)) {
       parts.push(`${field}:${formatRangeValue(operator, value)}`);
     } else if (field in SIMPLE_QUALIFIERS) {
-      const q = SIMPLE_QUALIFIERS[field]!;
-      parts.push(negate ? `-${q}:${value}` : `${q}:${value}`);
+      const qualifier = SIMPLE_QUALIFIERS[field]!;
+      parts.push(negate ? `-${qualifier}:${value}` : `${qualifier}:${value}`);
     }
   }
 
@@ -246,8 +259,6 @@ export function buildGitHubSearchQuery(
   parts.push(sortAsc ? "sort:updated-asc" : "sort:updated-desc");
   return parts.join(" ");
 }
-
-// ─── Response Mapping ───────────────────────────────────────────────────────
 
 function mapStatusCheck(
   state: string | undefined | null,
@@ -274,7 +285,16 @@ function mapCheckConclusion(
 ): GitHubPullRequest["statusChecks"][number]["conclusion"] {
   if (!conclusion) return null;
   const upper = conclusion.toUpperCase();
-  const valid = ["SUCCESS", "FAILURE", "NEUTRAL", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "SKIPPED", "STALE"] as const;
+  const valid = [
+    "SUCCESS",
+    "FAILURE",
+    "NEUTRAL",
+    "CANCELLED",
+    "TIMED_OUT",
+    "ACTION_REQUIRED",
+    "SKIPPED",
+    "STALE",
+  ] as const;
   return (valid as readonly string[]).includes(upper)
     ? (upper as (typeof valid)[number])
     : null;
@@ -285,7 +305,14 @@ function mapCheckStatus(
 ): GitHubPullRequest["statusChecks"][number]["status"] {
   if (!status) return null;
   const upper = status.toUpperCase();
-  const valid = ["QUEUED", "IN_PROGRESS", "COMPLETED", "WAITING", "PENDING", "REQUESTED"] as const;
+  const valid = [
+    "QUEUED",
+    "IN_PROGRESS",
+    "COMPLETED",
+    "WAITING",
+    "PENDING",
+    "REQUESTED",
+  ] as const;
   return (valid as readonly string[]).includes(upper)
     ? (upper as (typeof valid)[number])
     : null;
@@ -294,24 +321,27 @@ function mapCheckStatus(
 function mapStatusChecks(node: PullRequestNode): GitHubPullRequest["statusChecks"] {
   const contexts = node.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts?.nodes;
   if (!contexts) return [];
-  return contexts.map((ctx) => {
-    if (ctx.__typename === "CheckRun") {
+
+  return contexts.map((context) => {
+    if (context.__typename === "CheckRun") {
       return {
-        name: ctx.name,
-        conclusion: mapCheckConclusion(ctx.conclusion),
-        status: mapCheckStatus(ctx.status),
-        detailsUrl: ctx.detailsUrl,
+        name: context.name,
+        conclusion: mapCheckConclusion(context.conclusion),
+        status: mapCheckStatus(context.status),
+        detailsUrl: context.detailsUrl,
       };
     }
-    // StatusContext
-    const stateUpper = ctx.state.toUpperCase();
+
+    const stateUpper = context.state.toUpperCase();
     return {
-      name: ctx.context,
-      conclusion: stateUpper === "SUCCESS" ? "SUCCESS" as const
-        : stateUpper === "FAILURE" || stateUpper === "ERROR" ? "FAILURE" as const
-        : null,
-      status: stateUpper === "PENDING" ? "PENDING" as const : "COMPLETED" as const,
-      detailsUrl: ctx.targetUrl,
+      name: context.context,
+      conclusion: stateUpper === "SUCCESS"
+        ? "SUCCESS"
+        : stateUpper === "FAILURE" || stateUpper === "ERROR"
+          ? "FAILURE"
+          : null,
+      status: stateUpper === "PENDING" ? "PENDING" : "COMPLETED",
+      detailsUrl: context.targetUrl,
     };
   });
 }
@@ -320,19 +350,27 @@ function mapPullRequestNode(node: PullRequestNode): GitHubPullRequest {
   const statusState = node.commits?.nodes?.[0]?.commit?.statusCheckRollup?.state ?? null;
   const reviewed =
     node.latestReviews?.nodes
-      ?.filter((r) => r.author != null)
-      .map((r) => ({ login: r.author!.login, avatarUrl: r.author!.avatarUrl, state: r.state }))
+      ?.filter((review) => review.author != null)
+      .map((review) => ({
+        login: review.author!.login,
+        avatarUrl: review.author!.avatarUrl,
+        state: review.state,
+      }))
     ?? [];
-  const reviewedLogins = new Set(reviewed.map((r) => r.login));
+  const reviewedLogins = new Set(reviewed.map((review) => review.login));
   const requested =
     node.reviewRequests?.nodes
-      ?.filter((r) => r.requestedReviewer != null && (r.requestedReviewer.login || r.requestedReviewer.name))
-      .map((r) => ({
-        login: r.requestedReviewer!.login ?? r.requestedReviewer!.name!,
-        avatarUrl: r.requestedReviewer!.avatarUrl ?? "",
+      ?.filter(
+        (request) =>
+          request.requestedReviewer != null
+          && (request.requestedReviewer.login || request.requestedReviewer.name),
+      )
+      .map((request) => ({
+        login: request.requestedReviewer!.login ?? request.requestedReviewer!.name!,
+        avatarUrl: request.requestedReviewer!.avatarUrl ?? "",
         state: "REQUESTED",
       }))
-      .filter((r) => !reviewedLogins.has(r.login))
+      .filter((reviewer) => !reviewedLogins.has(reviewer.login))
     ?? [];
   const reviewers = [...reviewed, ...requested];
 
@@ -351,7 +389,7 @@ function mapPullRequestNode(node: PullRequestNode): GitHubPullRequest {
     statusChecks: mapStatusChecks(node),
     additions: node.additions,
     deletions: node.deletions,
-    labels: node.labels?.nodes?.map((l) => ({ name: l.name, color: l.color })) ?? [],
+    labels: node.labels?.nodes?.map((label) => ({ name: label.name, color: label.color })) ?? [],
     updatedAt: node.updatedAt,
   };
 }
@@ -367,8 +405,12 @@ function mapIssueNode(node: IssueNode): GitHubIssue {
     stateReason: node.stateReason,
     author: mapAuthor(node.author),
     repository: mapRepository(node.repository),
-    labels: node.labels?.nodes?.map((l) => ({ name: l.name, color: l.color })) ?? [],
-    assignees: node.assignees?.nodes?.map((a) => ({ login: a.login, avatarUrl: a.avatarUrl })) ?? [],
+    labels: node.labels?.nodes?.map((label) => ({ name: label.name, color: label.color })) ?? [],
+    assignees:
+      node.assignees?.nodes?.map((assignee) => ({
+        login: assignee.login,
+        avatarUrl: assignee.avatarUrl,
+      })) ?? [],
     reactions: node.reactions.totalCount,
     milestone: node.milestone?.title ?? null,
     comments: node.comments.totalCount,
@@ -376,8 +418,6 @@ function mapIssueNode(node: IssueNode): GitHubIssue {
     updatedAt: node.updatedAt,
   };
 }
-
-// ─── Search ─────────────────────────────────────────────────────────────────
 
 export async function searchGitHubItems(
   itemType: GitHubItemType,
@@ -406,16 +446,16 @@ export async function searchGitHubItems(
           variables,
         );
         hasOrgAccess = true;
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "";
-        if (msg.includes("required scopes") || msg.includes("read:org")) {
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "";
+        if (message.includes("required scopes") || message.includes("read:org")) {
           hasOrgAccess = false;
           response = await octokit.graphql<PullRequestSearchResponse>(
             SEARCH_PULL_REQUESTS_QUERY_USER_ONLY,
             variables,
           );
         } else {
-          throw err;
+          throw error;
         }
       }
     }

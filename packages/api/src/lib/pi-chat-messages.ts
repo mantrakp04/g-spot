@@ -217,9 +217,6 @@ export async function deserializePiMessages(rows: ChatMessageRow[]) {
     try {
       const parsed = JSON.parse(row.message) as unknown;
       if (!isPiMessage(parsed)) {
-        console.warn("[pi.chat] skipping malformed stored message", {
-          messageId: row.id,
-        });
         continue;
       }
 
@@ -227,11 +224,7 @@ export async function deserializePiMessages(rows: ChatMessageRow[]) {
         ...row,
         parsedMessage: parsed,
       });
-    } catch (error) {
-      console.warn("[pi.chat] failed to parse stored message", {
-        messageId: row.id,
-        error,
-      });
+    } catch {
     }
   }
 

@@ -1,3 +1,8 @@
+import { env } from "@g-spot/env/server";
+
+import type { ParsedSkillMarkdown } from "./skill-markdown";
+import { parseSkillMarkdown } from "./skill-markdown";
+
 /**
  * Integration with the public Agent Skills directory at https://skills.sh.
  *
@@ -7,8 +12,9 @@
  *   → { skills: Array<{ id, skillId, name, installs, source }> }
  *
  * `source` is always `owner/repo` and `id` is `owner/repo/<slug>`. There is
- * no `list-all` endpoint; everything is driven by search. The minimum query
- * length enforced by the remote API is 2 characters.
+ * no public "popular skills" API endpoint; the homepage embeds leaderboard
+ * rows in its server-rendered payload, while search is handled by the API.
+ * The minimum query length enforced by the remote search API is 2 characters.
  *
  * Installing a catalog entry means:
  *   1. Walk the target repo's git tree via GitHub's REST API.
@@ -22,8 +28,7 @@
  * occasional interactive install from the explorer.
  */
 
-const SEARCH_API_BASE =
-  process.env.SKILLS_API_URL?.replace(/\/$/, "") ?? "https://skills.sh";
+const SEARCH_API_BASE = env.SKILLS_API_URL.replace(/\/$/, "");
 
 export interface CatalogSearchResult {
   /** `owner/repo/<slug>` — canonical id from skills.sh */
@@ -108,6 +113,111 @@ export async function searchCatalog(
       source: s.source ?? "",
       installs: typeof s.installs === "number" ? s.installs : 0,
     }));
+}
+
+function decodeEmbeddedJsonString(value: string): string {
+  try {
+    return JSON.parse(`"${value}"`) as string;
+  } catch {
+    return value;
+  }
+}
+
+function extractPopularCatalogResults(html: string): CatalogSearchResult[] {
+  const anchor = html.indexOf("allTimeTotal\\\":");
+  const start =
+    anchor >= 0
+      ? html.lastIndexOf("[{\\\"source\\\"", anchor)
+      : html.indexOf("[{\\\"source\\\"");
+  const end =
+    start >= 0 ? html.indexOf("],\\\"totalSkills\\\":", start) : -1;
+  if (start < 0 || end < 0 || end <= start) return [];
+
+  const encodedArray = html.slice(start, end + 1);
+  let decodedJson = "";
+  try {
+    decodedJson = JSON.parse(`"${encodedArray}"`) as string;
+  } catch {
+    return [];
+  }
+
+  let data: unknown;
+  try {
+    data = JSON.parse(decodedJson);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(data)) return [];
+
+  const seen = new Set<string>();
+  const results: CatalogSearchResult[] = [];
+
+  for (const item of data) {
+    if (!item || typeof item !== "object") continue;
+    const source =
+      typeof item.source === "string" ? item.source.trim() : "";
+    const skillId =
+      typeof item.skillId === "string" ? item.skillId.trim() : "";
+    const name = typeof item.name === "string" ? item.name.trim() : "";
+    const installs =
+      typeof item.installs === "number"
+        ? item.installs
+        : Number.parseInt(String(item.installs ?? 0), 10);
+    if (!source || !skillId || !name) continue;
+
+    const id = `${source}/${skillId}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    results.push({
+      id,
+      source: decodeEmbeddedJsonString(source),
+      skillId: decodeEmbeddedJsonString(skillId),
+      name: decodeEmbeddedJsonString(name),
+      installs: Number.isFinite(installs) ? installs : 0,
+    });
+  }
+
+  return results.sort((a, b) => b.installs - a.installs);
+}
+
+/**
+ * skills.sh does not currently expose a public leaderboard JSON endpoint, but
+ * its homepage embeds the all-time popular skills in the server-rendered HTML.
+ * We scrape that payload server-side so the client can show a useful default
+ * list when the explorer opens with an empty query.
+ */
+export async function listPopularCatalog(
+  limit: number,
+): Promise<CatalogSearchResult[]> {
+  let res: Response;
+  try {
+    res = await fetch(SEARCH_API_BASE, {
+      headers: { "user-agent": "g-spot-skill-explorer/1.0 (+https://skills.sh)" },
+    });
+  } catch (err) {
+    throw new SkillCatalogError(
+      err instanceof Error ? err.message : "Popular skills request failed",
+      "FETCH_FAILED",
+    );
+  }
+
+  if (!res.ok) {
+    throw new SkillCatalogError(
+      `skills.sh homepage returned ${res.status}`,
+      "FETCH_FAILED",
+    );
+  }
+
+  const html = await res.text();
+  const results = extractPopularCatalogResults(html);
+  if (results.length === 0) {
+    throw new SkillCatalogError(
+      "Could not parse popular skills from skills.sh",
+      "FETCH_FAILED",
+    );
+  }
+
+  return results.slice(0, limit);
 }
 
 interface OwnerRepo {
@@ -229,84 +339,6 @@ async function fetchRawFile(
     );
   }
   return res.text();
-}
-
-function stripYamlQuotes(value: string): string {
-  const trimmed = value.trim();
-  if (trimmed.length >= 2) {
-    const first = trimmed[0];
-    const last = trimmed[trimmed.length - 1];
-    if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
-      const inner = trimmed.slice(1, -1);
-      // Unescape the common escapes for double quotes. Single-quoted YAML
-      // only needs '' → ' handling.
-      if (first === '"') {
-        return inner.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
-      }
-      return inner.replace(/''/g, "'");
-    }
-  }
-  return trimmed;
-}
-
-interface ParsedSkillMarkdown {
-  name: string | null;
-  description: string | null;
-  content: string;
-}
-
-/**
- * Minimal frontmatter extractor. Skills spec frontmatter is simple key/value
- * YAML — we only care about `name` and `description`. Pulling in a YAML
- * dependency just to read two strings is overkill, and the vercel/skills CLI
- * itself handles frontmatter through its own thin wrapper.
- *
- * If the frontmatter is missing or malformed we return the whole body as
- * content with null metadata, letting the caller fall back to the search
- * result's name.
- */
-function parseSkillMarkdown(raw: string): ParsedSkillMarkdown {
-  const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
-  if (!match) {
-    return { name: null, description: null, content: raw.trim() };
-  }
-  const frontmatter = match[1] ?? "";
-  const body = match[2] ?? "";
-
-  let name: string | null = null;
-  let description: string | null = null;
-
-  // Walk lines at indent=0 only; nested keys (e.g. metadata.internal) are
-  // ignored for now — we don't use them.
-  const lines = frontmatter.split(/\r?\n/);
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!;
-    if (!line || /^\s/.test(line)) continue;
-    const colonIdx = line.indexOf(":");
-    if (colonIdx < 0) continue;
-    const key = line.slice(0, colonIdx).trim();
-    let value = line.slice(colonIdx + 1).trim();
-
-    // Support YAML folded (`>`) and literal (`|`) block scalars — skills.sh
-    // descriptions occasionally use them.
-    if (value === ">" || value === "|" || value === ">-" || value === "|-") {
-      const collected: string[] = [];
-      while (i + 1 < lines.length) {
-        const next = lines[i + 1]!;
-        if (!/^\s+/.test(next) && next !== "") break;
-        collected.push(next.replace(/^\s+/, ""));
-        i++;
-      }
-      value = collected.join(value.startsWith(">") ? " " : "\n").trim();
-    } else {
-      value = stripYamlQuotes(value);
-    }
-
-    if (key === "name" && !name) name = value;
-    else if (key === "description" && !description) description = value;
-  }
-
-  return { name, description, content: body.trim() };
 }
 
 export interface FetchedSkill {

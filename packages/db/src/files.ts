@@ -22,7 +22,6 @@ export async function ensureFileHash(
 
 /** Create a metadata record pointing to an existing hash. Returns the file ID. */
 export async function createFileMetadata(input: {
-  userId: string;
   hash: string;
   filename: string;
   mimeType: string;
@@ -31,7 +30,6 @@ export async function createFileMetadata(input: {
   const id = nanoid();
   await db.insert(fileMetadata).values({
     id,
-    userId: input.userId,
     hash: input.hash,
     filename: input.filename,
     mimeType: input.mimeType,
@@ -45,7 +43,6 @@ export async function getFileById(fileId: string) {
   const [row] = await db
     .select({
       id: fileMetadata.id,
-      userId: fileMetadata.userId,
       filename: fileMetadata.filename,
       mimeType: fileMetadata.mimeType,
       size: fileMetadata.size,

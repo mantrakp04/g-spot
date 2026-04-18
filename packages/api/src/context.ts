@@ -1,20 +1,29 @@
 import type { Context as ElysiaContext } from "elysia";
 
-import { verifyStackToken } from "./lib/verify-token";
-
 export type CreateContextOptions = {
   context: ElysiaContext;
 };
 
-export async function createContext({ context }: CreateContextOptions) {
-  const accessToken = context.request.headers.get("x-stack-access-token");
+export function extractStackAuthHeaders(headers: Headers): Record<string, string> {
+  const authHeaders: Record<string, string> = {};
 
-  let userId: string | null = null;
-  if (accessToken) {
-    userId = await verifyStackToken(accessToken);
+  for (const [key, value] of headers.entries()) {
+    const normalizedKey = key.toLowerCase();
+    if (
+      normalizedKey === "authorization"
+      || normalizedKey === "cookie"
+      || normalizedKey.startsWith("x-stack-")
+    ) {
+      authHeaders[normalizedKey] = value;
+    }
   }
 
-  return { userId };
+  return authHeaders;
 }
 
-export type Context = Awaited<ReturnType<typeof createContext>>;
+export function createContext({ context }: CreateContextOptions) {
+  const stackAuthHeaders = extractStackAuthHeaders(context.request.headers);
+  return { stackAuthHeaders };
+}
+
+export type Context = ReturnType<typeof createContext>;

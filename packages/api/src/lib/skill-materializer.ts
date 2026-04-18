@@ -93,10 +93,6 @@ export async function disposeSkillsRoot(skillsRoot: string | null | undefined) {
   if (!skillsRoot) return;
   try {
     await fs.rm(skillsRoot, { recursive: true, force: true });
-  } catch (err) {
-    console.warn("[skills] failed to dispose materialized skills", {
-      skillsRoot,
-      err: err instanceof Error ? err.message : err,
-    });
+  } catch {
   }
 }

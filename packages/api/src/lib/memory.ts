@@ -34,7 +34,7 @@ interface ExtractedEntity {
 interface ExtractedObservation {
   content: string;
   observationType: ObservationType;
-  entityNames: string[]; // names of entities this observation relates to
+  entityNames: string[];
 }
 
 interface ExtractedEdge {
@@ -58,7 +58,6 @@ export interface ResolveAction {
 }
 
 export interface QueryOptions {
-  userId: string;
   topK?: number;
   threshold?: number;
   includeGraph?: boolean;
@@ -149,10 +148,10 @@ function db() {
 // Scratchpad
 // ---------------------------------------------------------------------------
 
-export function ensureDefaultBlocks(userId: string): void {
+export function ensureDefaultBlocks(): void {
   const existing = db()
-    .prepare("SELECT label FROM memory_blocks WHERE user_id = ?")
-    .all(userId) as { label: string }[];
+    .prepare("SELECT label FROM memory_blocks")
+    .all() as { label: string }[];
 
   const existingLabels = new Set(existing.map((r) => r.label));
 
@@ -161,30 +160,29 @@ export function ensureDefaultBlocks(userId: string): void {
       const ts = now();
       db()
         .prepare(
-          `INSERT INTO memory_blocks (id, user_id, label, value, "limit", read_only, version, created_at, updated_at)
-           VALUES (?, ?, ?, '', ?, ?, 1, ?, ?)`,
+          `INSERT INTO memory_blocks (id, label, value, "limit", read_only, version, created_at, updated_at)
+           VALUES (?, ?, '', ?, ?, 1, ?, ?)`,
         )
-        .run(nanoid(), userId, block.label, block.limit, block.readOnly ? 1 : 0, ts, ts);
+        .run(nanoid(), block.label, block.limit, block.readOnly ? 1 : 0, ts, ts);
     }
   }
 }
 
-export function scratchpadRead(userId: string, label: string): string {
+export function scratchpadRead(label: string): string {
   const row = db()
-    .prepare("SELECT value FROM memory_blocks WHERE user_id = ? AND label = ?")
-    .get(userId, label) as { value: string } | undefined;
+    .prepare("SELECT value FROM memory_blocks WHERE label = ?")
+    .get(label) as { value: string } | undefined;
   return row?.value ?? "";
 }
 
 export function scratchpadAppend(
-  userId: string,
   label: string,
   content: string,
   changedBy: "agent" | "system" | "user" = "agent",
 ): void {
   const block = db()
-    .prepare("SELECT id, value, \"limit\", read_only, version FROM memory_blocks WHERE user_id = ? AND label = ?")
-    .get(userId, label) as { id: string; value: string; limit: number; read_only: number; version: number } | undefined;
+    .prepare("SELECT id, value, \"limit\", read_only, version FROM memory_blocks WHERE label = ?")
+    .get(label) as { id: string; value: string; limit: number; read_only: number; version: number } | undefined;
 
   if (!block) throw new Error(`Block "${label}" not found`);
   if (block.read_only && changedBy !== "system") throw new Error(`Block "${label}" is read-only`);
@@ -215,15 +213,14 @@ export function scratchpadAppend(
 }
 
 export function scratchpadReplace(
-  userId: string,
   label: string,
   oldText: string,
   newText: string,
   changedBy: "agent" | "system" | "user" = "agent",
 ): void {
   const block = db()
-    .prepare("SELECT id, value, \"limit\", read_only FROM memory_blocks WHERE user_id = ? AND label = ?")
-    .get(userId, label) as { id: string; value: string; limit: number; read_only: number } | undefined;
+    .prepare("SELECT id, value, \"limit\", read_only FROM memory_blocks WHERE label = ?")
+    .get(label) as { id: string; value: string; limit: number; read_only: number } | undefined;
 
   if (!block) throw new Error(`Block "${label}" not found`);
   if (block.read_only && changedBy !== "system") throw new Error(`Block "${label}" is read-only`);
@@ -255,14 +252,13 @@ export function scratchpadReplace(
 }
 
 export function scratchpadRewrite(
-  userId: string,
   label: string,
   newValue: string,
   changedBy: "agent" | "system" | "user" = "agent",
 ): void {
   const block = db()
-    .prepare("SELECT id, value, \"limit\", read_only FROM memory_blocks WHERE user_id = ? AND label = ?")
-    .get(userId, label) as { id: string; value: string; limit: number; read_only: number } | undefined;
+    .prepare("SELECT id, value, \"limit\", read_only FROM memory_blocks WHERE label = ?")
+    .get(label) as { id: string; value: string; limit: number; read_only: number } | undefined;
 
   if (!block) throw new Error(`Block "${label}" not found`);
   if (block.read_only && changedBy !== "system") throw new Error(`Block "${label}" is read-only`);
@@ -290,10 +286,10 @@ export function scratchpadRewrite(
   }
 }
 
-export function scratchpadUndo(userId: string, label: string, steps = 1): void {
+export function scratchpadUndo(label: string, steps = 1): void {
   const block = db()
-    .prepare("SELECT id, value FROM memory_blocks WHERE user_id = ? AND label = ?")
-    .get(userId, label) as { id: string; value: string } | undefined;
+    .prepare("SELECT id, value FROM memory_blocks WHERE label = ?")
+    .get(label) as { id: string; value: string } | undefined;
 
   if (!block) throw new Error(`Block "${label}" not found`);
 
@@ -318,7 +314,6 @@ export function scratchpadUndo(userId: string, label: string, steps = 1): void {
 // ---------------------------------------------------------------------------
 
 function vectorSearchEntities(
-  userId: string,
   queryVec: Buffer,
   topK: number,
 ): { id: string; distance: number }[] {
@@ -328,14 +323,13 @@ function vectorSearchEntities(
       `SELECT e.id, v.distance
        FROM memory_entities AS e
        JOIN vector_full_scan('memory_entities', 'embedding', ?, CAST(? AS INTEGER)) AS v ON e.rowid = v.rowid
-       WHERE e.user_id = ? AND e.valid_to IS NULL AND e.embedding IS NOT NULL`,
+       WHERE e.valid_to IS NULL AND e.embedding IS NOT NULL`,
     )
-    .all(queryVec, k, userId) as { id: string; distance: number }[];
+    .all(queryVec, k) as { id: string; distance: number }[];
   return results;
 }
 
 function vectorSearchObservations(
-  userId: string,
   queryVec: Buffer,
   topK: number,
   timeRange?: { from: number; to: number },
@@ -345,9 +339,9 @@ function vectorSearchObservations(
     SELECT e.id, v.distance, e.content, e.salience, e.confidence, e.observation_type, e.created_at
     FROM memory_observations AS e
     JOIN vector_full_scan('memory_observations', 'embedding', ?, CAST(? AS INTEGER)) AS v ON e.rowid = v.rowid
-    WHERE e.user_id = ? AND e.valid_to IS NULL AND e.embedding IS NOT NULL
+    WHERE e.valid_to IS NULL AND e.embedding IS NOT NULL
       AND e.salience >= 0.05`;
-  const params: any[] = [queryVec, k, userId];
+  const params: any[] = [queryVec, k];
 
   if (timeRange) {
     sql += " AND e.valid_from <= ? AND (e.valid_to IS NULL OR e.valid_to >= ?)";
@@ -358,7 +352,6 @@ function vectorSearchObservations(
 }
 
 function vectorSearchTriplets(
-  _userId: string,
   queryVec: Buffer,
   topK: number,
 ): { id: string; distance: number; triplet_text: string; weight: number; confidence: number; created_at: number }[] {
@@ -424,17 +417,7 @@ function bfsTraverse(
 // Ingest — the write path
 // ---------------------------------------------------------------------------
 
-/**
- * Ingest extracted entities, observations, and edges into the memory graph.
- * Call this with the output of an LLM extraction + resolution step.
- *
- * This is the "after both LLM calls" function. The caller is responsible for:
- * 1. LLM Call 1: Extract entities/observations/edges from user messages
- * 2. LLM Call 2: Resolve conflicts (ADD/UPDATE/DELETE/NONE per observation)
- * 3. Passing the resolved results here
- */
 export async function ingest(
-  userId: string,
   extraction: ExtractionResult,
   resolutions: ResolveAction[],
   sourceMessageId?: string,
@@ -445,8 +428,6 @@ export async function ingest(
   const edgeIds: string[] = [];
   const entityNameToId = new Map<string, string>();
 
-  // ---- Process entities ----
-  // Batch-embed all entity texts
   const entityTexts = extraction.entities.map((e) => `${e.name} ${e.description}`);
   const entityEmbeddings = entityTexts.length > 0 ? await embed(entityTexts) : [];
 
@@ -456,22 +437,19 @@ export async function ingest(
     const entVec = entityEmbeddings[i]!;
     const entBuf = toF32Buffer(entVec);
 
-    // Check for existing entity by hash
     const existing = db()
       .prepare(
-        "SELECT id, description, aliases, version FROM memory_entities WHERE user_id = ? AND hash = ? AND valid_to IS NULL",
+        "SELECT id, description, aliases, version FROM memory_entities WHERE hash = ? AND valid_to IS NULL",
       )
-      .get(userId, entHash) as { id: string; description: string; aliases: string; version: number } | undefined;
+      .get(entHash) as { id: string; description: string; aliases: string; version: number } | undefined;
 
     if (existing) {
-      // Also check vector similarity for fuzzy dedup
-      const vecMatches = vectorSearchEntities(userId, entBuf, 5);
+      const vecMatches = vectorSearchEntities(entBuf, 5);
       const isSimilar = vecMatches.some(
         (m) => m.id === existing.id && (1 - m.distance) >= DEDUP_COSINE_THRESHOLD,
       );
 
       if (isSimilar || existing) {
-        // Merge: update description, merge aliases
         const oldAliases: string[] = JSON.parse(existing.aliases);
         const newAliases = Array.from(
           new Set([...oldAliases, ...(ent.aliases ?? [])]),
@@ -498,19 +476,18 @@ export async function ingest(
       }
     }
 
-    // New entity
     const id = nanoid();
     const decayRate = ENTITY_DECAY_RATES[ent.entityType] ?? 0.005;
 
     db()
       .prepare(
         `INSERT INTO memory_entities
-         (id, user_id, name, entity_type, description, aliases, hash, valid_from, version,
+         (id, name, entity_type, description, aliases, hash, valid_from, version,
           salience, decay_rate, last_accessed_at, embedding, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1.0, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1.0, ?, ?, ?, ?, ?)`,
       )
       .run(
-        id, userId, ent.name.toLowerCase(), ent.entityType, ent.description,
+        id, ent.name.toLowerCase(), ent.entityType, ent.description,
         JSON.stringify(ent.aliases ?? []), entHash, ts, decayRate, ts, entBuf, ts, ts,
       );
 
@@ -520,7 +497,6 @@ export async function ingest(
     audit(id, "entity", "ADD", null, ent.description, "New entity extracted");
   }
 
-  // ---- Process observations using resolution actions ----
   const obsToEmbed: { index: number; content: string }[] = [];
   for (let i = 0; i < extraction.observations.length; i++) {
     const resolution = resolutions.find((r) => r.index === i);
@@ -555,14 +531,12 @@ export async function ingest(
     }
 
     if (resolution.action === "UPDATE" && resolution.existingId) {
-      // Close old, create new
       db()
         .prepare("UPDATE memory_observations SET valid_to = ?, updated_at = ? WHERE id = ?")
         .run(ts, ts, resolution.existingId);
       audit(resolution.existingId, "observation", "UPDATE", null, null, resolution.reason);
     }
 
-    // ADD or UPDATE (new version)
     const obsVec = obsEmbeddingMap.get(i);
     if (!obsVec) continue;
 
@@ -573,12 +547,12 @@ export async function ingest(
     db()
       .prepare(
         `INSERT INTO memory_observations
-         (id, user_id, content, observation_type, confidence, source_message_id, entity_ids, hash,
+         (id, content, observation_type, confidence, source_message_id, entity_ids, hash,
           valid_from, version, salience, decay_rate, last_accessed_at, embedding, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 0.8, ?, ?, ?, ?, 1, 1.0, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, 0.8, ?, ?, ?, ?, 1, 1.0, ?, ?, ?, ?, ?)`,
       )
       .run(
-        id, userId, obs.content, obs.observationType, sourceMessageId ?? null,
+        id, obs.content, obs.observationType, sourceMessageId ?? null,
         JSON.stringify(entityIdsForObs), obsHash, ts, decayRate, ts, toF32Buffer(obsVec), ts, ts,
       );
 
@@ -586,7 +560,6 @@ export async function ingest(
     audit(id, "observation", resolution.action, null, obs.content, resolution.reason);
   }
 
-  // ---- Process edges ----
   const edgeTexts = extraction.edges.map(
     (e) => `${e.sourceName} -> ${e.relationshipType} -> ${e.targetName}`,
   );
@@ -601,7 +574,6 @@ export async function ingest(
     const tripletText = edgeTexts[i]!;
     const tripletVec = edgeEmbeddings[i]!;
 
-    // Check for existing edge
     const existing = db()
       .prepare(
         `SELECT id, weight FROM memory_edges
@@ -610,7 +582,6 @@ export async function ingest(
       .get(sourceId, targetId, edge.relationshipType) as { id: string; weight: number } | undefined;
 
     if (existing) {
-      // Reinforce
       db()
         .prepare(
           "UPDATE memory_edges SET weight = MIN(1.0, weight + 0.1), triplet_embedding = ?, updated_at = ? WHERE id = ?",
@@ -646,11 +617,10 @@ export async function ingest(
 
 export async function query(
   q: string,
-  options: QueryOptions,
+  options: QueryOptions = {},
 ): Promise<QueryResult> {
   const start = performance.now();
   const {
-    userId,
     topK = 10,
     threshold = 0.5,
     includeGraph = true,
@@ -662,15 +632,12 @@ export async function query(
   const queryVec = await embedOne(q);
   const queryBuf = toF32Buffer(queryVec);
 
-  // ---- Vector path (observations + triplets in parallel) ----
-  const obsResults = vectorSearchObservations(userId, queryBuf, topK, timeRange);
-  const tripResults = vectorSearchTriplets(userId, queryBuf, topK);
+  const obsResults = vectorSearchObservations(queryBuf, topK, timeRange);
+  const tripResults = vectorSearchTriplets(queryBuf, topK);
 
-  // ---- Graph path ----
   let graphWeights = new Map<string, number>();
   if (includeGraph) {
-    // Find matching entities for graph traversal seed
-    const entityMatches = vectorSearchEntities(userId, queryBuf, 5);
+    const entityMatches = vectorSearchEntities(queryBuf, 5);
     const seedIds = entityMatches
       .filter((m) => (1 - m.distance) >= QUERY_ENTITY_MATCH_THRESHOLD)
       .map((m) => m.id);
@@ -680,7 +647,6 @@ export async function query(
     }
   }
 
-  // ---- Score and merge observations ----
   const scoredObs: ScoredResult[] = obsResults
     .filter((r) => (1 - r.distance) >= threshold)
     .map((r) => {
@@ -706,7 +672,6 @@ export async function query(
       };
     });
 
-  // ---- Score triplets ----
   const scoredTrips: ScoredResult[] = tripResults
     .filter((r) => (1 - r.distance) >= threshold)
     .map((r) => {
@@ -731,7 +696,6 @@ export async function query(
       };
     });
 
-  // Dedup and sort
   const seen = new Set<string>();
   const deduped = [...scoredObs, ...scoredTrips]
     .sort((a, b) => b.score - a.score)
@@ -744,7 +708,6 @@ export async function query(
   const topObs = deduped.filter((r) => r.type === "observation").slice(0, topK);
   const topTrips = deduped.filter((r) => r.type === "triplet").slice(0, topK);
 
-  // ---- Hebbian reinforcement ----
   const retrievedIds = [...topObs, ...topTrips].map((r) => r.id);
   const ts = now();
   for (const id of retrievedIds) {
@@ -759,7 +722,6 @@ export async function query(
       )
       .run(ts, id);
   }
-  // Reinforce traversed edges
   for (const [nodeId] of graphWeights) {
     db()
       .prepare(
@@ -768,7 +730,6 @@ export async function query(
       .run(ts, nodeId, nodeId);
   }
 
-  // ---- Build graph context string ----
   let graphContext = "";
   if (includeGraph && graphWeights.size > 0) {
     const entityIds = Array.from(graphWeights.keys()).slice(0, 20);
@@ -784,13 +745,12 @@ export async function query(
       .join("\n");
   }
 
-  // ---- Scratchpad ----
   let scratchpad = "";
   if (includeScratchpad) {
-    ensureDefaultBlocks(userId);
+    ensureDefaultBlocks();
     const blocks = db()
-      .prepare("SELECT label, value FROM memory_blocks WHERE user_id = ? ORDER BY label")
-      .all(userId) as { label: string; value: string }[];
+      .prepare("SELECT label, value FROM memory_blocks ORDER BY label")
+      .all() as { label: string; value: string }[];
 
     scratchpad = blocks
       .filter((b) => b.value.length > 0)
@@ -812,7 +772,6 @@ export async function query(
 // ---------------------------------------------------------------------------
 
 export async function compileContext(
-  userId: string,
   queryText: string,
   opts: {
     maxTokens?: number;
@@ -828,33 +787,29 @@ export async function compileContext(
     queryResultsK = 10,
   } = opts;
 
-  ensureDefaultBlocks(userId);
+  ensureDefaultBlocks();
 
   const parts: string[] = [];
 
-  // 1. Blocks first (highest priority)
   if (includeProfile) {
-    const profile = scratchpadRead(userId, "user_profile");
+    const profile = scratchpadRead("user_profile");
     if (profile) parts.push(`<user_profile>\n${profile}\n</user_profile>`);
   }
 
   if (includeActive) {
-    const active = scratchpadRead(userId, "active_context");
+    const active = scratchpadRead("active_context");
     if (active) parts.push(`<active_context>\n${active}\n</active_context>`);
 
-    const taskState = scratchpadRead(userId, "task_state");
+    const taskState = scratchpadRead("task_state");
     if (taskState) parts.push(`<task_state>\n${taskState}\n</task_state>`);
   }
 
-  // 2. Query for relevant memories
   const results = await query(queryText, {
-    userId,
     topK: queryResultsK,
     includeGraph: true,
-    includeScratchpad: false, // already have blocks
+    includeScratchpad: false,
   });
 
-  // 3. Format observations
   if (results.observations.length > 0) {
     const lines = results.observations.map((obs) => {
       const ageStr = formatAge(obs);
@@ -863,7 +818,6 @@ export async function compileContext(
     parts.push(`<relevant_memories>\n${lines.join("\n")}\n</relevant_memories>`);
   }
 
-  // 4. Format relationships
   if (results.triplets.length > 0) {
     const lines = results.triplets.map(
       (t) => `- ${t.content} (weight: ${t.salience.toFixed(2)})`,
@@ -871,12 +825,10 @@ export async function compileContext(
     parts.push(`<relationships>\n${lines.join("\n")}\n</relationships>`);
   }
 
-  // 5. Graph context
   if (results.graphContext) {
     parts.push(`<graph_context>\n${results.graphContext}\n</graph_context>`);
   }
 
-  // Rough token budget (~4 chars per token)
   let combined = parts.join("\n\n");
   const charBudget = maxTokens * 4;
   if (combined.length > charBudget) {
@@ -887,8 +839,6 @@ export async function compileContext(
 }
 
 function formatAge(result: ScoredResult): string {
-  // We need to get the created_at from the DB since ScoredResult doesn't store it
-  // For now, use recency as a proxy
   if (result.recency > 0.9) return "recent";
   if (result.recency > 0.5) return "days ago";
   if (result.recency > 0.1) return "weeks ago";
@@ -900,23 +850,17 @@ function formatAge(result: ScoredResult): string {
 // ---------------------------------------------------------------------------
 
 export async function temporalQuery(
-  userId: string,
   q: string,
   timeRange: { from: number; to: number },
 ): Promise<QueryResult> {
-  return query(q, { userId, timeRange, includeGraph: true, includeScratchpad: true });
+  return query(q, { timeRange, includeGraph: true, includeScratchpad: true });
 }
 
 // ---------------------------------------------------------------------------
 // Contradiction resolution
 // ---------------------------------------------------------------------------
 
-/**
- * Resolve a contradiction for an entity. The caller provides the LLM's
- * resolution decisions. Returns IDs of new/updated observations.
- */
 export async function resolveContradiction(
-  userId: string,
   entityId: string,
   newFact: string,
   decisions: { existingId: string; action: "KEEP" | "SUPERSEDE" | "MERGE"; mergedText?: string }[],
@@ -928,23 +872,21 @@ export async function resolveContradiction(
     if (decision.action === "KEEP") continue;
 
     if (decision.action === "SUPERSEDE") {
-      // Close old
       db()
         .prepare("UPDATE memory_observations SET valid_to = ?, updated_at = ? WHERE id = ?")
         .run(ts, ts, decision.existingId);
       audit(decision.existingId, "observation", "CONTRADICT", null, null, `Superseded by: ${newFact}`);
 
-      // Create new
       const id = nanoid();
       const vec = await embedOne(newFact);
       db()
         .prepare(
           `INSERT INTO memory_observations
-           (id, user_id, content, observation_type, confidence, entity_ids, hash,
+           (id, content, observation_type, confidence, entity_ids, hash,
             valid_from, version, salience, decay_rate, last_accessed_at, embedding, created_at, updated_at)
-           VALUES (?, ?, ?, 'fact', 0.9, ?, ?, ?, 1, 1.0, 0.005, ?, ?, ?, ?)`,
+           VALUES (?, ?, 'fact', 0.9, ?, ?, ?, 1, 1.0, 0.005, ?, ?, ?, ?)`,
         )
-        .run(id, userId, newFact, JSON.stringify([entityId]), md5(newFact), ts, ts, toF32Buffer(vec), ts, ts);
+        .run(id, newFact, JSON.stringify([entityId]), md5(newFact), ts, ts, toF32Buffer(vec), ts, ts);
       newIds.push(id);
       audit(id, "observation", "ADD", null, newFact, "Created from contradiction resolution");
     }
@@ -970,19 +912,18 @@ export async function resolveContradiction(
 // Decay tick — background maintenance
 // ---------------------------------------------------------------------------
 
-export async function decayTick(userId: string): Promise<DecayStats> {
+export async function decayTick(): Promise<DecayStats> {
   const ts = now();
   let decayed = 0;
   let pruned = 0;
   let edgesPruned = 0;
   const consolidated = 0;
 
-  // 1. Decay entities
   const entities = db()
     .prepare(
-      "SELECT id, salience, decay_rate, last_accessed_at FROM memory_entities WHERE user_id = ? AND valid_to IS NULL",
+      "SELECT id, salience, decay_rate, last_accessed_at FROM memory_entities WHERE valid_to IS NULL",
     )
-    .all(userId) as { id: string; salience: number; decay_rate: number; last_accessed_at: number }[];
+    .all() as { id: string; salience: number; decay_rate: number; last_accessed_at: number }[];
 
   for (const ent of entities) {
     const days = daysSince(ent.last_accessed_at);
@@ -997,7 +938,6 @@ export async function decayTick(userId: string): Promise<DecayStats> {
       decayed++;
     }
 
-    // Prune if salience too low and old
     if (newSalience < 0.03 && days > 30) {
       db()
         .prepare("UPDATE memory_entities SET valid_to = ?, updated_at = ? WHERE id = ?")
@@ -1007,12 +947,11 @@ export async function decayTick(userId: string): Promise<DecayStats> {
     }
   }
 
-  // 2. Decay observations
   const observations = db()
     .prepare(
-      "SELECT id, salience, decay_rate, last_accessed_at, confidence, updated_at FROM memory_observations WHERE user_id = ? AND valid_to IS NULL",
+      "SELECT id, salience, decay_rate, last_accessed_at, confidence, updated_at FROM memory_observations WHERE valid_to IS NULL",
     )
-    .all(userId) as { id: string; salience: number; decay_rate: number; last_accessed_at: number; confidence: number; updated_at: number }[];
+    .all() as { id: string; salience: number; decay_rate: number; last_accessed_at: number; confidence: number; updated_at: number }[];
 
   for (const obs of observations) {
     const days = daysSince(obs.last_accessed_at);
@@ -1021,7 +960,6 @@ export async function decayTick(userId: string): Promise<DecayStats> {
       obs.salience * Math.exp(-obs.decay_rate * days) +
       0.08 * (1 - Math.exp(-obs.decay_rate * days));
 
-    // Confidence decay (linear, TKG-style)
     const newConfidence = Math.max(0.1, obs.confidence - 0.001 * daysSinceUpdate);
 
     if (
@@ -1043,7 +981,6 @@ export async function decayTick(userId: string): Promise<DecayStats> {
     }
   }
 
-  // 3. Edge decay
   const edges = db()
     .prepare("SELECT id, weight FROM memory_edges WHERE valid_to IS NULL")
     .all() as { id: string; weight: number }[];
@@ -1060,10 +997,6 @@ export async function decayTick(userId: string): Promise<DecayStats> {
         .run(ts, edge.id);
     }
   }
-
-  // 4. Consolidation is deferred — requires LLM call, handled by caller
-  // The caller can: query for clusters of observations with overlapping entity_ids
-  // and high cosine similarity, then call ingest() with a "reflection" observation.
 
   return { decayed, pruned, edgesPruned, consolidated };
 }
@@ -1091,17 +1024,14 @@ function audit(
 // Stats / debug
 // ---------------------------------------------------------------------------
 
-/**
- * Returns the full active graph data for visualization.
- */
-export function getGraphData(userId: string) {
+export function getGraphData() {
   const entities = db()
     .prepare(
       `SELECT id, name, entity_type, description, aliases, salience, decay_rate,
               created_at, updated_at, last_accessed_at
-       FROM memory_entities WHERE user_id = ? AND valid_to IS NULL`,
+       FROM memory_entities WHERE valid_to IS NULL`,
     )
-    .all(userId) as {
+    .all() as {
     id: string;
     name: string;
     entity_type: string;
@@ -1118,9 +1048,9 @@ export function getGraphData(userId: string) {
     .prepare(
       `SELECT id, content, observation_type, confidence, salience, entity_ids,
               created_at, updated_at, last_accessed_at
-       FROM memory_observations WHERE user_id = ? AND valid_to IS NULL`,
+       FROM memory_observations WHERE valid_to IS NULL`,
     )
-    .all(userId) as {
+    .all() as {
     id: string;
     content: string;
     observation_type: string;
@@ -1166,19 +1096,19 @@ export function getGraphData(userId: string) {
   };
 }
 
-export function getMemoryStats(userId: string) {
+export function getMemoryStats() {
   const entities = db()
-    .prepare("SELECT COUNT(*) as c FROM memory_entities WHERE user_id = ? AND valid_to IS NULL")
-    .get(userId) as { c: number };
+    .prepare("SELECT COUNT(*) as c FROM memory_entities WHERE valid_to IS NULL")
+    .get() as { c: number };
   const observations = db()
-    .prepare("SELECT COUNT(*) as c FROM memory_observations WHERE user_id = ? AND valid_to IS NULL")
-    .get(userId) as { c: number };
+    .prepare("SELECT COUNT(*) as c FROM memory_observations WHERE valid_to IS NULL")
+    .get() as { c: number };
   const edges = db()
     .prepare("SELECT COUNT(*) as c FROM memory_edges WHERE valid_to IS NULL")
     .get() as { c: number };
   const blocks = db()
-    .prepare("SELECT label, LENGTH(value) as len FROM memory_blocks WHERE user_id = ?")
-    .all(userId) as { label: string; len: number }[];
+    .prepare("SELECT label, LENGTH(value) as len FROM memory_blocks")
+    .all() as { label: string; len: number }[];
 
   return {
     activeEntities: entities.c,

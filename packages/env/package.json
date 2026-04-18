@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./db": "./src/db.ts",
+    "./relay": "./src/relay.ts",
     "./server": "./src/server.ts",
     "./web": "./src/web.ts"
   },

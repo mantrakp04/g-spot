@@ -57,16 +57,14 @@ WORKFLOW:
  * build edges, and update the scratchpad — all via structured tool calls.
  */
 export async function extractAndIngestThread(
-  userId: string,
   threadContent: string,
   _sourceMessageId?: string,
 ): Promise<void> {
-  const memoryTools = createMemoryTools(userId);
-  const defaults = await getPiAgentDefaults(userId);
+  const memoryTools = createMemoryTools();
+  const defaults = await getPiAgentDefaults();
   const workerConfig = normalizePiAgentConfig(defaults.worker);
 
   const { session } = await createPiAgentSession({
-    userId,
     config: workerConfig,
     activeToolNames: [],
     disableProjectResources: true,

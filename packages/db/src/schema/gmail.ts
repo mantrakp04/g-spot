@@ -8,16 +8,23 @@ import {
 } from "drizzle-orm/sqlite-core";
 
 // ---------------------------------------------------------------------------
-// gmail_accounts — one per user + Google account pair
+// gmail_accounts — one row per connected Google account
 // ---------------------------------------------------------------------------
 export const gmailAccounts = sqliteTable(
   "gmail_accounts",
   {
     id: text("id").primaryKey(),
-    userId: text("user_id").notNull(),
     email: text("email").notNull(),
     providerAccountId: text("provider_account_id").notNull(),
     historyId: text("history_id"),
+    watchExpiration: integer("watch_expiration", { mode: "number" }),
+    lastWatchHistoryId: text("last_watch_history_id"),
+    lastWatchRenewedAt: text("last_watch_renewed_at"),
+    lastNotificationHistoryId: text("last_notification_history_id"),
+    lastNotificationAt: text("last_notification_at"),
+    needsFullResync: integer("needs_full_resync", { mode: "boolean" })
+      .notNull()
+      .default(false),
     lastFullSyncAt: text("last_full_sync_at"),
     lastIncrementalSyncAt: text("last_incremental_sync_at"),
     createdAt: text("created_at")
@@ -28,11 +35,7 @@ export const gmailAccounts = sqliteTable(
       .default(sql`(current_timestamp)`),
   },
   (table) => [
-    index("gmail_accounts_user_idx").on(table.userId),
-    uniqueIndex("gmail_accounts_user_provider_idx").on(
-      table.userId,
-      table.providerAccountId,
-    ),
+    uniqueIndex("gmail_accounts_provider_idx").on(table.providerAccountId),
   ],
 );
 

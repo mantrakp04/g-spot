@@ -13,16 +13,16 @@ import { Separator } from "@g-spot/ui/components/separator";
 import { cn } from "@g-spot/ui/lib/utils";
 import type { ReactNode } from "react";
 
+import { PiModelPicker } from "@/components/pi/pi-model-picker";
 import {
   APPROVAL_POLICY_OPTIONS,
   getModelValue,
   NETWORK_ACCESS_OPTIONS,
   type PiModelOption,
-  prettyProviderName,
   QUEUE_MODE_OPTIONS,
   SANDBOX_MODE_OPTIONS,
   THINKING_LEVEL_OPTIONS,
-  TRANSPORT_OPTIONS,
+  updateAgentConfigModel,
 } from "@/lib/pi-agent-config";
 
 function SettingsField({
@@ -78,22 +78,6 @@ function ConfigSelect<TValue extends string>({
   );
 }
 
-function updateDraftModel(
-  config: PiAgentConfig,
-  value: string,
-): PiAgentConfig {
-  const [provider, modelId] = value.split("::");
-  if (!provider || !modelId) {
-    return config;
-  }
-
-  return {
-    ...config,
-    provider,
-    modelId,
-  };
-}
-
 /**
  * Loosely-typed tool descriptor — the trpc catalog returns a structurally
  * compatible object that doesn't quite line up with the Pi SDK's internal
@@ -115,6 +99,7 @@ interface PiAgentConfigFormProps {
   models: PiModelOption[];
   tools: PiToolSummary[];
   configuredProviders: Set<string>;
+  oauthProviders?: Set<string>;
   /** Hide model select — useful for the worker row on `/chat/settings`. */
   showModel?: boolean;
   modelLabel?: string;
@@ -127,6 +112,7 @@ export function PiAgentConfigForm({
   models,
   tools,
   configuredProviders,
+  oauthProviders,
   showModel = true,
   modelLabel = "Model",
   modelDescription,
@@ -136,30 +122,18 @@ export function PiAgentConfigForm({
       <div className="grid gap-4 md:grid-cols-2">
         {showModel ? (
           <SettingsField label={modelLabel} description={modelDescription}>
-            <Select
+            <PiModelPicker
               value={getModelValue({
                 provider: value.provider,
                 id: value.modelId,
               })}
+              models={models}
+              configuredProviders={configuredProviders}
+              oauthProviders={oauthProviders}
               onValueChange={(selected) => {
-                if (!selected) return;
-                onChange(updateDraftModel(value, selected));
+                onChange(updateAgentConfigModel(value, selected));
               }}
-            >
-              <SelectTrigger className="w-full bg-background">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {models.map((model) => (
-                  <SelectItem
-                    key={getModelValue(model)}
-                    value={getModelValue(model)}
-                  >
-                    {model.name} · {prettyProviderName(model.provider)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            />
             <Badge
               variant="outline"
               className={cn(
@@ -186,17 +160,6 @@ export function PiAgentConfigForm({
               onChange({ ...value, thinkingLevel })
             }
             options={THINKING_LEVEL_OPTIONS}
-          />
-        </SettingsField>
-
-        <SettingsField
-          label="Transport"
-          description="Choose how Pi should stream responses when the provider supports it."
-        >
-          <ConfigSelect
-            value={value.transport}
-            onValueChange={(transport) => onChange({ ...value, transport })}
-            options={TRANSPORT_OPTIONS}
           />
         </SettingsField>
 

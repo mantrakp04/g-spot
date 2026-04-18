@@ -1,11 +1,12 @@
 import { publicProcedure, router } from "../index";
 import { chatRouter } from "./chat";
-import { connectionsRouter } from "./connections";
+import { gitRouter } from "./git";
 import { gmailRouter } from "./gmail";
 import { gmailSyncRouter } from "./gmail-sync";
 import { memoryRouter } from "./memory";
 import { piRouter } from "./pi";
 import { projectsRouter } from "./projects";
+import { relayRouter } from "./relay";
 import { sectionsRouter } from "./sections";
 import { skillsRouter } from "./skills";
 
@@ -15,13 +16,14 @@ export const appRouter = router({
   }),
   sections: sectionsRouter,
   pi: piRouter,
-  connections: connectionsRouter,
   chat: chatRouter,
+  git: gitRouter,
   projects: projectsRouter,
   skills: skillsRouter,
   memory: memoryRouter,
   gmail: gmailRouter,
   gmailSync: gmailSyncRouter,
+  relay: relayRouter,
 });
 
 export type AppRouter = typeof appRouter;

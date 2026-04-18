@@ -23,10 +23,7 @@ const HOME_DIR = os.homedir();
  *  5. Must not be `/` or `$HOME` (too broad — refuse to point Pi at the world).
  *  6. Must not collide with any other project the same user owns.
  */
-export async function validateProjectPath(
-  userId: string,
-  rawPath: string,
-): Promise<string> {
+export async function validateProjectPath(rawPath: string): Promise<string> {
   if (typeof rawPath !== "string" || rawPath.length === 0) {
     throw new TRPCError({
       code: "BAD_REQUEST",
@@ -86,11 +83,11 @@ export async function validateProjectPath(
     });
   }
 
-  const collision = await dbGetProjectByPath(userId, real);
+  const collision = await dbGetProjectByPath(real);
   if (collision) {
     throw new TRPCError({
       code: "CONFLICT",
-      message: "You already have a project with this path",
+      message: "A project with this path already exists",
     });
   }
 

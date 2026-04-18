@@ -1,5 +1,4 @@
 import { Skeleton } from "@g-spot/ui/components/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@g-spot/ui/components/tabs";
 import { env } from "@g-spot/env/web";
 import type {
   PiAgentConfig,
@@ -9,11 +8,9 @@ import type {
 import {
   PaperclipIcon,
   XIcon,
-  CodeIcon,
-  CompassIcon,
-  GraduationCapIcon,
   ArrowRightIcon,
-  PenLineIcon,
+  MessageSquareTextIcon,
+  MicIcon,
 } from "lucide-react";
 import { nanoid } from "nanoid";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -48,40 +45,10 @@ import {
   SlashCommandPopover,
   type SlashCommandPopoverHandle,
 } from "@/components/chat/slash-command-popover";
-import type { BuiltinHandlers } from "@/lib/slash-commands";
-
-import { ChatMessage } from "./chat-message";
-
-const STARTER_TAB_IDS = ["create", "explore", "code", "learn"] as const;
-type StarterTabId = (typeof STARTER_TAB_IDS)[number];
-
-const STARTER_PROMPTS: Record<StarterTabId, readonly string[]> = {
-  create: [
-    "Brainstorm ideas for a weekend project I could ship in a day",
-    "Help me outline a clear, friendly email to follow up after an interview",
-    "Draft a short product description for something I’m building",
-    "Suggest a memorable name and one-line pitch for a new app idea",
-  ],
-  explore: [
-    "What should I know before diving into a new field or hobby?",
-    "Compare two common approaches and when each makes sense",
-    "What are the open questions or tradeoffs in this topic?",
-    "Summarize the main pros and cons in plain language",
-  ],
-  code: [
-    "Explain what this error usually means and how to debug it",
-    "Help me refactor this function for readability and fewer edge cases",
-    "Sketch a small TypeScript type that models this data safely",
-    "What’s a solid way to structure tests for this kind of logic?",
-  ],
-  learn: [
-    "Explain this concept like I’m new but curious",
-    "What’s the difference between these two terms people mix up?",
-    "Give me a short study plan to go from zero to comfortable",
-    "What are the most common misconceptions about this topic?",
-  ],
-};
-import { stackClientApp } from "@/stack/client";
+import { ChatBranchSelect } from "@/components/chat/chat-branch-select";
+import { ChatProjectSelect } from "@/components/chat/chat-project-select";
+import { ChatWorkModeSelect } from "@/components/chat/chat-work-mode-select";
+import { PiModelPicker } from "@/components/pi/pi-model-picker";
 import {
   useChatDetail,
   useChatMessages,
@@ -96,6 +63,18 @@ import {
   usePiDefaults,
   useUpdatePiDefaultsMutation,
 } from "@/hooks/use-pi";
+import type { BuiltinHandlers } from "@/lib/slash-commands";
+import { stackClientApp } from "@/stack/client";
+import { useProject } from "@/hooks/use-projects";
+
+import { ChatMessage } from "./chat-message";
+
+const STARTER_PROMPTS = [
+  "Brainstorm ideas for a weekend project I could ship in a day",
+  "Compare two common approaches and when each makes sense",
+  "Help me refactor this function for readability and fewer edge cases",
+  "Give me a short study plan to go from zero to comfortable",
+] as const;
 import {
   type ChatStatus,
   type ChatStreamEvent,
@@ -246,19 +225,17 @@ function updatePersistedUserMessageText(
   };
 }
 
-async function getChatHeaders() {
+async function getChatHeaders(): Promise<Record<string, string>> {
   const user = await stackClientApp.getUser();
   if (!user) {
-    return { "content-type": "application/json" } as Record<string, string>;
+    return { "content-type": "application/json" };
   }
 
-  const { accessToken } = await user.getAuthJson();
-  return accessToken
-    ? ({
-        "content-type": "application/json",
-        "x-stack-access-token": accessToken,
-      } as Record<string, string>)
-    : ({ "content-type": "application/json" } as Record<string, string>);
+  const authHeaders = await user.getAuthHeaders();
+  return {
+    "content-type": "application/json",
+    ...authHeaders,
+  };
 }
 
 /**
@@ -269,6 +246,8 @@ async function getChatHeaders() {
 export function ChatView({ chatId, projectId }: ChatViewProps) {
   const { data: chat, isLoading: isLoadingChat } = useChatDetail(chatId ?? "");
   const { data: dbMessages, isLoading: isLoadingMessages } = useChatMessages(chatId ?? "");
+  const projectQuery = useProject(projectId);
+  const projectName = projectQuery.data?.name ?? "g-spot";
 
   useEffect(() => {
     logChatDebug("chat-view-query-state", {
@@ -298,6 +277,7 @@ export function ChatView({ chatId, projectId }: ChatViewProps) {
       key={`${projectId}:${chatId ?? "draft"}`}
       chatId={chatId ?? null}
       projectId={projectId}
+      projectName={projectName}
       chatAgentConfig={chat?.agentConfig ?? null}
       dbMessages={dbMessages ?? []}
     />
@@ -307,6 +287,7 @@ export function ChatView({ chatId, projectId }: ChatViewProps) {
 interface ChatViewInnerProps {
   chatId: string | null;
   projectId: string;
+  projectName: string;
   chatAgentConfig: PiAgentConfig | null;
   dbMessages: PiChatHistoryMessage[];
 }
@@ -314,6 +295,7 @@ interface ChatViewInnerProps {
 function ChatViewInner({
   chatId,
   projectId,
+  projectName,
   chatAgentConfig,
   dbMessages,
 }: ChatViewInnerProps) {
@@ -329,6 +311,17 @@ function ChatViewInner({
   const markChatRead = useMarkChatReadMutation();
   const isDraft = chatId === null;
   const allModels = piCatalog.data?.models ?? [];
+  const configuredProviders = useMemo(
+    () =>
+      new Set(
+        (piCatalog.data?.configuredProviders ?? []).map((provider) => provider.provider),
+      ),
+    [piCatalog.data?.configuredProviders],
+  );
+  const oauthProviders = useMemo(
+    () => new Set((piCatalog.data?.oauthProviders ?? []).map((provider) => provider.id)),
+    [piCatalog.data?.oauthProviders],
+  );
   const draftDefaultConfig = useMemo(
     () =>
       normalizeAgentConfig(
@@ -404,10 +397,8 @@ function ChatViewInner({
   const streamingAssistantCountRef = useRef(0);
 
   /**
-   * Translate a single SSE event from the server into UI message state.
-   * Used by both fresh POST streams and reconnect-replay streams. The
-   * `isReconnect` flag controls whether buffered user messages are
-   * materialized (POST already added them optimistically; reconnect did not).
+   * Translate a single streamed chat event from the server into UI message
+   * state. Used by both fresh socket starts and reconnect replays.
    */
   const handleStreamEvent = useCallback(
     (event: ChatStreamEvent, ctx: { isReconnect: boolean }) => {
@@ -606,9 +597,7 @@ function ChatViewInner({
   }, [chatId, stopEverywhere]);
 
   /**
-   * Start a fresh POST stream, optimistically appending the user message.
-   * Mirrors the old `streamResponse` callback but delegates the network /
-   * SSE lifecycle to `usePiChatStream`.
+   * Start a fresh chat run, optimistically appending the user message.
    */
   const startStream = useCallback(
     async (userMessage: ChatUiMessage) => {
@@ -666,7 +655,7 @@ function ChatViewInner({
 
   // Reconnect probe: on mount (or chatId change), check whether the server
   // still has an active run for this chat and reattach to its buffered
-  // event stream. The probe early-returns inside the hook if a POST has
+  // socket stream. The probe early-returns inside the hook if a new run has
   // already started in the same render cycle, so this is race-safe.
   useEffect(() => {
     if (!chatId) {
@@ -976,6 +965,139 @@ function ChatViewInner({
     [agentConfig, allModels, chatId, isDraft, updateChatAgentConfig],
   );
 
+  const handleWorkModeChange = useCallback(
+    async (workMode: PiAgentConfig["workMode"]) => {
+      if (workMode === "worktree") {
+        try {
+          const branches = await trpcClient.git.listBranches.query({ projectId });
+          const isGitRepo =
+            branches.local.length > 0 ||
+            branches.remote.length > 0 ||
+            branches.current !== null;
+
+          if (!isGitRepo) {
+            toast.info("Worktree mode needs a git repo. Using local mode instead.");
+            workMode = "local";
+          }
+        } catch {
+          toast.info("Could not inspect git state. Using local mode instead.");
+          workMode = "local";
+        }
+      }
+
+      const nextAgentConfig = {
+        ...agentConfig,
+        workMode,
+      };
+      const previousAgentConfig = agentConfig;
+
+      setAgentConfig(nextAgentConfig);
+      logChatDebug("work-mode-change", {
+        chatId,
+        previousAgentConfig,
+        nextAgentConfig,
+        isDraft,
+      });
+
+      try {
+        if (isDraft) {
+          await updatePiDefaults.mutateAsync({
+            chat: {
+              ...draftDefaultConfig,
+              workMode,
+              branch: nextAgentConfig.branch,
+            },
+          });
+          return;
+        }
+
+        if (!chatId) {
+          return;
+        }
+
+        await updateChatAgentConfig.mutateAsync({
+          chatId,
+          agentConfig: nextAgentConfig,
+        });
+      } catch (error) {
+        setAgentConfig(previousAgentConfig);
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : isDraft
+              ? "Could not save default work mode"
+              : "Could not save chat work mode",
+        );
+      }
+    },
+    [
+      agentConfig,
+      chatId,
+      draftDefaultConfig,
+      isDraft,
+      projectId,
+      updateChatAgentConfig,
+      updatePiDefaults,
+    ],
+  );
+
+  const handleBranchChange = useCallback(
+    async (branch: string | null) => {
+      const nextAgentConfig = {
+        ...agentConfig,
+        branch,
+      };
+      const previousAgentConfig = agentConfig;
+
+      setAgentConfig(nextAgentConfig);
+      logChatDebug("branch-change", {
+        chatId,
+        previousAgentConfig,
+        nextAgentConfig,
+        isDraft,
+      });
+
+      try {
+        if (isDraft) {
+          await updatePiDefaults.mutateAsync({
+            chat: {
+              ...draftDefaultConfig,
+              workMode: nextAgentConfig.workMode,
+              branch,
+            },
+          });
+          return;
+        }
+
+        if (!chatId) {
+          return;
+        }
+
+        await updateChatAgentConfig.mutateAsync({
+          chatId,
+          agentConfig: nextAgentConfig,
+        });
+      } catch (error) {
+        setAgentConfig(previousAgentConfig);
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : isDraft
+              ? "Could not save default branch"
+              : "Could not save chat branch",
+        );
+      }
+    },
+    [
+      agentConfig,
+      chatId,
+      draftDefaultConfig,
+      isDraft,
+      updateChatAgentConfig,
+      updatePiDefaults,
+    ],
+  );
+
   /**
    * Apply a permission-mode preset (`plan`/`default`/`auto`/`bypass`) to the
    * current chat. Mirrors `handleThinkingLevelChange`: drafts store the
@@ -1212,56 +1334,74 @@ function ChatViewInner({
       <Conversation className="relative z-10 flex-1">
         <ConversationContent className="mx-auto w-full max-w-2xl px-4 py-6">
           {messages.length === 0 && (
-            <div className="relative flex h-full w-full flex-col items-start justify-center py-16">
-              {/* Heading */}
+            <div className="relative flex min-h-full w-full flex-col justify-center py-16">
               <h1
                 className="relative mb-8 text-left text-4xl font-semibold tracking-tight text-foreground/90 animate-in fade-in slide-in-from-bottom-3 duration-500"
                 style={{ animationFillMode: "both" }}
               >
-                How can I help you?
+                What should we build in {projectName}?
               </h1>
 
-              <Tabs defaultValue="create" className="relative w-full">
-                <TabsList className="relative mb-10 inline-flex h-auto min-h-0 w-full max-w-full flex-wrap items-start justify-start gap-2.5 rounded-none bg-transparent p-0 text-muted-foreground shadow-none">
-                  {(
-                    [
-                      { id: "create" as const, icon: PenLineIcon, label: "Create" },
-                      { id: "explore" as const, icon: CompassIcon, label: "Explore" },
-                      { id: "code" as const, icon: CodeIcon, label: "Code" },
-                      { id: "learn" as const, icon: GraduationCapIcon, label: "Learn" },
-                    ] as const
-                  ).map((cat, i) => (
-                    <TabsTrigger
-                      key={cat.id}
-                      value={cat.id}
-                      className="group relative inline-flex h-auto shrink-0 flex-none items-center gap-2 rounded-full border border-border/30 bg-card/40 px-4 py-2 text-[13px] font-medium text-muted-foreground shadow-none backdrop-blur-sm transition-all duration-300 after:hidden hover:border-border/60 hover:bg-card/70 hover:text-foreground hover:shadow-md data-active:border-border/60 data-active:bg-card/70 data-active:text-foreground data-active:shadow-md dark:data-active:bg-card/70"
-                      style={{ animationDelay: `${100 + i * 60}ms`, animationFillMode: "both" }}
-                    >
-                      <cat.icon className="size-3.5 transition-transform duration-300 group-hover:scale-110" />
-                      {cat.label}
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
+              <div className="w-full">
+                <PromptInputProvider>
+                  <ChatPromptInputArea
+                    chatId={chatId}
+                    projectId={projectId}
+                    projectName={projectName}
+                    onSubmit={handleSubmit}
+                    status={status}
+                    onStop={stop}
+                    agentConfig={agentConfig}
+                    allModels={allModels}
+                    configuredProviders={configuredProviders}
+                    oauthProviders={oauthProviders}
+                    onThinkingLevelChange={handleThinkingLevelChange}
+                    onModelChange={handleModelChange}
+                    onPermissionModeChange={handlePermissionModeChange}
+                    onWorkModeChange={handleWorkModeChange}
+                    onBranchChange={handleBranchChange}
+                    builtinHandlers={{
+                      onFork: () => {
+                        if (messages.length > 0) {
+                          void handleFork(messages.length - 1);
+                        }
+                      },
+                      onRegenerate: () => {
+                        const lastAssistant = [...messages]
+                          .reverse()
+                          .find((m) => m.role === "assistant");
+                        if (lastAssistant) {
+                          void handleRegenerate(lastAssistant.id);
+                        }
+                      },
+                      onHelp: () => {
+                        toast.info(
+                          "Slash commands: /clear /help /fork /regenerate · plus your skills",
+                        );
+                      },
+                    }}
+                    layout="empty"
+                  />
+                </PromptInputProvider>
 
-                {STARTER_TAB_IDS.map((tabId) => (
-                  <TabsContent key={tabId} value={tabId} className="mt-0 w-full max-w-md">
-                    <div className="flex flex-col">
-                      {STARTER_PROMPTS[tabId].map((suggestion, i) => (
-                        <button
-                          key={suggestion}
-                          type="button"
-                          className="group flex w-full items-center justify-between rounded-lg px-3 py-3.5 text-left text-[13.5px] text-muted-foreground/80 transition-all duration-200 hover:bg-muted/20 hover:text-foreground animate-in fade-in slide-in-from-bottom-1 duration-300"
-                          style={{ animationDelay: `${340 + i * 60}ms`, animationFillMode: "both" }}
-                          onClick={() => void handleSubmit({ text: suggestion, files: [] })}
-                        >
-                          <span>{suggestion}</span>
-                          <ArrowRightIcon className="size-3.5 -translate-x-2 text-muted-foreground/40 opacity-0 transition-all duration-200 group-hover:translate-x-0 group-hover:text-foreground/60 group-hover:opacity-100" />
-                        </button>
-                      ))}
-                    </div>
-                  </TabsContent>
-                ))}
-              </Tabs>
+                <div className="mt-4 flex flex-col">
+                  {STARTER_PROMPTS.map((suggestion, i) => (
+                    <button
+                      key={suggestion}
+                      type="button"
+                      className="group flex w-full items-center justify-between rounded-sm px-2 py-1.5 text-left text-xs text-muted-foreground/80 transition-colors hover:bg-muted/20 hover:text-foreground animate-in fade-in slide-in-from-bottom-1 duration-300"
+                      style={{ animationDelay: `${220 + i * 60}ms`, animationFillMode: "both" }}
+                      onClick={() => void handleSubmit({ text: suggestion, files: [] })}
+                    >
+                      <div className="flex min-w-0 items-center gap-2">
+                        <MessageSquareTextIcon className="size-3.5 shrink-0 text-muted-foreground/60" />
+                        <span className="truncate">{suggestion}</span>
+                      </div>
+                      <ArrowRightIcon className="size-3 -translate-x-1 text-muted-foreground/40 opacity-0 transition-all duration-200 group-hover:translate-x-0 group-hover:text-foreground/60 group-hover:opacity-100" />
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
 
@@ -1296,44 +1436,52 @@ function ChatViewInner({
         <ConversationScrollButton />
       </Conversation>
 
-      <div className="bg-background/80 backdrop-blur-md">
-        <div className="mx-auto w-full max-w-2xl px-4 py-3">
-          <PromptInputProvider>
-            <ChatPromptInputArea
-              chatId={chatId}
-              projectId={projectId}
-              onSubmit={handleSubmit}
-              status={status}
-              onStop={stop}
-              agentConfig={agentConfig}
-              allModels={allModels}
-              onThinkingLevelChange={handleThinkingLevelChange}
-              onModelChange={handleModelChange}
-              onPermissionModeChange={handlePermissionModeChange}
-              builtinHandlers={{
-                onFork: () => {
-                  if (messages.length > 0) {
-                    void handleFork(messages.length - 1);
-                  }
-                },
-                onRegenerate: () => {
-                  const lastAssistant = [...messages]
-                    .reverse()
-                    .find((m) => m.role === "assistant");
-                  if (lastAssistant) {
-                    void handleRegenerate(lastAssistant.id);
-                  }
-                },
-                onHelp: () => {
-                  toast.info(
-                    "Slash commands: /clear /help /fork /regenerate · plus your skills",
-                  );
-                },
-              }}
-            />
-          </PromptInputProvider>
+      {messages.length > 0 ? (
+        <div className="bg-background">
+          <div className="mx-auto w-full max-w-2xl px-3 py-2">
+            <PromptInputProvider>
+              <ChatPromptInputArea
+                chatId={chatId}
+                projectId={projectId}
+                projectName={projectName}
+                onSubmit={handleSubmit}
+                status={status}
+                onStop={stop}
+                agentConfig={agentConfig}
+                allModels={allModels}
+                configuredProviders={configuredProviders}
+                oauthProviders={oauthProviders}
+                onThinkingLevelChange={handleThinkingLevelChange}
+                onModelChange={handleModelChange}
+                onPermissionModeChange={handlePermissionModeChange}
+                onWorkModeChange={handleWorkModeChange}
+                onBranchChange={handleBranchChange}
+                builtinHandlers={{
+                  onFork: () => {
+                    if (messages.length > 0) {
+                      void handleFork(messages.length - 1);
+                    }
+                  },
+                  onRegenerate: () => {
+                    const lastAssistant = [...messages]
+                      .reverse()
+                      .find((m) => m.role === "assistant");
+                    if (lastAssistant) {
+                      void handleRegenerate(lastAssistant.id);
+                    }
+                  },
+                  onHelp: () => {
+                    toast.info(
+                      "Slash commands: /clear /help /fork /regenerate · plus your skills",
+                    );
+                  },
+                }}
+                layout="docked"
+              />
+            </PromptInputProvider>
+          </div>
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }
@@ -1347,11 +1495,14 @@ type ChatPromptModel = {
 interface ChatPromptInputAreaProps {
   chatId: string | null;
   projectId: string;
+  projectName: string;
   onSubmit: (message: PromptInputMessage) => Promise<void> | void;
   status: ChatStatus;
   onStop: () => void;
   agentConfig: PiAgentConfig;
   allModels: readonly ChatPromptModel[];
+  configuredProviders: ReadonlySet<string>;
+  oauthProviders: ReadonlySet<string>;
   onThinkingLevelChange: (
     level: PiAgentConfig["thinkingLevel"],
   ) => Promise<void> | void;
@@ -1359,21 +1510,30 @@ interface ChatPromptInputAreaProps {
   onPermissionModeChange: (
     presetId: PermissionModePresetId,
   ) => Promise<void> | void;
+  onWorkModeChange: (mode: PiAgentConfig["workMode"]) => Promise<void> | void;
+  onBranchChange: (branch: string | null) => Promise<void> | void;
   builtinHandlers: BuiltinHandlers;
+  layout: "empty" | "docked";
 }
 
 function ChatPromptInputArea({
   chatId,
   projectId,
+  projectName,
   onSubmit,
   status,
   onStop,
   agentConfig,
   allModels,
+  configuredProviders,
+  oauthProviders,
   onThinkingLevelChange,
   onModelChange,
   onPermissionModeChange,
+  onWorkModeChange,
+  onBranchChange,
   builtinHandlers,
+  layout,
 }: ChatPromptInputAreaProps) {
   // `agentConfig` stores the three permission fields individually, so pick
   // the preset that matches them (or fall back to "default" as the display
@@ -1386,8 +1546,26 @@ function ChatPromptInputArea({
   const handleTextareaKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
       popoverRef.current?.handleKeyDown(event);
+
+      if (event.defaultPrevented) {
+        return;
+      }
+
+      if (event.key === "Tab" && event.shiftKey) {
+        event.preventDefault();
+
+        const currentIndex = activePresetId
+          ? PERMISSION_MODE_PRESET_ORDER.indexOf(activePresetId)
+          : -1;
+        const nextPresetId =
+          PERMISSION_MODE_PRESET_ORDER[
+            (currentIndex + 1) % PERMISSION_MODE_PRESET_ORDER.length
+          ];
+
+        void onPermissionModeChange(nextPresetId);
+      }
     },
-    [],
+    [activePresetId, onPermissionModeChange],
   );
 
   return (
@@ -1405,7 +1583,11 @@ function ChatPromptInputArea({
       <PromptInput onSubmit={onSubmit}>
         <AttachmentPreviews />
         <PromptInputTextarea
-          placeholder="Message..."
+          placeholder={
+            layout === "empty"
+              ? `What should we build in ${projectName}?`
+              : "Message..."
+          }
           onKeyDown={handleTextareaKeyDown}
         />
         <PromptInputFooter>
@@ -1413,28 +1595,45 @@ function ChatPromptInputArea({
             <AttachFilesButton />
 
             <PromptInputSelect
+              // When the stored config doesn't match any preset, drop the
+              // select back to an empty value so the trigger renders
+              // "Custom" via the placeholder below.
+              value={activePresetId ?? ""}
+              onValueChange={(value) => {
+                if (!value) return;
+                void onPermissionModeChange(value as PermissionModePresetId);
+              }}
+            >
+              <PromptInputSelectTrigger size="sm" aria-label="Permission mode">
+                <PromptInputSelectValue placeholder="Custom" />
+              </PromptInputSelectTrigger>
+              <PromptInputSelectContent>
+                {PERMISSION_MODE_PRESET_ORDER.map((id) => {
+                  const preset = PERMISSION_MODE_PRESETS[id];
+                  return (
+                    <PromptInputSelectItem key={preset.id} value={preset.id}>
+                      {preset.label}
+                    </PromptInputSelectItem>
+                  );
+                })}
+              </PromptInputSelectContent>
+            </PromptInputSelect>
+
+            <div className="flex-1" />
+
+            <PiModelPicker
               value={getModelValue({
                 provider: agentConfig.provider,
                 id: agentConfig.modelId,
               })}
+              models={allModels}
+              configuredProviders={configuredProviders}
+              oauthProviders={oauthProviders}
+              compact
               onValueChange={(value) => {
                 void onModelChange(value as string);
               }}
-            >
-              <PromptInputSelectTrigger className="h-7 w-auto gap-1.5 rounded-md px-2 text-xs">
-                <PromptInputSelectValue />
-              </PromptInputSelectTrigger>
-              <PromptInputSelectContent>
-                {allModels.map((model) => (
-                  <PromptInputSelectItem
-                    key={getModelValue(model)}
-                    value={getModelValue(model)}
-                  >
-                    {model.name}
-                  </PromptInputSelectItem>
-                ))}
-              </PromptInputSelectContent>
-            </PromptInputSelect>
+            />
 
             <PromptInputSelect
               value={agentConfig.thinkingLevel}
@@ -1444,10 +1643,7 @@ function ChatPromptInputArea({
                 );
               }}
             >
-              <PromptInputSelectTrigger
-                aria-label="Reasoning effort"
-                className="h-7 w-auto gap-1.5 rounded-md px-2 text-xs"
-              >
+              <PromptInputSelectTrigger size="sm" aria-label="Reasoning effort">
                 <PromptInputSelectValue />
               </PromptInputSelectTrigger>
               <PromptInputSelectContent>
@@ -1462,38 +1658,25 @@ function ChatPromptInputArea({
               </PromptInputSelectContent>
             </PromptInputSelect>
 
-            <PromptInputSelect
-              // When the stored config doesn't match any preset, drop the
-              // select back to an empty value so the trigger renders
-              // "Custom" via the placeholder below.
-              value={activePresetId ?? ""}
-              onValueChange={(value) => {
-                if (!value) return;
-                void onPermissionModeChange(value as PermissionModePresetId);
-              }}
-            >
-              <PromptInputSelectTrigger
-                aria-label="Permission mode"
-                className="h-7 w-auto gap-1.5 rounded-md px-2 text-xs"
-              >
-                <PromptInputSelectValue placeholder="Custom" />
-              </PromptInputSelectTrigger>
-              <PromptInputSelectContent>
-                {PERMISSION_MODE_PRESET_ORDER.map((id) => {
-                  const preset = PERMISSION_MODE_PRESETS[id];
-                  return (
-                    <PromptInputSelectItem key={preset.id} value={preset.id}>
-                      {preset.label}
-                    </PromptInputSelectItem>
-                  );
-                })}
-              </PromptInputSelectContent>
-            </PromptInputSelect>
           </PromptInputTools>
 
           <PromptInputSubmit status={status} onStop={onStop} />
         </PromptInputFooter>
       </PromptInput>
+
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <ChatProjectSelect projectId={projectId} projectName={projectName} />
+        <ChatWorkModeSelect
+          value={agentConfig.workMode}
+          onValueChange={onWorkModeChange}
+          disabled={chatId !== null}
+        />
+        <ChatBranchSelect
+          projectId={projectId}
+          value={agentConfig.branch}
+          onValueChange={onBranchChange}
+        />
+      </div>
     </div>
   );
 }

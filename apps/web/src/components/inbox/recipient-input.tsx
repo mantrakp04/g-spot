@@ -25,7 +25,7 @@ import { useKnownContacts } from "@/hooks/use-known-contacts";
 import {
   filterContacts,
   type KnownContact,
-} from "@/lib/gmail/contacts";
+} from "@/lib/gmail/contact-utils";
 import {
   getGmailSenderAvatarUrl,
   getGmailSenderInitials,
@@ -275,7 +275,7 @@ export function RecipientInput({
   return (
     <div
       ref={wrapperRef}
-      className="relative flex min-h-7 flex-1 flex-wrap items-center gap-1 rounded-md border border-input bg-transparent p-0.5 transition-colors focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50"
+      className="relative flex min-h-7 flex-1 flex-wrap items-center gap-1 rounded-md border border-input bg-transparent px-2.5 py-0.5 transition-colors focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50"
       onClick={() => inputRef.current?.focus()}
     >
       {/* Recipient badges */}

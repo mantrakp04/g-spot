@@ -8,7 +8,7 @@ type GmailMailViewProps = {
   filters: FilterCondition[];
   accountId?: string | null;
   sortAsc?: boolean;
-  onCountChange?: (count: number, hasMore: boolean) => void;
+  onCountChange?: (count: number, countTotalPending: boolean) => void;
   selectedThreadId?: string | null;
   onSelectThread?: (thread: GmailThread, accountId: string | null, threads: GmailThread[]) => void;
   columns?: ColumnConfig[];

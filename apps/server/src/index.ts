@@ -2,7 +2,9 @@ import { cors } from "@elysiajs/cors";
 import {
   handleChatStream,
   handleChatStreamAbort,
-  handleChatStreamReconnect,
+  handleChatSocketClose,
+  handleChatSocketMessage,
+  handleChatSocketOpen,
 } from "@g-spot/api/chat-stream";
 import { handleFileUpload, handleFileDownload } from "@g-spot/api/file-handler";
 import { createContext } from "@g-spot/api/context";
@@ -67,6 +69,7 @@ export const app = new Elysia()
     cors({
       origin: env.CORS_ORIGIN,
       methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+      maxAge: 86400,
     }),
   )
   .all("/trpc/*", async (context) => {
@@ -96,8 +99,21 @@ export const app = new Elysia()
     });
   })
   .post("/api/chat", ({ request }) => handleChatStream(request))
-  .get("/api/chat/:chatId/stream", ({ params, request }) =>
-    handleChatStreamReconnect(request, params.chatId),
+  .ws("/api/chat/:chatId/socket", {
+    open(ws) {
+      handleChatSocketOpen(ws);
+    },
+    message(ws, message) {
+      void handleChatSocketMessage(ws, message);
+    },
+    close(ws) {
+      handleChatSocketClose(ws);
+    },
+  })
+  .get("/api/chat/:chatId/stream", ({ params }) =>
+    new Response(`Chat stream moved to /api/chat/${params.chatId}/socket`, {
+      status: 410,
+    }),
   )
   .delete("/api/chat/:chatId/stream", ({ params, request }) =>
     handleChatStreamAbort(request, params.chatId),
@@ -106,6 +122,5 @@ export const app = new Elysia()
   .get("/api/files/:fileId", ({ params }) => handleFileDownload(params.fileId))
   .get("/", () => "OK")
   .listen(env.SERVER_PORT, () => {
-    console.log(`Server is running on http://${env.SERVER_HOST}:${env.SERVER_PORT}`);
     startDecayCron();
   });

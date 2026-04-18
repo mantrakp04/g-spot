@@ -1,3 +1,4 @@
+import { env } from "@g-spot/env/web";
 import { StackClientApp } from "@stackframe/react";
 
 const githubOAuthScopes = [
@@ -10,17 +11,12 @@ const googleOAuthScopes = [
   "openid",
   "email",
   "profile",
-  "https://www.googleapis.com/auth/gmail.modify",
-  "https://www.googleapis.com/auth/gmail.compose",
-  "https://www.googleapis.com/auth/gmail.send",
-  "https://www.googleapis.com/auth/gmail.labels",
-  "https://www.googleapis.com/auth/gmail.settings.basic",
+  "https://mail.google.com/",
   "https://www.googleapis.com/auth/calendar",
 ] as const;
 
 export const stackClientApp = new StackClientApp({
-  projectId: import.meta.env.VITE_STACK_PROJECT_ID,
-  publishableClientKey: import.meta.env.VITE_STACK_PUBLISHABLE_CLIENT_KEY,
+  projectId: env.VITE_STACK_PROJECT_ID,
   tokenStore: "cookie",
   redirectMethod: "window",
   analytics: {

@@ -1,7 +1,7 @@
 import type { UIMessage } from "@/lib/chat-ui";
 
 export function isChatDebugEnabled() {
-  return import.meta.env.DEV;
+  return false;
 }
 
 export function setChatDebugEnabled(enabled: boolean) {
@@ -9,16 +9,8 @@ export function setChatDebugEnabled(enabled: boolean) {
 }
 
 export function logChatDebug(event: string, payload?: unknown) {
-  if (!isChatDebugEnabled()) {
-    return;
-  }
-
-  if (payload === undefined) {
-    console.log(`[g-spot chat] ${event}`);
-    return;
-  }
-
-  console.log(`[g-spot chat] ${event}`, payload);
+  void event;
+  void payload;
 }
 
 export function summarizeUiMessage(message: UIMessage) {

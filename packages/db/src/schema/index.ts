@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 
 export { chats, chatMessages } from "./chat";
 export { fileHashes, fileMetadata } from "./files";
+export { piState } from "./pi";
 export { projects } from "./projects";
 export { skills } from "./skills";
 export {
@@ -27,7 +28,6 @@ export const sections = sqliteTable(
   "sections",
   {
     id: text("id").primaryKey(),
-    userId: text("user_id").notNull(),
     name: text("name").notNull(),
     source: text("source", { enum: ["github_pr", "github_issue", "gmail"] }).notNull(),
     filters: text("filters").notNull().default("[]"),
@@ -44,5 +44,5 @@ export const sections = sqliteTable(
       .notNull()
       .default(sql`(current_timestamp)`),
   },
-  (table) => [index("sections_user_position_idx").on(table.userId, table.position)],
+  (table) => [index("sections_position_idx").on(table.position)],
 );

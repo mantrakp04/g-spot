@@ -1,0 +1,26 @@
+{
+  "name": "gmail-relay",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "bun build ./src/index.ts --outdir ./dist --target bun",
+    "check-types": "tsc --noEmit",
+    "dev": "bun run --hot src/index.ts",
+    "start": "bun run dist/index.js"
+  },
+  "dependencies": {
+    "@g-spot/db": "workspace:*",
+    "@g-spot/env": "workspace:*",
+    "@g-spot/relay-db": "workspace:*",
+    "@libsql/client": "catalog:",
+    "@stackframe/react": "^2.8.78",
+    "drizzle-orm": "^0.45.2",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@g-spot/config": "workspace:*",
+    "@types/bun": "catalog:",
+    "typescript": "^6"
+  }
+}

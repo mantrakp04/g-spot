@@ -2,13 +2,15 @@ import { useEffect, useMemo, type HTMLAttributes, type ReactElement } from "reac
 
 import type { ColumnConfig, FilterCondition } from "@g-spot/types/filters";
 import { getDefaultColumns, normalizeColumns } from "@g-spot/types/filters";
-import { useUser } from "@stackframe/react";
+import { useQuery } from "@tanstack/react-query";
 
 import type { GmailThread } from "@/lib/gmail/types";
-import { useGmailLabelCatalog } from "@/hooks/use-gmail-options";
 import { useGmailThreadCount } from "@/hooks/use-gmail-thread-count";
 import { useGmailThreads } from "@/hooks/use-gmail-threads";
 import { useUpdateSectionMutation } from "@/hooks/use-sections";
+import { gmailKeys } from "@/lib/query-keys";
+import { persistedStaleWhileRevalidateQueryOptions } from "@/utils/query-defaults";
+import { trpcClient } from "@/utils/trpc";
 import { buildGmailColumns } from "./columns/gmail-columns";
 import { InboxDataTable } from "./inbox-data-table";
 import { GmailThreadPreview, RowPreviewPopover } from "./row-preview";
@@ -19,7 +21,8 @@ type GmailThreadTableProps = {
   filters: FilterCondition[];
   accountId?: string | null;
   sortAsc?: boolean;
-  onCountChange?: (count: number, hasMore: boolean) => void;
+  /** Second arg: show "+" on the count badge while the total-count query is still loading. */
+  onCountChange?: (count: number, countTotalPending: boolean) => void;
   selectedThreadId?: string | null;
   onSelectThread?: (thread: GmailThread, threads: GmailThread[]) => void;
   columns?: ColumnConfig[];
@@ -35,23 +38,30 @@ export function GmailThreadTable({
   onSelectThread,
   columns: columnsProp,
 }: GmailThreadTableProps) {
-  const user = useUser();
-  const accounts = user?.useConnectedAccounts();
-  const googleAccount = accountId
-    ? accounts?.find((a) => a.providerAccountId === accountId) ?? null
-    : accounts?.find((a) => a.provider === "google") ?? null;
+  const providerAccountId = accountId ?? null;
 
   const { data, isLoading, isError, error, hasNextPage, fetchNextPage, isFetchingNextPage } =
-    useGmailThreads(sectionId, filters, googleAccount);
-  const { data: countData } = useGmailThreadCount(sectionId, filters, googleAccount);
-  const { data: labelCatalog } = useGmailLabelCatalog(googleAccount);
+    useGmailThreads(sectionId, filters, providerAccountId);
+  const { data: countData, isPending: isCountTotalPending } = useGmailThreadCount(
+    sectionId,
+    filters,
+    providerAccountId,
+  );
+  const { data: labelCatalog } = useQuery({
+    queryKey: gmailKeys.labelsCatalog(providerAccountId),
+    queryFn: () =>
+      trpcClient.gmail.getLabelCatalog.query({
+        providerAccountId: providerAccountId!,
+      }),
+    enabled: providerAccountId != null,
+    ...persistedStaleWhileRevalidateQueryOptions,
+  });
 
   const loadedCount = data?.pages.reduce((sum, p) => sum + p.threads.length, 0) ?? 0;
   const displayCount = countData?.count ?? loadedCount;
-  const countIsApproximate = countData ? !countData.isExact : Boolean(hasNextPage);
   useEffect(() => {
-    onCountChange?.(displayCount, countIsApproximate);
-  }, [countIsApproximate, displayCount, onCountChange]);
+    onCountChange?.(displayCount, isCountTotalPending);
+  }, [isCountTotalPending, displayCount, onCountChange]);
 
   const updateSectionMutation = useUpdateSectionMutation();
 
@@ -94,10 +104,9 @@ export function GmailThreadTable({
     [columnConfig, labelCatalogById],
   );
 
-  if (!user) return <SectionEmpty source="gmail" message="Sign in to view email threads" />;
-  if (!googleAccount)
+  if (!providerAccountId)
     return (
-      <SectionEmpty source="gmail" message="Connect your Google account to view email threads" />
+      <SectionEmpty source="gmail" message="No Google account linked to this section" />
     );
 
   return (

@@ -2,7 +2,7 @@ import type { ComponentProps } from "react";
 import { useState, useCallback, useEffect } from "react";
 
 import { Badge } from "@g-spot/ui/components/badge";
-import { Button, buttonVariants } from "@g-spot/ui/components/button";
+import { Button } from "@g-spot/ui/components/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@g-spot/ui/components/collapsible";
 import { ScrollArea } from "@g-spot/ui/components/scroll-area";
 import { Separator } from "@g-spot/ui/components/separator";
@@ -18,27 +18,17 @@ import {
   BotIcon,
   ChevronRight,
   Trash2,
-  SlidersHorizontal,
   ChevronsLeft,
-  SparklesIcon,
-  FolderIcon,
   BrainIcon,
+  Settings2,
 } from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@g-spot/ui/components/dropdown-menu";
 import { useDrafts } from "@/contexts/drafts-context";
 import { useSectionCounts } from "@/contexts/section-counts-context";
 import {
   useChatRuntimeStatuses,
   useDeleteChatMutation,
 } from "@/hooks/use-chat-data";
+import { usePreferredComposeGoogleAccount } from "@/hooks/use-preferred-compose-google-account";
 import { useProjects } from "@/hooks/use-projects";
 import { SidebarProjectItem } from "@/components/projects/sidebar-project-item";
 import { getLastProjectId, setLastProjectId } from "@/lib/active-project";
@@ -62,6 +52,7 @@ import { NavUser } from "./nav-user";
 import { ThemePicker } from "./tweakcn-theme-picker";
 import { SectionBuilder } from "./inbox/section-builder";
 import { useReorderSectionsMutation, useSections } from "@/hooks/use-sections";
+import { SidebarSetupChecklist } from "./sidebar-setup-checklist";
 
 type AppSidebarProps = {
   onToggleCollapse?: ComponentProps<typeof Button>["onClick"];
@@ -132,6 +123,12 @@ export function AppSidebar({ onToggleCollapse }: AppSidebarProps) {
   const { drafts, openDraft } = useDrafts();
   const { counts: sectionCounts } = useSectionCounts();
   const accounts = user?.useConnectedAccounts();
+  const { preferredAccountId } = usePreferredComposeGoogleAccount(accounts);
+  const accountsLoaded = accounts !== undefined;
+  const githubConnected =
+    accounts?.some((account) => account.provider === "github") ?? false;
+  const gmailConnected =
+    accounts?.some((account) => account.provider === "google") ?? false;
 
   const navigate = useNavigate();
   const routerState = useRouterState();
@@ -200,12 +197,11 @@ export function AppSidebar({ onToggleCollapse }: AppSidebarProps) {
   }, [isOnChat]);
 
   const handleCompose = useCallback(() => {
-    const googleAccount = accounts?.find((a) => a.provider === "google");
     openDraft({
       mode: "new",
-      accountId: googleAccount?.providerAccountId ?? null,
+      accountId: preferredAccountId,
     });
-  }, [accounts, openDraft]);
+  }, [openDraft, preferredAccountId]);
 
   const handleDeleteChat = useCallback(
     (e: React.MouseEvent, chatId: string) => {
@@ -339,7 +335,7 @@ export function AppSidebar({ onToggleCollapse }: AppSidebarProps) {
           </nav>
         </ScrollArea>
 
-        <Separator className="mx-2 shrink-0" />
+        <Separator className="shrink-0" />
 
         {/* Collapsible chat list */}
         <div className={cn("p-2", chatListOpen && "min-h-0 flex-1")}>
@@ -354,47 +350,39 @@ export function AppSidebar({ onToggleCollapse }: AppSidebarProps) {
                 <BotIcon className="size-3 shrink-0" />
                 <span>AI Chat</span>
               </CollapsibleTrigger>
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  className={cn(
-                    buttonVariants({ variant: "ghost", size: "icon-xs" }),
-                    "size-6 shrink-0 text-muted-foreground hover:text-foreground",
-                    isChatSettings && "bg-sidebar-accent text-sidebar-foreground",
-                  )}
-                  aria-label="AI Chat settings menu"
-                >
-                  <SlidersHorizontal className="size-3" />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56">
-                  <DropdownMenuGroup>
-                    <DropdownMenuLabel>Pi agent</DropdownMenuLabel>
-                    <DropdownMenuItem render={<Link to="/chat/settings" />}>
-                      <SlidersHorizontal className="size-3.5" />
-                      Pi defaults
-                    </DropdownMenuItem>
-                    <DropdownMenuItem render={<Link to="/settings/skills" />}>
-                      <SparklesIcon className="size-3.5" />
-                      Global skills
-                    </DropdownMenuItem>
-                    <DropdownMenuItem render={<Link to="/settings/memory" />}>
-                      <BrainIcon className="size-3.5" />
-                      Memory graph
-                    </DropdownMenuItem>
-                  </DropdownMenuGroup>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuGroup>
-                    <DropdownMenuLabel>Projects</DropdownMenuLabel>
-                    <DropdownMenuItem render={<Link to="/projects" />}>
-                      <FolderIcon className="size-3.5" />
-                      All projects
-                    </DropdownMenuItem>
-                    <DropdownMenuItem render={<Link to="/projects/new" />}>
-                      <Plus className="size-3.5" />
-                      New project
-                    </DropdownMenuItem>
-                  </DropdownMenuGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                className={cn(
+                  "size-6 shrink-0 text-muted-foreground hover:text-foreground",
+                  pathname === "/settings/memory" && "bg-muted text-foreground",
+                )}
+                aria-label="Memory graph"
+                render={<Link to="/settings/memory" />}
+              >
+                <BrainIcon className="size-3" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                className={cn(
+                  "size-6 shrink-0 text-muted-foreground hover:text-foreground",
+                  isChatSettings && "bg-muted text-foreground",
+                )}
+                aria-label="Agent settings"
+                render={<Link to="/chat/settings" />}
+              >
+                <Settings2 className="size-3" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                className="size-6 shrink-0 text-muted-foreground hover:text-foreground"
+                aria-label="New project"
+                render={<Link to="/projects/new" />}
+              >
+                <Plus className="size-3" />
+              </Button>
             </div>
 
             <CollapsibleContent className="min-h-0 flex-1 pt-0.5">
@@ -404,16 +392,6 @@ export function AppSidebar({ onToggleCollapse }: AppSidebarProps) {
                     <Skeleton className="h-7 rounded-md" />
                     <Skeleton className="h-7 rounded-md" />
                   </>
-                )}
-
-                {!projectsQuery.isLoading && projects.length === 0 && (
-                  <Link
-                    to="/projects/new"
-                    className="flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground"
-                  >
-                    <Plus className="size-3 shrink-0" />
-                    <span>Create a project to start chatting</span>
-                  </Link>
                 )}
 
                 {projects.map((project) => (
@@ -429,15 +407,6 @@ export function AppSidebar({ onToggleCollapse }: AppSidebarProps) {
                   />
                 ))}
 
-                {!projectsQuery.isLoading && projects.length > 0 && (
-                  <Link
-                    to="/projects/new"
-                    className="mt-1 flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground"
-                  >
-                    <Plus className="size-3 shrink-0" />
-                    <span>New project</span>
-                  </Link>
-                )}
               </div>
             </CollapsibleContent>
           </Collapsible>
@@ -446,6 +415,14 @@ export function AppSidebar({ onToggleCollapse }: AppSidebarProps) {
 
       {/* Footer */}
       <div className="border-t border-sidebar-border p-2">
+        <div className="mb-2">
+          <SidebarSetupChecklist
+            enabled={Boolean(user)}
+            accountsLoaded={accountsLoaded}
+            githubConnected={githubConnected}
+            gmailConnected={gmailConnected}
+          />
+        </div>
         <ThemePicker compact side="right" sideOffset={4} />
         {user ? (
           <NavUser />

@@ -1,98 +1,530 @@
 import { z } from "zod";
+import { filterConditionSchema } from "@g-spot/types/filters";
 
 import {
+  countFilteredThreads,
+  getContactSuggestions,
+  getFieldSuggestions,
   getGmailAccount,
   getLabels,
-  getMessageAttachments,
-  getThread,
+  getThread as getStoredThread,
   getThreadMessages,
-  listThreads,
-  searchThreads,
+  queryThreads,
+  searchThreads as searchStoredThreads,
 } from "@g-spot/db/gmail";
+import type {
+  GmailLabelRow,
+  GmailMessageRow,
+  GmailThreadRow,
+} from "@g-spot/db/schema/gmail";
 
-import { authedProcedure, router } from "../index";
+import { publicProcedure, router } from "../index";
+import {
+  createGmailDraft,
+  deleteGmailDraft,
+  fetchGmailComposeDraft,
+  listGmailDraftsForThread,
+  modifyGmailThreadLabels,
+  sendGmailDraft,
+  sendGmailMessage,
+  trashGmailThread,
+  updateGmailDraft,
+} from "../lib/gmail-browse";
+import { upsertRemoteGmailThread } from "../lib/gmail-sync";
+import { getStackConnectedAccountAccessToken } from "../lib/stack-server";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const INCLUDED_SYSTEM_LABELS = new Set([
+  "INBOX",
+  "SENT",
+  "TRASH",
+  "SPAM",
+  "UNREAD",
+  "STARRED",
+  "IMPORTANT",
+]);
+
+const SYSTEM_LABEL_DISPLAY: Record<string, string> = {
+  INBOX: "Inbox",
+  SENT: "Sent",
+  TRASH: "Trash",
+  SPAM: "Spam",
+  UNREAD: "Unread",
+  STARRED: "Starred",
+  IMPORTANT: "Important",
+};
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+type FilterSuggestionOption = {
+  value: string;
+  label: string;
+};
+
+type LabelCatalogEntry = {
+  id: string;
+  name: string;
+  type: "system" | "user";
+  label: string;
+  color?: {
+    textColor?: string;
+    backgroundColor?: string;
+  };
+};
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function parseJsonLabels(value: string): string[] {
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseLabelColor(value: string | null): LabelCatalogEntry["color"] | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed = JSON.parse(value);
+    if (!parsed || typeof parsed !== "object") return undefined;
+
+    const textColor =
+      "textColor" in parsed && typeof parsed.textColor === "string"
+        ? parsed.textColor
+        : undefined;
+    const backgroundColor =
+      "backgroundColor" in parsed && typeof parsed.backgroundColor === "string"
+        ? parsed.backgroundColor
+        : undefined;
+
+    if (!textColor && !backgroundColor) return undefined;
+    return {
+      ...(textColor ? { textColor } : {}),
+      ...(backgroundColor ? { backgroundColor } : {}),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function toLabelCatalogEntry(label: GmailLabelRow): LabelCatalogEntry {
+  return {
+    id: label.gmailId,
+    name: label.name,
+    type: label.type === "system" ? "system" : "user",
+    label: label.type === "system"
+      ? (SYSTEM_LABEL_DISPLAY[label.gmailId] ?? label.name)
+      : label.name,
+    color: parseLabelColor(label.color),
+  };
+}
+
+function toLabelOption(label: LabelCatalogEntry): FilterSuggestionOption | null {
+  if (label.type !== "user" && !INCLUDED_SYSTEM_LABELS.has(label.id)) return null;
+  return { value: label.name, label: label.label };
+}
+
+function mapStoredThreadDetail(thread: GmailThreadRow, messages: GmailMessageRow[]) {
+  return {
+    id: thread.gmailThreadId,
+    subject: thread.subject,
+    messages: messages.map((message) => ({
+      id: message.gmailMessageId,
+      isDraft: message.isDraft,
+      from: {
+        name: message.fromName,
+        email: message.fromEmail,
+      },
+      to: message.toHeader,
+      cc: message.ccHeader,
+      date: message.date,
+      subject: message.subject,
+      messageId: message.messageIdHeader ?? "",
+      inReplyTo: message.inReplyTo ?? "",
+      references: message.referencesHeader ?? "",
+      bodyHtml: message.bodyHtml,
+      bodyText: message.bodyText,
+    })),
+  };
+}
+
+function getGmailAccessToken(
+  stackAuthHeaders: Record<string, string>,
+  providerAccountId: string,
+) {
+  return getStackConnectedAccountAccessToken(
+    stackAuthHeaders,
+    "google",
+    providerAccountId,
+  );
+}
+
+async function refreshStoredThreadAfterMutation(
+  accountId: string | null | undefined,
+  token: string,
+  gmailThreadId: string | null | undefined,
+) {
+  if (!accountId || !gmailThreadId) return;
+  try {
+    await upsertRemoteGmailThread(accountId, token, gmailThreadId);
+  } catch (error) {
+    console.error(
+      `[gmail-router] Failed to refresh stored thread ${gmailThreadId} after mutation:`,
+      error,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Router
+// ---------------------------------------------------------------------------
 
 export const gmailRouter = router({
-  /**
-   * List threads from local DB, paginated and optionally filtered by label.
-   */
-  getThreads: authedProcedure
+  getThreads: publicProcedure
     .input(
       z.object({
         providerAccountId: z.string(),
-        label: z.string().optional(),
-        limit: z.number().int().min(1).max(100).default(20),
+        filters: z.array(filterConditionSchema).default([]),
+        limit: z.number().int().min(1).max(100).default(50),
         cursor: z.string().nullable().optional(),
       }),
     )
-    .query(async ({ ctx, input }) => {
-      const account = await getGmailAccount(
-        ctx.userId,
-        input.providerAccountId,
-      );
-      if (!account) return { threads: [], nextCursor: null };
+    .query(async ({ input }) => {
+      const account = await getGmailAccount(input.providerAccountId);
+      if (!account) {
+        return { threads: [], nextPageToken: null, totalMatchingThreads: 0 };
+      }
 
-      return listThreads(account.id, {
-        label: input.label,
-        limit: input.limit,
-        cursor: input.cursor ?? undefined,
-      });
+      const { threads, hasMore, totalCount } = await queryThreads(
+        account.id,
+        input.filters,
+        {
+          limit: input.limit,
+          cursor: input.cursor ?? null,
+        },
+      );
+
+      return {
+        threads: threads.map((t) => {
+          const labels = parseJsonLabels(t.labels);
+          return {
+            id: t.id,
+            threadId: t.gmailThreadId,
+            subject: t.subject,
+            from: { name: t.fromName, email: t.fromEmail },
+            snippet: t.snippet,
+            date: t.lastMessageAt ?? "",
+            isUnread: labels.includes("UNREAD"),
+            labels,
+            hasAttachment: t.hasAttachment,
+            avatarUrl: null,
+          };
+        }),
+        nextPageToken: hasMore
+          ? (threads.at(-1)?.lastMessageAt ?? null)
+          : null,
+        totalMatchingThreads: totalCount,
+      };
     }),
 
-  /**
-   * Get a single thread with all messages and attachments.
-   */
-  getThread: authedProcedure
+  getThread: publicProcedure
     .input(
       z.object({
         providerAccountId: z.string(),
         gmailThreadId: z.string(),
       }),
     )
-    .query(async ({ ctx, input }) => {
-      const account = await getGmailAccount(
-        ctx.userId,
-        input.providerAccountId,
-      );
+    .query(async ({ input }) => {
+      const account = await getGmailAccount(input.providerAccountId);
       if (!account) return null;
 
-      const thread = await getThread(account.id, input.gmailThreadId);
+      const thread = await getStoredThread(account.id, input.gmailThreadId);
       if (!thread) return null;
 
       const messages = await getThreadMessages(thread.id);
-
-      // Get attachments for each message
-      const messagesWithAttachments = await Promise.all(
-        messages.map(async (msg) => {
-          const attachments = await getMessageAttachments(msg.id);
-          return { ...msg, attachments };
-        }),
-      );
-
-      return {
-        ...thread,
-        messages: messagesWithAttachments,
-      };
+      return mapStoredThreadDetail(thread, messages);
     }),
 
-  /**
-   * Get all labels for an account.
-   */
-  getLabels: authedProcedure
+  getThreadCount: publicProcedure
+    .input(
+      z.object({
+        providerAccountId: z.string(),
+        filters: z.array(filterConditionSchema).default([]),
+      }),
+    )
+    .query(async ({ input }) => {
+      const account = await getGmailAccount(input.providerAccountId);
+      if (!account) return { count: 0 };
+
+      const count = await countFilteredThreads(account.id, input.filters);
+      return { count };
+    }),
+
+  getLabels: publicProcedure
     .input(z.object({ providerAccountId: z.string() }))
+    .query(async ({ input }) => {
+      const account = await getGmailAccount(input.providerAccountId);
+      if (!account) return [];
+
+      const labels = await getLabels(account.id);
+      return labels
+        .map(toLabelCatalogEntry)
+        .map(toLabelOption)
+        .filter((label): label is FilterSuggestionOption => label != null);
+    }),
+
+  getLabelCatalog: publicProcedure
+    .input(z.object({ providerAccountId: z.string() }))
+    .query(async ({ input }) => {
+      const account = await getGmailAccount(input.providerAccountId);
+      if (!account) return [];
+
+      const labels = await getLabels(account.id);
+      return labels
+        .map(toLabelCatalogEntry)
+        .sort((a, b) => a.label.localeCompare(b.label));
+    }),
+
+  getKnownContacts: publicProcedure
+    .input(z.object({ providerAccountId: z.string() }))
+    .query(async ({ input }) => {
+      const account = await getGmailAccount(input.providerAccountId);
+      if (!account) return [];
+
+      return getContactSuggestions(account.id);
+    }),
+
+  getProfile: publicProcedure
+    .input(z.object({ providerAccountId: z.string() }))
+    .query(async ({ input }) => {
+      const account = await getGmailAccount(input.providerAccountId);
+      if (!account) {
+        return { name: "Google Account", email: "", picture: "" };
+      }
+      return { name: account.email, email: account.email, picture: "" };
+    }),
+
+  getFilterSuggestions: publicProcedure
+    .input(
+      z.object({
+        providerAccountId: z.string(),
+        field: z.enum([
+          "from",
+          "to",
+          "cc",
+          "bcc",
+          "deliveredto",
+          "list",
+          "subject",
+          "filename",
+        ]),
+        filters: z.array(filterConditionSchema).default([]),
+      }),
+    )
+    .query(async ({ input }) => {
+      const account = await getGmailAccount(input.providerAccountId);
+      if (!account) return [];
+
+      if (
+        input.field === "bcc"
+        || input.field === "deliveredto"
+        || input.field === "list"
+      ) {
+        return [];
+      }
+
+      return getFieldSuggestions(account.id, input.field);
+    }),
+
+  getThreadDrafts: publicProcedure
+    .input(
+      z.object({
+        providerAccountId: z.string(),
+        threadId: z.string(),
+        messageIds: z.array(z.string()).optional(),
+      }),
+    )
     .query(async ({ ctx, input }) => {
-      const account = await getGmailAccount(
-        ctx.userId,
+      const accessToken = await getGmailAccessToken(
+        ctx.stackAuthHeaders,
         input.providerAccountId,
       );
-      if (!account) return [];
-      return getLabels(account.id);
+      return listGmailDraftsForThread(
+        accessToken,
+        input.threadId,
+        input.messageIds ?? [],
+      );
     }),
 
-  /**
-   * Search threads by content (subject, body text, sender).
-   */
-  searchThreads: authedProcedure
+  getComposeDraft: publicProcedure
+    .input(
+      z.object({
+        providerAccountId: z.string(),
+        draftId: z.string(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const accessToken = await getGmailAccessToken(
+        ctx.stackAuthHeaders,
+        input.providerAccountId,
+      );
+      return fetchGmailComposeDraft(accessToken, input.draftId);
+    }),
+
+  modifyThreadLabels: publicProcedure
+    .input(
+      z.object({
+        providerAccountId: z.string(),
+        threadId: z.string(),
+        addLabelIds: z.array(z.string()).optional(),
+        removeLabelIds: z.array(z.string()).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const account = await getGmailAccount(input.providerAccountId);
+      const accessToken = await getGmailAccessToken(
+        ctx.stackAuthHeaders,
+        input.providerAccountId,
+      );
+      await modifyGmailThreadLabels(
+        accessToken,
+        input.threadId,
+        input.addLabelIds,
+        input.removeLabelIds,
+      );
+      await refreshStoredThreadAfterMutation(
+        account?.id,
+        accessToken,
+        input.threadId,
+      );
+    }),
+
+  trashThread: publicProcedure
+    .input(
+      z.object({
+        providerAccountId: z.string(),
+        threadId: z.string(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const account = await getGmailAccount(input.providerAccountId);
+      const accessToken = await getGmailAccessToken(
+        ctx.stackAuthHeaders,
+        input.providerAccountId,
+      );
+      await trashGmailThread(accessToken, input.threadId);
+      await refreshStoredThreadAfterMutation(
+        account?.id,
+        accessToken,
+        input.threadId,
+      );
+    }),
+
+  saveDraft: publicProcedure
+    .input(
+      z.object({
+        providerAccountId: z.string(),
+        draftId: z.string().nullable(),
+        raw: z.string(),
+        threadId: z.string().nullable().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const account = await getGmailAccount(input.providerAccountId);
+      const accessToken = await getGmailAccessToken(
+        ctx.stackAuthHeaders,
+        input.providerAccountId,
+      );
+      const result = input.draftId
+        ? await updateGmailDraft(
+            accessToken,
+            input.draftId,
+            input.raw,
+            input.threadId,
+          )
+        : await createGmailDraft(accessToken, input.raw, input.threadId);
+      await refreshStoredThreadAfterMutation(
+        account?.id,
+        accessToken,
+        result.message.threadId || input.threadId,
+      );
+      return result;
+    }),
+
+  deleteDraft: publicProcedure
+    .input(
+      z.object({
+        providerAccountId: z.string(),
+        draftId: z.string(),
+        threadId: z.string().nullable().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const account = await getGmailAccount(input.providerAccountId);
+      const accessToken = await getGmailAccessToken(
+        ctx.stackAuthHeaders,
+        input.providerAccountId,
+      );
+      await deleteGmailDraft(accessToken, input.draftId);
+      await refreshStoredThreadAfterMutation(
+        account?.id,
+        accessToken,
+        input.threadId,
+      );
+    }),
+
+  sendMessage: publicProcedure
+    .input(
+      z.object({
+        providerAccountId: z.string(),
+        draftId: z.string().nullable(),
+        raw: z.string(),
+        threadId: z.string().nullable().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const account = await getGmailAccount(input.providerAccountId);
+      const accessToken = await getGmailAccessToken(
+        ctx.stackAuthHeaders,
+        input.providerAccountId,
+      );
+
+      if (input.draftId) {
+        await updateGmailDraft(
+          accessToken,
+          input.draftId,
+          input.raw,
+          input.threadId,
+        );
+        const sent = await sendGmailDraft(accessToken, input.draftId);
+        await refreshStoredThreadAfterMutation(
+          account?.id,
+          accessToken,
+          sent.threadId || input.threadId,
+        );
+        return sent;
+      }
+
+      const sent = await sendGmailMessage(accessToken, input.raw);
+      await refreshStoredThreadAfterMutation(
+        account?.id,
+        accessToken,
+        sent.threadId,
+      );
+      return sent;
+    }),
+
+  searchThreads: publicProcedure
     .input(
       z.object({
         providerAccountId: z.string(),
@@ -100,12 +532,30 @@ export const gmailRouter = router({
         limit: z.number().int().min(1).max(50).default(20),
       }),
     )
-    .query(async ({ ctx, input }) => {
-      const account = await getGmailAccount(
-        ctx.userId,
-        input.providerAccountId,
-      );
+    .query(async ({ input }) => {
+      const account = await getGmailAccount(input.providerAccountId);
       if (!account) return [];
-      return searchThreads(account.id, input.query, input.limit);
+
+      const threads = await searchStoredThreads(
+        account.id,
+        input.query,
+        input.limit,
+      );
+
+      return threads.map((t) => {
+        const labels = parseJsonLabels(t.labels);
+        return {
+          id: t.id,
+          threadId: t.gmailThreadId,
+          subject: t.subject,
+          from: { name: t.fromName, email: t.fromEmail },
+          snippet: t.snippet,
+          date: t.lastMessageAt ?? "",
+          isUnread: labels.includes("UNREAD"),
+          labels,
+          hasAttachment: t.hasAttachment,
+          avatarUrl: null,
+        };
+      });
     }),
 });

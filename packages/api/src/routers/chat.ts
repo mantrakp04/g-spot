@@ -16,7 +16,7 @@ import { z } from "zod";
 import type { PiChatHistoryMessage } from "@g-spot/types";
 import { piAgentConfigSchema } from "@g-spot/types";
 
-import { authedProcedure, router } from "../index";
+import { publicProcedure, router } from "../index";
 import {
   markChatRuntimeRead,
   resolveChatToolApproval,
@@ -29,6 +29,7 @@ import {
   normalizeStoredChatAgentConfig,
   normalizeStoredProjectAgentConfig,
 } from "../lib/pi";
+import { removeWorktree } from "../lib/git";
 
 function withParsedAgentConfig<T extends { agentConfig?: string | null; model?: string }>(
   chat: T,
@@ -40,7 +41,7 @@ function withParsedAgentConfig<T extends { agentConfig?: string | null; model?: 
 }
 
 export const chatRouter = router({
-  list: authedProcedure
+  list: publicProcedure
     .input(
       z.object({
         projectId: z.string().min(1),
@@ -54,22 +55,22 @@ export const chatRouter = router({
           .optional(),
       }),
     )
-    .query(async ({ ctx, input }) => {
-      const page = await listChats(ctx.userId, input);
+    .query(async ({ input }) => {
+      const page = await listChats(input);
       return {
         ...page,
         chats: page.chats.map((chat) => withParsedAgentConfig(chat)),
       };
     }),
 
-  get: authedProcedure
+  get: publicProcedure
     .input(z.object({ chatId: z.string() }))
-    .query(async ({ ctx, input }) => {
-      const chat = await getChat(ctx.userId, input.chatId);
+    .query(async ({ input }) => {
+      const chat = await getChat(input.chatId);
       return chat ? withParsedAgentConfig(chat) : null;
     }),
 
-  create: authedProcedure
+  create: publicProcedure
     .input(
       z.object({
         projectId: z.string().min(1),
@@ -78,19 +79,19 @@ export const chatRouter = router({
         agentConfig: piAgentConfigSchema.optional(),
       }),
     )
-    .mutation(async ({ ctx, input }) => {
+    .mutation(async ({ input }) => {
       // Seed new chats from the per-project agent config when the caller
       // doesn't send one explicitly. The project-level config is itself
       // seeded from `/chat/settings` at project creation time, so:
       //   user defaults  →  project config  →  chat config
+      const defaults = await getPiAgentDefaults();
       let agentConfig = input.agentConfig
         ? normalizePiAgentConfig(input.agentConfig)
         : undefined;
 
       if (!agentConfig) {
-        const project = await getProject(ctx.userId, input.projectId);
+        const project = await getProject(input.projectId);
         if (project) {
-          const defaults = await getPiAgentDefaults(ctx.userId);
           agentConfig = normalizeStoredProjectAgentConfig(
             project.agentConfig,
             defaults.chat,
@@ -98,7 +99,7 @@ export const chatRouter = router({
         }
       }
 
-      return createChat(ctx.userId, {
+      return createChat({
         projectId: input.projectId,
         title: input.title,
         model: agentConfig?.modelId ?? input.model,
@@ -106,16 +107,16 @@ export const chatRouter = router({
       });
     }),
 
-  updateTitle: authedProcedure
+  updateTitle: publicProcedure
     .input(z.object({ chatId: z.string(), title: z.string() }))
-    .mutation(async ({ ctx, input }) => {
-      await updateChatTitle(ctx.userId, input.chatId, input.title);
+    .mutation(async ({ input }) => {
+      await updateChatTitle(input.chatId, input.title);
     }),
 
-  updateModel: authedProcedure
+  updateModel: publicProcedure
     .input(z.object({ chatId: z.string(), model: z.string().min(1) }))
-    .mutation(async ({ ctx, input }) => {
-      const chat = await getChat(ctx.userId, input.chatId);
+    .mutation(async ({ input }) => {
+      const chat = await getChat(input.chatId);
       if (!chat) throw new Error("Chat not found");
 
       const currentAgentConfig = withParsedAgentConfig(chat).agentConfig;
@@ -126,36 +127,49 @@ export const chatRouter = router({
       );
 
       await updateChatAgentConfig(
-        ctx.userId,
         input.chatId,
         JSON.stringify(nextAgentConfig),
         nextAgentConfig.modelId,
       );
     }),
 
-  updateAgentConfig: authedProcedure
+  updateAgentConfig: publicProcedure
     .input(z.object({ chatId: z.string(), agentConfig: piAgentConfigSchema }))
-    .mutation(async ({ ctx, input }) => {
+    .mutation(async ({ input }) => {
       const nextAgentConfig = normalizePiAgentConfig(input.agentConfig);
       await updateChatAgentConfig(
-        ctx.userId,
         input.chatId,
         JSON.stringify(nextAgentConfig),
         nextAgentConfig.modelId,
       );
     }),
 
-  delete: authedProcedure
+  delete: publicProcedure
     .input(z.object({ chatId: z.string() }))
-    .mutation(async ({ ctx, input }) => {
-      await deleteChat(ctx.userId, input.chatId);
+    .mutation(async ({ input }) => {
+      const chat = await getChat(input.chatId);
+      await deleteChat(input.chatId);
+
+      if (!chat) {
+        return;
+      }
+
+      const project = await getProject(chat.projectId);
+      if (!project) {
+        return;
+      }
+
+      void removeWorktree({
+        projectPath: project.path,
+        chatId: input.chatId,
+      });
     }),
 
-  messages: authedProcedure
+  messages: publicProcedure
     .input(z.object({ chatId: z.string() }))
-    .query(async ({ ctx, input }) => {
+    .query(async ({ input }) => {
       // Verify ownership
-      const chat = await getChat(ctx.userId, input.chatId);
+      const chat = await getChat(input.chatId);
       if (!chat) return [];
       const rows = await getChatMessages(input.chatId);
       const messages = await deserializePiMessages(rows);
@@ -167,7 +181,7 @@ export const chatRouter = router({
       return history;
     }),
 
-  replaceMessages: authedProcedure
+  replaceMessages: publicProcedure
     .input(
       z.object({
         chatId: z.string(),
@@ -179,13 +193,13 @@ export const chatRouter = router({
         ),
       }),
     )
-    .mutation(async ({ ctx, input }) => {
-      const chat = await getChat(ctx.userId, input.chatId);
+    .mutation(async ({ input }) => {
+      const chat = await getChat(input.chatId);
       if (!chat) throw new Error("Chat not found");
       await replaceChatMessages(input.chatId, input.messages);
     }),
 
-  fork: authedProcedure
+  fork: publicProcedure
     .input(
       z.object({
         chatId: z.string(),
@@ -197,12 +211,11 @@ export const chatRouter = router({
         ),
       }),
     )
-    .mutation(async ({ ctx, input }) => {
-      const sourceChat = await getChat(ctx.userId, input.chatId);
+    .mutation(async ({ input }) => {
+      const sourceChat = await getChat(input.chatId);
       if (!sourceChat) throw new Error("Chat not found");
 
       return forkChat(
-        ctx.userId,
         sourceChat.projectId,
         `${sourceChat.title} (fork)`,
         sourceChat.model,
@@ -211,7 +224,7 @@ export const chatRouter = router({
       );
     }),
 
-  deleteMessage: authedProcedure
+  deleteMessage: publicProcedure
     .input(z.object({ messageId: z.string() }))
     .mutation(async ({ input }) => {
       await deleteChatMessage(input.messageId);
@@ -226,8 +239,8 @@ export const chatRouter = router({
    * The web polls this at a low frequency — don't do anything expensive
    * here.
    */
-  runtimeStatuses: authedProcedure.query(({ ctx }) => {
-    return snapshotChatRuntimeStatuses(ctx.userId);
+  runtimeStatuses: publicProcedure.query(() => {
+    return snapshotChatRuntimeStatuses();
   }),
 
   /**
@@ -235,10 +248,10 @@ export const chatRouter = router({
    * user opens the chat (so visiting a chat always acts as an ack) and
    * again when a stream finishes while the chat is already visible.
    */
-  markChatRead: authedProcedure
+  markChatRead: publicProcedure
     .input(z.object({ chatId: z.string().min(1) }))
-    .mutation(({ ctx, input }) => {
-      const cleared = markChatRuntimeRead(input.chatId, ctx.userId);
+    .mutation(({ input }) => {
+      const cleared = markChatRuntimeRead(input.chatId);
       return { cleared };
     }),
 
@@ -248,7 +261,7 @@ export const chatRouter = router({
    * `PiAgentConfig.approvalPolicy`; the client renders approve/deny buttons
    * and calls this mutation to unblock (or reject) the pending call.
    */
-  resolveToolApproval: authedProcedure
+  resolveToolApproval: publicProcedure
     .input(
       z.object({
         chatId: z.string().min(1),
@@ -257,8 +270,8 @@ export const chatRouter = router({
         reason: z.string().max(500).optional(),
       }),
     )
-    .mutation(async ({ ctx, input }) => {
-      const resolved = resolveChatToolApproval(input.chatId, ctx.userId, {
+    .mutation(async ({ input }) => {
+      const resolved = resolveChatToolApproval(input.chatId, {
         toolCallId: input.toolCallId,
         approved: input.approved,
         reason: input.reason,

@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo, useCallback, type ReactNode } from "react";
-import { useQueries } from "@tanstack/react-query";
 import {
   DndContext,
   KeyboardSensor,
@@ -15,13 +14,7 @@ import {
   useSortable,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { Octokit } from "octokit";
 
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-} from "@g-spot/ui/components/avatar";
 import {
   Accordion,
   AccordionContent,
@@ -104,13 +97,12 @@ import {
 import {
   useGitHubRepoSearch,
   useGitHubLabels,
-  useGitHubProfile,
 } from "@/hooks/use-github-options";
-import { useGmailLabels, useGoogleProfile } from "@/hooks/use-gmail-options";
+import {
+  useGmailLabels,
+} from "@/hooks/use-gmail-options";
 import { useSectionFilterSuggestions } from "@/hooks/use-filter-suggestions";
-import { getInitials, getOAuthToken } from "@/lib/oauth";
-import { githubKeys, googleKeys } from "@/lib/query-keys";
-import { persistedStaleWhileRevalidateQueryOptions } from "@/utils/query-defaults";
+import { ConnectedAccountSelect } from "./connected-account-select";
 import { FilterConditionRow } from "./filter-condition-row";
 import { RepoSearchInput } from "./repo-search-input";
 
@@ -335,66 +327,6 @@ export function SectionBuilder({
     return accounts.find((a) => a.providerAccountId === accountId) ?? null;
   }, [accounts, accountId]);
 
-  // Fetch profile info for the selected account (avatar display)
-  const { data: githubProfile } = useGitHubProfile(
-    isGitHubSource ? selectedAccount : null,
-  );
-  const { data: googleProfile } = useGoogleProfile(
-    source === "gmail" ? selectedAccount : null,
-  );
-
-  // Fetch profile labels for ALL relevant accounts so the dropdown shows names, not IDs.
-  // Uses the same queryKey + return shape as useGitHubProfile / useGoogleProfile to share cache.
-  const relevantAccountsList = isGitHubSource ? githubAccounts : googleAccounts;
-  const profileQueries = useQueries({
-    queries: relevantAccountsList.map((a) =>
-      isGitHubSource
-        ? {
-            queryKey: githubKeys.profile(a.providerAccountId),
-            queryFn: async () => {
-              const token = await getOAuthToken(a);
-              const octokit = new Octokit({ auth: token });
-              const { data } = await octokit.rest.users.getAuthenticated();
-              return { login: data.login, avatarUrl: data.avatar_url, name: data.name };
-            },
-            enabled: true,
-            ...persistedStaleWhileRevalidateQueryOptions,
-          }
-        : {
-            queryKey: googleKeys.profile(a.providerAccountId),
-            queryFn: async () => {
-              const token = await getOAuthToken(a);
-              const res = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
-                headers: { Authorization: `Bearer ${token}` },
-              });
-              if (!res.ok) throw new Error("Failed to fetch Google profile");
-              const data = await res.json() as { name?: string; email?: string; picture?: string };
-              return {
-                name: data.name ?? data.email ?? "Google Account",
-                email: data.email ?? "",
-                picture: data.picture ?? "",
-              };
-            },
-            enabled: true,
-            ...persistedStaleWhileRevalidateQueryOptions,
-          },
-    ),
-  });
-
-  const profileLabelMap = useMemo(() => {
-    const map = new Map<string, string>();
-    for (let i = 0; i < relevantAccountsList.length; i++) {
-      const account = relevantAccountsList[i];
-      const q = profileQueries[i];
-      if (!q?.data) continue;
-      const d = q.data as Record<string, string>;
-      // GitHub profiles have `login`, Google profiles have `email`
-      const label = d.login ?? d.email ?? d.name ?? account.providerAccountId;
-      map.set(account.providerAccountId, label);
-    }
-    return map;
-  }, [profileQueries, relevantAccountsList]);
-
   // Repo search with dynamic query + infinite pagination
   const [repoQuery, setRepoQuery] = useState("");
   const {
@@ -510,13 +442,6 @@ export function SectionBuilder({
   }
 
   const isSaving = createMutation.isPending || updateMutation.isPending;
-  const relevantAccounts =
-    isGitHubSource ? githubAccounts : googleAccounts;
-
-  // Account display name
-  function getAccountLabel(providerAccountId: string): string {
-    return profileLabelMap.get(providerAccountId) ?? providerAccountId;
-  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -592,48 +517,14 @@ export function SectionBuilder({
             {/* Account selector */}
             <div className={cn("space-y-1.5", !isEdit ? "flex-1" : "w-full")}>
               <Label className="text-xs font-medium text-muted-foreground">Account</Label>
-              {relevantAccounts.length > 0 ? (
-                <Select
-                  value={accountId ?? ""}
-                  onValueChange={(v) => v && setAccountId(v)}
-                >
-                  <SelectTrigger className="h-9">
-                    <div className="flex items-center gap-2">
-                      {selectedAccount && (
-                        <Avatar className="size-4">
-                          <AvatarImage
-                            src={
-                              isGitHubSource
-                                ? githubProfile?.avatarUrl
-                                : googleProfile?.picture
-                            }
-                          />
-                          <AvatarFallback className="text-[8px]">
-                            {getInitials(getAccountLabel(accountId ?? ""))}
-                          </AvatarFallback>
-                        </Avatar>
-                      )}
-                      <span className="truncate text-sm">
-                        {accountId ? getAccountLabel(accountId) : "Select account"}
-                      </span>
-                    </div>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {relevantAccounts.map((a) => (
-                      <SelectItem key={a.providerAccountId} value={a.providerAccountId}>
-                        {getAccountLabel(a.providerAccountId)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <div className="flex h-9 items-center rounded-md border border-dashed border-border/60 px-3 text-xs text-muted-foreground">
-                  No account connected.{" "}
-                  <a href="/settings/connections" className="ml-1 underline hover:text-foreground">
-                    Connect
-                  </a>
-                </div>
-              )}
+              <ConnectedAccountSelect
+                accounts={accounts}
+                provider={isGitHubSource ? "github" : "google"}
+                value={accountId}
+                onValueChange={setAccountId}
+                className="h-9"
+                emptyMessage="No account connected."
+              />
             </div>
           </div>
 

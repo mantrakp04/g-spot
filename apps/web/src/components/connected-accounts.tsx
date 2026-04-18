@@ -1,27 +1,16 @@
 import { Badge } from "@g-spot/ui/components/badge";
 import { Button } from "@g-spot/ui/components/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@g-spot/ui/components/dialog";
-import { Input } from "@g-spot/ui/components/input";
-import { Textarea } from "@g-spot/ui/components/textarea";
 import { cn } from "@g-spot/ui/lib/utils";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useUser } from "@stackframe/react";
-import { Check, Github, KeyRound, LinkIcon, Loader2, Minus, Plus } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Check, Github, KeyRound, LinkIcon, Minus, Plus } from "lucide-react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import type { PiCredentialSummary } from "@g-spot/types";
 import { GoogleAccountRow } from "@/components/google-account-row";
-import { useRemoveConnectionMutation } from "@/hooks/use-connections";
-import { piKeys } from "@/lib/query-keys";
+import { usePiCredentialFlows } from "@/contexts/pi-credential-flows-context";
+import { usePiCatalog } from "@/hooks/use-pi";
 import { GITHUB_OAUTH_SCOPES, GOOGLE_OAUTH_SCOPES } from "@/stack/client";
-import { trpcClient } from "@/utils/trpc";
 
 type ProviderId = "google" | "github";
 
@@ -86,117 +75,17 @@ function prettyProviderName(providerId: string) {
     .join(" ");
 }
 
-function isOauthSessionRunning(status: string | undefined) {
-  return (
-    status === "running" ||
-    status === "waiting_for_prompt" ||
-    status === "waiting_for_manual_code"
-  );
-}
-
 export function ConnectedAccounts() {
   const user = useUser({ or: "redirect" });
   const accounts = user.useConnectedAccounts();
-  const queryClient = useQueryClient();
 
   const googleAccounts = accounts.filter((account) => account.provider === "google");
   const githubAccounts = accounts.filter((account) => account.provider === "github");
   const githubLinked = githubAccounts.length > 0;
 
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
-  const [apiKeyProvider, setApiKeyProvider] = useState<string | null>(null);
-  const [apiKeyValue, setApiKeyValue] = useState("");
-  const [oauthSessionId, setOauthSessionId] = useState<string | null>(null);
-  const [oauthPromptValue, setOauthPromptValue] = useState("");
-  const [oauthManualCode, setOauthManualCode] = useState("");
-  const lastOauthStatusRef = useRef<string | null>(null);
-
-  const removeConnectionMutation = useRemoveConnectionMutation();
-
-  const piCatalog = useQuery({
-    queryKey: piKeys.catalog(),
-    queryFn: () => trpcClient.pi.catalog.query(),
-  });
-
-  const oauthSession = useQuery({
-    queryKey: piKeys.oauthSession(oauthSessionId),
-    queryFn: () => trpcClient.pi.oauthSession.query({ sessionId: oauthSessionId! }),
-    enabled: !!oauthSessionId,
-    refetchInterval: (query) =>
-      isOauthSessionRunning(query.state.data?.status) ? 1500 : false,
-  });
-
-  const saveApiKeyMutation = useMutation({
-    mutationFn: (input: { provider: string; apiKey: string }) =>
-      trpcClient.pi.saveApiKey.mutate(input),
-    onSuccess: async (_, variables) => {
-      await queryClient.invalidateQueries({ queryKey: piKeys.catalog() });
-      toast.success(`${prettyProviderName(variables.provider)} API key saved`);
-      setApiKeyProvider(null);
-      setApiKeyValue("");
-    },
-  });
-
-  const removeCredentialMutation = useMutation({
-    mutationFn: (provider: string) =>
-      trpcClient.pi.removeCredential.mutate({ provider }),
-    onSuccess: async (_, provider) => {
-      await queryClient.invalidateQueries({ queryKey: piKeys.catalog() });
-      toast.success(`${prettyProviderName(provider)} credential removed`);
-    },
-  });
-
-  const startOAuthMutation = useMutation({
-    mutationFn: (provider: string) =>
-      trpcClient.pi.startOAuth.mutate({ provider }),
-    onSuccess: (session) => {
-      setOauthPromptValue("");
-      setOauthManualCode("");
-      setOauthSessionId(session.id);
-    },
-  });
-
-  const submitOauthPromptMutation = useMutation({
-    mutationFn: (input: { sessionId: string; value: string }) =>
-      trpcClient.pi.submitOAuthPrompt.mutate(input),
-    onSuccess: () => {
-      setOauthPromptValue("");
-    },
-  });
-
-  const submitOauthManualCodeMutation = useMutation({
-    mutationFn: (input: { sessionId: string; value: string }) =>
-      trpcClient.pi.submitOAuthManualCode.mutate(input),
-    onSuccess: () => {
-      setOauthManualCode("");
-    },
-  });
-
-  const cancelOauthMutation = useMutation({
-    mutationFn: (sessionId: string) =>
-      trpcClient.pi.cancelOAuth.mutate({ sessionId }),
-    onSuccess: () => {
-      setOauthSessionId(null);
-      setOauthPromptValue("");
-      setOauthManualCode("");
-    },
-  });
-
-  useEffect(() => {
-    const status = oauthSession.data?.status ?? null;
-    if (!status || lastOauthStatusRef.current === status) {
-      return;
-    }
-
-    lastOauthStatusRef.current = status;
-    if (status === "completed") {
-      toast.success(`${oauthSession.data?.providerName ?? "Provider"} connected`);
-      void queryClient.invalidateQueries({ queryKey: piKeys.catalog() });
-    }
-    if (status === "error" && oauthSession.data?.errorMessage) {
-      toast.error(oauthSession.data.errorMessage);
-    }
-  }, [oauthSession.data, queryClient]);
+  const piCatalog = usePiCatalog();
+  const piFlows = usePiCredentialFlows();
 
   const providers = useMemo(() => {
     const catalog = piCatalog.data;
@@ -208,7 +97,10 @@ export function ConnectedAccounts() {
       catalog.oauthProviders.map((provider) => [provider.id, provider]),
     );
     const configuredProviders = new Map(
-      catalog.configuredProviders.map((provider) => [provider.provider, provider.type]),
+      catalog.configuredProviders.map((provider: PiCredentialSummary) => [
+        provider.provider,
+        provider.type,
+      ]),
     );
     const providersById = new Set<string>();
 
@@ -240,11 +132,52 @@ export function ConnectedAccounts() {
   }, [piCatalog.data]);
 
   async function connectOAuth(provider: ProviderId, scopes?: readonly string[]) {
+    await user.linkConnectedAccount(
+      provider,
+      scopes ? { scopes: [...scopes] } : undefined,
+    );
+  }
+
+  async function removeAccount(
+    provider: string,
+    providerAccountId: string,
+    options?: { silentSuccess?: boolean },
+  ) {
+    setDisconnecting(providerAccountId);
     try {
-      await user.linkConnectedAccount(
-        provider,
-        scopes ? { scopes: [...scopes] } : undefined,
+      const providers = await user.listOAuthProviders();
+      const matches = providers.filter(
+        (oauthProvider) =>
+          oauthProvider.type === provider || oauthProvider.id === provider,
       );
+      const oauthProvider =
+        matches.find((entry) => entry.accountId === providerAccountId)
+        ?? (matches.length === 1 ? matches[0] : undefined);
+
+      if (!oauthProvider) {
+        throw new Error(
+          `No OAuth provider entry for ${provider}:${providerAccountId}`,
+        );
+      }
+
+      await oauthProvider.delete();
+      await user.listConnectedAccounts();
+      if (!options?.silentSuccess) {
+        toast.success("Account removed");
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to remove account",
+      );
+      throw error;
+    } finally {
+      setDisconnecting(null);
+    }
+  }
+
+  async function handleGoogleConnect() {
+    try {
+      await connectOAuth("google", GOOGLE_OAUTH_SCOPES);
     } catch (error) {
       console.error(error);
       toast.error(
@@ -253,29 +186,18 @@ export function ConnectedAccounts() {
     }
   }
 
-  async function removeAccount(provider: string, providerAccountId: string) {
-    setDisconnecting(providerAccountId);
+  async function reconnectGoogleAccount(providerAccountId: string) {
+    await removeAccount("google", providerAccountId, { silentSuccess: true });
+
     try {
-      await removeConnectionMutation.mutateAsync({ provider, providerAccountId });
-      toast.success("Account removed");
+      await connectOAuth("google", GOOGLE_OAUTH_SCOPES);
     } catch (error) {
+      console.error(error);
       toast.error(
-        error instanceof Error ? error.message : "Failed to remove account",
+        error instanceof Error ? error.message : "Could not start connection flow.",
       );
-    } finally {
-      setDisconnecting(null);
+      throw error;
     }
-  }
-
-  async function saveApiKey() {
-    if (!apiKeyProvider || apiKeyValue.trim().length === 0) {
-      return;
-    }
-
-    await saveApiKeyMutation.mutateAsync({
-      provider: apiKeyProvider,
-      apiKey: apiKeyValue.trim(),
-    });
   }
 
   return (
@@ -317,7 +239,7 @@ export function ConnectedAccounts() {
             variant="ghost"
             size="xs"
             className="mt-0.5 shrink-0 gap-1 text-muted-foreground text-xs hover:text-foreground"
-            onClick={() => void connectOAuth("google", GOOGLE_OAUTH_SCOPES)}
+            onClick={() => void handleGoogleConnect()}
           >
             <Plus className="size-3" strokeWidth={2.5} />
             {googleAccounts.length === 0 ? "Connect" : "Add"}
@@ -330,7 +252,7 @@ export function ConnectedAccounts() {
               <GoogleAccountRow
                 key={account.providerAccountId}
                 account={account}
-                onReconnect={() => void connectOAuth("google", GOOGLE_OAUTH_SCOPES)}
+                onReconnect={() => reconnectGoogleAccount(account.providerAccountId)}
                 onRemove={() => removeAccount("google", account.providerAccountId)}
               />
             ))}
@@ -483,8 +405,8 @@ export function ConnectedAccounts() {
                         variant="ghost"
                         size="xs"
                         className="gap-1 text-muted-foreground text-xs hover:text-destructive"
-                        onClick={() => void removeCredentialMutation.mutateAsync(provider.id)}
-                        disabled={removeCredentialMutation.isPending}
+                        onClick={() => void piFlows.removeCredential(provider.id)}
+                        disabled={piFlows.isRemoving}
                       >
                         <Minus className="size-3" strokeWidth={2.5} />
                         Remove
@@ -497,8 +419,8 @@ export function ConnectedAccounts() {
                         variant="ghost"
                         size="xs"
                         className="gap-1 text-muted-foreground text-xs hover:text-foreground"
-                        onClick={() => void startOAuthMutation.mutateAsync(provider.id)}
-                        disabled={startOAuthMutation.isPending}
+                        onClick={() => void piFlows.connectOAuth(provider.id)}
+                        disabled={piFlows.isConnectingOAuth}
                       >
                         <LinkIcon className="size-3.5" />
                         {provider.authType === "oauth" ? "Reconnect" : "OAuth"}
@@ -510,10 +432,7 @@ export function ConnectedAccounts() {
                       variant="ghost"
                       size="xs"
                       className="gap-1 text-muted-foreground text-xs hover:text-foreground"
-                      onClick={() => {
-                        setApiKeyProvider(provider.id);
-                        setApiKeyValue("");
-                      }}
+                      onClick={() => piFlows.configureApiKey(provider.id)}
                     >
                       <KeyRound className="size-3.5" />
                       API Key
@@ -525,193 +444,6 @@ export function ConnectedAccounts() {
           )}
         </div>
       </section>
-
-      <Dialog
-        open={apiKeyProvider !== null}
-        onOpenChange={(open) => {
-          if (!open) {
-            setApiKeyProvider(null);
-            setApiKeyValue("");
-          }
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Save API key</DialogTitle>
-            <DialogDescription>
-              Store an API key for {apiKeyProvider ? prettyProviderName(apiKeyProvider) : "this provider"}.
-            </DialogDescription>
-          </DialogHeader>
-          <Input
-            type="password"
-            placeholder="sk-..."
-            value={apiKeyValue}
-            onChange={(event) => setApiKeyValue(event.target.value)}
-          />
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setApiKeyProvider(null)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={() => void saveApiKey()}
-              disabled={saveApiKeyMutation.isPending || apiKeyValue.trim().length === 0}
-            >
-              {saveApiKeyMutation.isPending ? "Saving…" : "Save"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={oauthSessionId !== null}
-        onOpenChange={(open) => {
-          if (!open && oauthSessionId) {
-            void cancelOauthMutation.mutateAsync(oauthSessionId);
-          }
-        }}
-      >
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>
-              {oauthSession.data?.providerName ?? "Provider"} sign-in
-            </DialogTitle>
-            <DialogDescription>
-              Continue the Pi-native OAuth flow. This dialog updates as the provider asks
-              for browser auth, prompts, or manual code entry.
-            </DialogDescription>
-          </DialogHeader>
-
-          {oauthSession.data?.auth?.instructions ? (
-            <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-[12px] leading-relaxed">
-              {oauthSession.data.auth.instructions}
-            </div>
-          ) : null}
-
-          {oauthSession.data?.auth?.url ? (
-            <a
-              href={oauthSession.data.auth.url}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex h-9 items-center justify-center rounded-md border border-border px-3 text-[12px] transition-colors hover:bg-muted"
-            >
-              Open provider login
-            </a>
-          ) : null}
-
-          {oauthSession.data?.progress?.length ? (
-            <div className="space-y-2 rounded-md border border-border/60 bg-background/60 p-3">
-              <p className="font-medium text-[12px]">Progress</p>
-              <ul className="space-y-1 text-muted-foreground text-[12px]">
-                {oauthSession.data.progress.slice(-6).map((entry, index) => (
-                  <li key={`${entry}-${index}`}>{entry}</li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-
-          {oauthSession.data?.status === "waiting_for_prompt" && oauthSession.data.prompt ? (
-            <div className="space-y-3">
-              <label className="space-y-1 text-[12px]">
-                <span className="font-medium">{oauthSession.data.prompt.message}</span>
-                <Input
-                  placeholder={oauthSession.data.prompt.placeholder ?? "Response"}
-                  value={oauthPromptValue}
-                  onChange={(event) => setOauthPromptValue(event.target.value)}
-                />
-              </label>
-              <Button
-                onClick={() =>
-                  oauthSessionId
-                    ? submitOauthPromptMutation.mutate({
-                        sessionId: oauthSessionId,
-                        value: oauthPromptValue,
-                      })
-                    : undefined
-                }
-                disabled={
-                  submitOauthPromptMutation.isPending ||
-                  (!oauthSession.data.prompt.allowEmpty && oauthPromptValue.trim().length === 0)
-                }
-              >
-                Submit prompt
-              </Button>
-            </div>
-          ) : null}
-
-          {oauthSession.data?.status === "waiting_for_manual_code" ? (
-            <div className="space-y-3">
-              <label className="space-y-1 text-[12px]">
-                <span className="font-medium">Manual code</span>
-                <Textarea
-                  placeholder="Paste the code from the provider"
-                  value={oauthManualCode}
-                  onChange={(event) => setOauthManualCode(event.target.value)}
-                />
-              </label>
-              <Button
-                onClick={() =>
-                  oauthSessionId
-                    ? submitOauthManualCodeMutation.mutate({
-                        sessionId: oauthSessionId,
-                        value: oauthManualCode,
-                      })
-                    : undefined
-                }
-                disabled={
-                  submitOauthManualCodeMutation.isPending ||
-                  oauthManualCode.trim().length === 0
-                }
-              >
-                Submit code
-              </Button>
-            </div>
-          ) : null}
-
-          {oauthSession.data?.status === "completed" ? (
-            <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-[12px] text-emerald-300">
-              Provider connected successfully.
-            </div>
-          ) : null}
-
-          {oauthSession.data?.status === "error" && oauthSession.data.errorMessage ? (
-            <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-[12px] text-destructive">
-              {oauthSession.data.errorMessage}
-            </div>
-          ) : null}
-
-          <DialogFooter>
-            {isOauthSessionRunning(oauthSession.data?.status) ? (
-              <Button
-                variant="outline"
-                onClick={() =>
-                  oauthSessionId
-                    ? cancelOauthMutation.mutate(oauthSessionId)
-                    : undefined
-                }
-              >
-                Cancel
-              </Button>
-            ) : (
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setOauthSessionId(null);
-                  setOauthPromptValue("");
-                  setOauthManualCode("");
-                }}
-              >
-                Close
-              </Button>
-            )}
-            {oauthSession.isFetching ? (
-              <span className="inline-flex items-center gap-2 text-muted-foreground text-[12px]">
-                <Loader2 className="size-3.5 animate-spin" />
-                Syncing
-              </span>
-            ) : null}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

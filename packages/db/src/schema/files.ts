@@ -12,12 +12,11 @@ export const fileHashes = sqliteTable("file_hashes", {
     .default(sql`(current_timestamp)`),
 });
 
-/** User-facing file metadata; many metadata rows can point to one hash. */
+/** File metadata; many metadata rows can point to one hash. */
 export const fileMetadata = sqliteTable(
   "file_metadata",
   {
     id: text("id").primaryKey(),
-    userId: text("user_id").notNull(),
     hash: text("hash")
       .notNull()
       .references(() => fileHashes.hash),
@@ -28,8 +27,5 @@ export const fileMetadata = sqliteTable(
       .notNull()
       .default(sql`(current_timestamp)`),
   },
-  (table) => [
-    index("file_metadata_user_idx").on(table.userId),
-    index("file_metadata_hash_idx").on(table.hash),
-  ],
+  (table) => [index("file_metadata_hash_idx").on(table.hash)],
 );

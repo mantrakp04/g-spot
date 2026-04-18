@@ -81,7 +81,6 @@ async function getStableLatestUserMessageId(
 }
 
 export async function refreshChatTitle(args: {
-  userId: string;
   chatId: string;
   messages: Message[];
   fallbackConfig?: unknown;
@@ -99,7 +98,7 @@ export async function refreshChatTitle(args: {
   }
 
   try {
-    const chat = await getChat(args.userId, args.chatId);
+    const chat = await getChat(args.chatId);
     if (!chat) {
       return;
     }
@@ -109,14 +108,13 @@ export async function refreshChatTitle(args: {
       return;
     }
 
-    const defaults = await getPiAgentDefaults(args.userId);
+    const defaults = await getPiAgentDefaults();
     const workerConfig = normalizePiAgentConfig(
       defaults.worker,
       normalizePiAgentConfig(args.fallbackConfig),
     );
 
     const { session } = await createPiAgentSession({
-      userId: args.userId,
       config: workerConfig,
       activeToolNames: [],
       project: args.project,
@@ -161,7 +159,7 @@ export async function refreshChatTitle(args: {
     }
 
     if (title !== chat.title) {
-      await updateChatTitle(args.userId, args.chatId, title);
+      await updateChatTitle(args.chatId, title);
     }
   } catch (error) {
     console.error("[chat.title] failed", {

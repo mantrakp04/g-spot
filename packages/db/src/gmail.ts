@@ -1,4 +1,5 @@
-import { and, asc, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lt, notInArray, or, sql } from "drizzle-orm";
+import type { SQL } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { db } from "./index";
@@ -25,26 +26,46 @@ import type {
 // ---------------------------------------------------------------------------
 
 export async function getGmailAccount(
-  userId: string,
   providerAccountId: string,
 ): Promise<GmailAccountRow | null> {
   const [row] = await db
     .select()
     .from(gmailAccounts)
-    .where(
-      and(
-        eq(gmailAccounts.userId, userId),
-        eq(gmailAccounts.providerAccountId, providerAccountId),
-      ),
-    );
+    .where(eq(gmailAccounts.providerAccountId, providerAccountId));
   return row ?? null;
 }
 
+export async function getGmailAccountById(
+  accountId: string,
+): Promise<GmailAccountRow | null> {
+  const [row] = await db
+    .select()
+    .from(gmailAccounts)
+    .where(eq(gmailAccounts.id, accountId));
+  return row ?? null;
+}
+
+export async function listGmailAccounts(): Promise<GmailAccountRow[]> {
+  return db
+    .select()
+    .from(gmailAccounts)
+    .orderBy(asc(gmailAccounts.createdAt));
+}
+
+export async function listGmailAccountsByEmail(
+  email: string,
+): Promise<GmailAccountRow[]> {
+  return db
+    .select()
+    .from(gmailAccounts)
+    .where(eq(gmailAccounts.email, email))
+    .orderBy(asc(gmailAccounts.createdAt));
+}
+
 export async function upsertGmailAccount(
-  userId: string,
   data: { email: string; providerAccountId: string; historyId?: string },
 ): Promise<{ id: string; isNew: boolean }> {
-  const existing = await getGmailAccount(userId, data.providerAccountId);
+  const existing = await getGmailAccount(data.providerAccountId);
   if (existing) {
     const now = new Date().toISOString();
     await db
@@ -62,7 +83,6 @@ export async function upsertGmailAccount(
   const now = new Date().toISOString();
   await db.insert(gmailAccounts).values({
     id,
-    userId,
     email: data.email,
     providerAccountId: data.providerAccountId,
     historyId: data.historyId ?? null,
@@ -78,7 +98,58 @@ export async function updateGmailAccountHistoryId(
 ): Promise<void> {
   await db
     .update(gmailAccounts)
-    .set({ historyId, updatedAt: new Date().toISOString() })
+    .set({
+      historyId,
+      needsFullResync: false,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(gmailAccounts.id, accountId));
+}
+
+export async function updateGmailWatchState(
+  accountId: string,
+  data: {
+    watchExpiration: number;
+    lastWatchHistoryId: string;
+  },
+): Promise<void> {
+  const now = new Date().toISOString();
+  await db
+    .update(gmailAccounts)
+    .set({
+      watchExpiration: data.watchExpiration,
+      lastWatchHistoryId: data.lastWatchHistoryId,
+      lastWatchRenewedAt: now,
+      updatedAt: now,
+    })
+    .where(eq(gmailAccounts.id, accountId));
+}
+
+export async function recordGmailPushNotification(
+  accountId: string,
+  historyId: string,
+  receivedAt = new Date().toISOString(),
+): Promise<void> {
+  await db
+    .update(gmailAccounts)
+    .set({
+      lastNotificationHistoryId: historyId,
+      lastNotificationAt: receivedAt,
+      updatedAt: receivedAt,
+    })
+    .where(eq(gmailAccounts.id, accountId));
+}
+
+export async function setGmailAccountNeedsFullResync(
+  accountId: string,
+  needsFullResync: boolean,
+): Promise<void> {
+  await db
+    .update(gmailAccounts)
+    .set({
+      needsFullResync,
+      updatedAt: new Date().toISOString(),
+    })
     .where(eq(gmailAccounts.id, accountId));
 }
 
@@ -232,53 +303,14 @@ export async function getThreadById(
   return row ?? null;
 }
 
-export async function listThreads(
+export async function listAllThreads(
   accountId: string,
-  options: {
-    label?: string;
-    limit?: number;
-    cursor?: string; // lastMessageAt ISO string for keyset pagination
-  } = {},
-): Promise<{ threads: GmailThreadRow[]; nextCursor: string | null }> {
-  const limit = options.limit ?? 20;
-
-  let query = db
+): Promise<GmailThreadRow[]> {
+  return db
     .select()
     .from(gmailThreads)
     .where(eq(gmailThreads.accountId, accountId))
-    .orderBy(desc(gmailThreads.lastMessageAt))
-    .limit(limit + 1);
-
-  if (options.cursor) {
-    query = db
-      .select()
-      .from(gmailThreads)
-      .where(
-        and(
-          eq(gmailThreads.accountId, accountId),
-          lt(gmailThreads.lastMessageAt, options.cursor),
-        ),
-      )
-      .orderBy(desc(gmailThreads.lastMessageAt))
-      .limit(limit + 1);
-  }
-
-  const rows = await query;
-
-  // Client-side label filter (JSON array). For small result sets this is fine.
-  let filtered = rows;
-  if (options.label) {
-    filtered = rows.filter((r) => {
-      const labels: string[] = JSON.parse(r.labels);
-      return labels.includes(options.label!);
-    });
-  }
-
-  const hasMore = filtered.length > limit;
-  const threads = filtered.slice(0, limit);
-  const nextCursor = hasMore ? threads[threads.length - 1]?.lastMessageAt ?? null : null;
-
-  return { threads, nextCursor };
+    .orderBy(desc(gmailThreads.lastMessageAt));
 }
 
 export async function markThreadProcessed(threadId: string): Promise<void> {
@@ -319,9 +351,9 @@ export async function getFetchedGmailThreadIds(
 }
 
 /**
- * Returns gmail_thread_ids that are fetched but NOT yet processed (isProcessed = false).
+ * Returns fetched inbox thread IDs that still need extraction.
  */
-export async function getUnprocessedGmailThreadIds(
+export async function getUnprocessedInboxGmailThreadIds(
   accountId: string,
 ): Promise<string[]> {
   const rows = await db
@@ -331,6 +363,7 @@ export async function getUnprocessedGmailThreadIds(
       and(
         eq(gmailThreads.accountId, accountId),
         eq(gmailThreads.isProcessed, false),
+        labelExistsSql("INBOX"),
       ),
     );
   return rows.map((r) => r.gmailThreadId);
@@ -442,6 +475,49 @@ export async function getThreadMessages(
     .orderBy(asc(gmailMessages.date));
 }
 
+export async function listMessagesByAccount(
+  accountId: string,
+): Promise<GmailMessageRow[]> {
+  return db
+    .select()
+    .from(gmailMessages)
+    .where(eq(gmailMessages.accountId, accountId))
+    .orderBy(desc(gmailMessages.date));
+}
+
+export async function listMessagesByThreadIds(
+  threadIds: string[],
+): Promise<GmailMessageRow[]> {
+  if (threadIds.length === 0) return [];
+
+  return db
+    .select()
+    .from(gmailMessages)
+    .where(inArray(gmailMessages.threadId, threadIds))
+    .orderBy(asc(gmailMessages.date));
+}
+
+export async function deleteMissingThreadMessages(
+  threadId: string,
+  gmailMessageIds: string[],
+): Promise<void> {
+  if (gmailMessageIds.length === 0) {
+    await db
+      .delete(gmailMessages)
+      .where(eq(gmailMessages.threadId, threadId));
+    return;
+  }
+
+  await db
+    .delete(gmailMessages)
+    .where(
+      and(
+        eq(gmailMessages.threadId, threadId),
+        notInArray(gmailMessages.gmailMessageId, gmailMessageIds),
+      ),
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Attachments
 // ---------------------------------------------------------------------------
@@ -472,11 +548,32 @@ export async function upsertAttachments(
   }
 }
 
-export async function getMessageAttachments(messageId: string) {
+export async function listAttachmentsByMessageIds(messageIds: string[]) {
+  if (messageIds.length === 0) return [];
+
   return db
     .select()
     .from(gmailAttachments)
-    .where(eq(gmailAttachments.messageId, messageId));
+    .where(inArray(gmailAttachments.messageId, messageIds));
+}
+
+export async function listAttachmentsByAccount(
+  accountId: string,
+): Promise<Array<typeof gmailAttachments.$inferSelect & { threadId: string }>> {
+  return db
+    .select({
+      id: gmailAttachments.id,
+      messageId: gmailAttachments.messageId,
+      gmailAttachmentId: gmailAttachments.gmailAttachmentId,
+      filename: gmailAttachments.filename,
+      mimeType: gmailAttachments.mimeType,
+      size: gmailAttachments.size,
+      createdAt: gmailAttachments.createdAt,
+      threadId: gmailMessages.threadId,
+    })
+    .from(gmailAttachments)
+    .innerJoin(gmailMessages, eq(gmailAttachments.messageId, gmailMessages.id))
+    .where(eq(gmailMessages.accountId, accountId));
 }
 
 // ---------------------------------------------------------------------------
@@ -553,7 +650,7 @@ export async function recordSyncFailure(
     errorMessage: string;
     errorCode?: string;
   },
-): Promise<void> {
+): Promise<boolean> {
   const now = new Date().toISOString();
 
   // Check if there's an existing unresolved failure for this thread
@@ -579,6 +676,7 @@ export async function recordSyncFailure(
         lastAttemptAt: now,
       })
       .where(eq(gmailSyncFailures.id, existing.id));
+    return false;
   } else {
     await db.insert(gmailSyncFailures).values({
       id: nanoid(),
@@ -591,19 +689,42 @@ export async function recordSyncFailure(
       lastAttemptAt: now,
       createdAt: now,
     });
+    return true;
   }
 }
 
-export async function getUnresolvedFailures(
+export async function getRetryableSyncFailures(
   accountId: string,
 ): Promise<GmailSyncFailureRow[]> {
   return db
-    .select()
+    .select({
+      id: gmailSyncFailures.id,
+      accountId: gmailSyncFailures.accountId,
+      gmailThreadId: gmailSyncFailures.gmailThreadId,
+      stage: gmailSyncFailures.stage,
+      errorMessage: gmailSyncFailures.errorMessage,
+      errorCode: gmailSyncFailures.errorCode,
+      attempts: gmailSyncFailures.attempts,
+      lastAttemptAt: gmailSyncFailures.lastAttemptAt,
+      resolvedAt: gmailSyncFailures.resolvedAt,
+      createdAt: gmailSyncFailures.createdAt,
+    })
     .from(gmailSyncFailures)
+    .leftJoin(
+      gmailThreads,
+      and(
+        eq(gmailThreads.accountId, gmailSyncFailures.accountId),
+        eq(gmailThreads.gmailThreadId, gmailSyncFailures.gmailThreadId),
+      ),
+    )
     .where(
       and(
         eq(gmailSyncFailures.accountId, accountId),
         isNull(gmailSyncFailures.resolvedAt),
+        or(
+          eq(gmailSyncFailures.stage, "fetch"),
+          labelExistsSql("INBOX"),
+        ),
       ),
     )
     .orderBy(desc(gmailSyncFailures.lastAttemptAt));
@@ -614,6 +735,69 @@ export async function resolveFailure(failureId: string): Promise<void> {
     .update(gmailSyncFailures)
     .set({ resolvedAt: new Date().toISOString() })
     .where(eq(gmailSyncFailures.id, failureId));
+}
+
+export async function getRunningSyncStates(): Promise<GmailSyncStateRow[]> {
+  return db
+    .select()
+    .from(gmailSyncState)
+    .where(eq(gmailSyncState.status, "running"));
+}
+
+export async function resolveFailuresForThread(
+  accountId: string,
+  gmailThreadId: string,
+): Promise<number> {
+  const unresolved = await db
+    .select({ id: gmailSyncFailures.id })
+    .from(gmailSyncFailures)
+    .where(
+      and(
+        eq(gmailSyncFailures.accountId, accountId),
+        eq(gmailSyncFailures.gmailThreadId, gmailThreadId),
+        isNull(gmailSyncFailures.resolvedAt),
+      ),
+    );
+
+  if (unresolved.length === 0) return 0;
+
+  await db
+    .update(gmailSyncFailures)
+    .set({ resolvedAt: new Date().toISOString() })
+    .where(
+      inArray(
+        gmailSyncFailures.id,
+        unresolved.map((r) => r.id),
+      ),
+    );
+
+  return unresolved.length;
+}
+
+export async function getRetryableFailureThreadIds(
+  accountId: string,
+): Promise<string[]> {
+  const rows = await db
+    .select({ gmailThreadId: gmailSyncFailures.gmailThreadId })
+    .from(gmailSyncFailures)
+    .leftJoin(
+      gmailThreads,
+      and(
+        eq(gmailThreads.accountId, gmailSyncFailures.accountId),
+        eq(gmailThreads.gmailThreadId, gmailSyncFailures.gmailThreadId),
+      ),
+    )
+    .where(
+      and(
+        eq(gmailSyncFailures.accountId, accountId),
+        isNull(gmailSyncFailures.resolvedAt),
+        or(
+          eq(gmailSyncFailures.stage, "fetch"),
+          labelExistsSql("INBOX"),
+        ),
+      ),
+    );
+  return Array.from(new Set(rows.map((r) => r.gmailThreadId)));
 }
 
 export async function getFailuresByIds(
@@ -632,17 +816,558 @@ export async function getFailuresByIds(
 }
 
 // ---------------------------------------------------------------------------
-// Search (LIKE-based for v1)
+// Filtered thread queries
+// ---------------------------------------------------------------------------
+
+export type GmailFilterCondition = {
+  field: string;
+  operator: string;
+  value: string;
+  logic?: "and" | "or";
+};
+
+type ThreadListItem = {
+  id: string;
+  gmailThreadId: string;
+  subject: string;
+  snippet: string;
+  lastMessageAt: string | null;
+  labels: string;
+  fromName: string;
+  fromEmail: string;
+  hasAttachment: boolean;
+};
+
+function mapCategoryToLabel(value: string): string | null {
+  switch (value.trim().toLowerCase()) {
+    case "primary": return "CATEGORY_PERSONAL";
+    case "social": return "CATEGORY_SOCIAL";
+    case "promotions": return "CATEGORY_PROMOTIONS";
+    case "updates": return "CATEGORY_UPDATES";
+    case "forums": return "CATEGORY_FORUMS";
+    default: return null;
+  }
+}
+
+function mapLocationToLabel(value: string): string | null {
+  switch (value.trim().toLowerCase()) {
+    case "inbox": return "INBOX";
+    case "sent": return "SENT";
+    case "draft": case "drafts": return "DRAFT";
+    case "trash": return "TRASH";
+    case "spam": return "SPAM";
+    case "starred": return "STARRED";
+    case "important": return "IMPORTANT";
+    case "anywhere": return null;
+    default: return value;
+  }
+}
+
+function parseRelativeDurationMs(value: string): number | null {
+  const match = value.trim().match(/^(\d+)([dmy])$/i);
+  if (!match) return null;
+  const amount = Number(match[1]);
+  const unit = match[2]!.toLowerCase();
+  if (unit === "d") return amount * 86_400_000;
+  if (unit === "m") return amount * 30 * 86_400_000;
+  if (unit === "y") return amount * 365 * 86_400_000;
+  return null;
+}
+
+function parseSizeBytes(value: string): number | null {
+  const match = value.trim().match(/^(\d+(?:\.\d+)?)([kmg])?$/i);
+  if (!match) return null;
+  const amount = Number(match[1]);
+  const unit = match[2]?.toLowerCase();
+  if (!unit) return amount;
+  if (unit === "k") return amount * 1024;
+  if (unit === "m") return amount * 1048576;
+  if (unit === "g") return amount * 1073741824;
+  return amount;
+}
+
+function labelExistsSql(label: string): SQL {
+  return sql`EXISTS (SELECT 1 FROM json_each(${gmailThreads.labels}) WHERE json_each.value = ${label})`;
+}
+
+function labelNotExistsSql(label: string): SQL {
+  return sql`NOT EXISTS (SELECT 1 FROM json_each(${gmailThreads.labels}) WHERE json_each.value = ${label})`;
+}
+
+function labelContainsSql(pattern: string): SQL {
+  return sql`EXISTS (SELECT 1 FROM json_each(${gmailThreads.labels}) WHERE LOWER(json_each.value) LIKE ${pattern})`;
+}
+
+function messageFieldMatchSql(
+  accountId: string,
+  column: typeof gmailMessages.fromEmail | typeof gmailMessages.fromName | typeof gmailMessages.toHeader | typeof gmailMessages.ccHeader | typeof gmailMessages.subject,
+  operator: string,
+  value: string,
+): SQL {
+  const needle = value.trim().toLowerCase();
+  let cond: SQL;
+  switch (operator) {
+    case "is":
+      cond = sql`LOWER(${column}) = ${needle}`;
+      break;
+    case "is_not":
+      cond = sql`LOWER(${column}) != ${needle}`;
+      break;
+    case "contains":
+      cond = sql`LOWER(${column}) LIKE ${"%" + needle + "%"}`;
+      break;
+    case "not_contains":
+      cond = sql`LOWER(${column}) NOT LIKE ${"%" + needle + "%"}`;
+      break;
+    default:
+      cond = sql`1=1`;
+  }
+
+  const isNegated = operator === "is_not" || operator === "not_contains";
+  if (isNegated) {
+    return sql`NOT EXISTS (SELECT 1 FROM ${gmailMessages} m WHERE m.thread_id = ${gmailThreads.id} AND m.account_id = ${accountId} AND NOT (${cond}))`;
+  }
+
+  return sql`EXISTS (SELECT 1 FROM ${gmailMessages} m WHERE m.thread_id = ${gmailThreads.id} AND m.account_id = ${accountId} AND ${cond})`;
+}
+
+function buildFilterConditionSql(
+  accountId: string,
+  filter: GmailFilterCondition,
+): SQL | null {
+  const { field, operator, value } = filter;
+
+  switch (field) {
+    case "from": {
+      const needle = value.trim().toLowerCase();
+      const like = "%" + needle + "%";
+      if (operator === "is" || operator === "contains") {
+        const match = operator === "is" ? sql`LOWER(m.from_email) = ${needle}` : sql`(LOWER(m.from_email) LIKE ${like} OR LOWER(m.from_name) LIKE ${like})`;
+        return sql`EXISTS (SELECT 1 FROM ${gmailMessages} m WHERE m.thread_id = ${gmailThreads.id} AND m.account_id = ${accountId} AND ${match})`;
+      }
+      if (operator === "is_not" || operator === "not_contains") {
+        const match = operator === "is_not" ? sql`LOWER(m.from_email) = ${needle}` : sql`(LOWER(m.from_email) LIKE ${like} OR LOWER(m.from_name) LIKE ${like})`;
+        return sql`NOT EXISTS (SELECT 1 FROM ${gmailMessages} m WHERE m.thread_id = ${gmailThreads.id} AND m.account_id = ${accountId} AND ${match})`;
+      }
+      return null;
+    }
+
+    case "to":
+      return messageFieldMatchSql(accountId, gmailMessages.toHeader, operator, value);
+    case "cc":
+      return messageFieldMatchSql(accountId, gmailMessages.ccHeader, operator, value);
+    case "subject":
+      return messageFieldMatchSql(accountId, gmailMessages.subject, operator, value);
+
+    case "label": {
+      const needle = value.trim().toLowerCase();
+      if (operator === "is") return labelExistsSql(value);
+      if (operator === "is_not") return labelNotExistsSql(value);
+      if (operator === "contains") return labelContainsSql("%" + needle + "%");
+      if (operator === "not_contains") return sql`NOT (${labelContainsSql("%" + needle + "%")})`;
+      return null;
+    }
+
+    case "category": {
+      const mapped = mapCategoryToLabel(value);
+      if (!mapped) return null;
+      return operator === "is_not"
+        ? labelNotExistsSql(mapped)
+        : labelExistsSql(mapped);
+    }
+
+    case "in": {
+      const mapped = mapLocationToLabel(value);
+      if (mapped === null) return null;
+      return operator === "is_not"
+        ? labelNotExistsSql(mapped)
+        : labelExistsSql(mapped);
+    }
+
+    case "is_unread":
+      if (value.trim().toLowerCase() !== "true") return null;
+      return operator === "is"
+        ? labelExistsSql("UNREAD")
+        : labelNotExistsSql("UNREAD");
+    case "is_read":
+      if (value.trim().toLowerCase() !== "true") return null;
+      return operator === "is"
+        ? labelNotExistsSql("UNREAD")
+        : labelExistsSql("UNREAD");
+    case "is_starred":
+      if (value.trim().toLowerCase() !== "true") return null;
+      return operator === "is"
+        ? labelExistsSql("STARRED")
+        : labelNotExistsSql("STARRED");
+    case "is_important":
+      if (value.trim().toLowerCase() !== "true") return null;
+      return operator === "is"
+        ? labelExistsSql("IMPORTANT")
+        : labelNotExistsSql("IMPORTANT");
+    case "is_snoozed":
+      if (value.trim().toLowerCase() !== "true") return null;
+      return operator === "is"
+        ? labelExistsSql("SNOOZED")
+        : labelNotExistsSql("SNOOZED");
+    case "is_muted":
+      if (value.trim().toLowerCase() !== "true") return null;
+      return operator === "is"
+        ? labelExistsSql("MUTED")
+        : labelNotExistsSql("MUTED");
+
+    case "has_attachment":
+      if (value.trim().toLowerCase() !== "true") return null;
+      if (operator === "is") {
+        return sql`EXISTS (SELECT 1 FROM ${gmailAttachments} a INNER JOIN ${gmailMessages} m ON a.message_id = m.id WHERE m.thread_id = ${gmailThreads.id} AND m.account_id = ${accountId})`;
+      }
+      return sql`NOT EXISTS (SELECT 1 FROM ${gmailAttachments} a INNER JOIN ${gmailMessages} m ON a.message_id = m.id WHERE m.thread_id = ${gmailThreads.id} AND m.account_id = ${accountId})`;
+
+    case "filename": {
+      const needle = value.trim().toLowerCase();
+      const like = "%" + needle + "%";
+      if (operator === "is") {
+        return sql`EXISTS (SELECT 1 FROM ${gmailAttachments} a INNER JOIN ${gmailMessages} m ON a.message_id = m.id WHERE m.thread_id = ${gmailThreads.id} AND m.account_id = ${accountId} AND LOWER(a.filename) = ${needle})`;
+      }
+      if (operator === "contains") {
+        return sql`EXISTS (SELECT 1 FROM ${gmailAttachments} a INNER JOIN ${gmailMessages} m ON a.message_id = m.id WHERE m.thread_id = ${gmailThreads.id} AND m.account_id = ${accountId} AND LOWER(a.filename) LIKE ${like})`;
+      }
+      return null;
+    }
+
+    case "after": {
+      const dateStr = value.trim();
+      return sql`${gmailThreads.lastMessageAt} > ${dateStr}`;
+    }
+    case "before": {
+      const dateStr = value.trim();
+      return sql`${gmailThreads.lastMessageAt} < ${dateStr}`;
+    }
+    case "newer_than": {
+      const durationMs = parseRelativeDurationMs(value);
+      if (durationMs === null) return null;
+      const cutoff = new Date(Date.now() - durationMs).toISOString();
+      return sql`${gmailThreads.lastMessageAt} >= ${cutoff}`;
+    }
+    case "older_than": {
+      const durationMs = parseRelativeDurationMs(value);
+      if (durationMs === null) return null;
+      const cutoff = new Date(Date.now() - durationMs).toISOString();
+      return sql`${gmailThreads.lastMessageAt} <= ${cutoff}`;
+    }
+
+    case "larger": {
+      const bytes = parseSizeBytes(value);
+      if (bytes === null) return null;
+      return sql`(SELECT COALESCE(SUM(COALESCE(m.raw_size_estimate, 0)), 0) FROM ${gmailMessages} m WHERE m.thread_id = ${gmailThreads.id} AND m.account_id = ${accountId}) > ${bytes}`;
+    }
+    case "smaller": {
+      const bytes = parseSizeBytes(value);
+      if (bytes === null) return null;
+      return sql`(SELECT COALESCE(SUM(COALESCE(m.raw_size_estimate, 0)), 0) FROM ${gmailMessages} m WHERE m.thread_id = ${gmailThreads.id} AND m.account_id = ${accountId}) < ${bytes}`;
+    }
+
+    case "has_drive":
+    case "has_document":
+    case "has_spreadsheet":
+    case "has_presentation":
+    case "has_youtube": {
+      if (value.trim().toLowerCase() !== "true") return null;
+      const patterns: Record<string, string[]> = {
+        has_drive: ["%drive.google.com%"],
+        has_document: ["%docs.google.com/document%"],
+        has_spreadsheet: ["%docs.google.com/spreadsheets%"],
+        has_presentation: ["%docs.google.com/presentation%"],
+        has_youtube: ["%youtube.com%", "%youtu.be%"],
+      };
+      const likes = patterns[field]!;
+      const likeClauses = likes.map((p) => sql`(m.body_html LIKE ${p} OR m.body_text LIKE ${p})`);
+      const combined = likeClauses.length === 1
+        ? likeClauses[0]!
+        : sql`(${sql.join(likeClauses, sql` OR `)})`;
+      if (operator === "is") {
+        return sql`EXISTS (SELECT 1 FROM ${gmailMessages} m WHERE m.thread_id = ${gmailThreads.id} AND m.account_id = ${accountId} AND ${combined})`;
+      }
+      return sql`NOT EXISTS (SELECT 1 FROM ${gmailMessages} m WHERE m.thread_id = ${gmailThreads.id} AND m.account_id = ${accountId} AND ${combined})`;
+    }
+
+    default:
+      return null;
+  }
+}
+
+function buildFilterWhere(
+  accountId: string,
+  filters: GmailFilterCondition[],
+): SQL | undefined {
+  const conditions: SQL[] = [eq(gmailThreads.accountId, accountId)];
+
+  for (const filter of filters) {
+    const condition = buildFilterConditionSql(accountId, filter);
+    if (condition) conditions.push(condition);
+  }
+
+  return and(...conditions);
+}
+
+export async function queryThreads(
+  accountId: string,
+  filters: GmailFilterCondition[],
+  options: {
+    limit?: number;
+    cursor?: string | null;
+    sortAsc?: boolean;
+  } = {},
+): Promise<{ threads: ThreadListItem[]; hasMore: boolean; totalCount: number }> {
+  const limit = options.limit ?? 7;
+  const where = buildFilterWhere(accountId, filters);
+
+  const cursorConditions: SQL[] = where ? [where] : [eq(gmailThreads.accountId, accountId)];
+  if (options.cursor) {
+    cursorConditions.push(lt(gmailThreads.lastMessageAt, options.cursor));
+  }
+
+  const threadRows = await db
+    .select({
+      id: gmailThreads.id,
+      gmailThreadId: gmailThreads.gmailThreadId,
+      subject: gmailThreads.subject,
+      snippet: gmailThreads.snippet,
+      lastMessageAt: gmailThreads.lastMessageAt,
+      labels: gmailThreads.labels,
+    })
+    .from(gmailThreads)
+    .where(and(...cursorConditions))
+    .orderBy(options.sortAsc ? asc(gmailThreads.lastMessageAt) : desc(gmailThreads.lastMessageAt))
+    .limit(limit + 1);
+
+  const hasMore = threadRows.length > limit;
+  const pageRows = threadRows.slice(0, limit);
+  const threadIds = pageRows.map((r) => r.id);
+
+  // Batch-fetch latest message sender + attachment presence for the page
+  const [senderRows, attachmentCounts] = threadIds.length > 0
+    ? await Promise.all([
+        db
+          .select({
+            threadId: gmailMessages.threadId,
+            fromName: gmailMessages.fromName,
+            fromEmail: gmailMessages.fromEmail,
+            date: gmailMessages.date,
+          })
+          .from(gmailMessages)
+          .where(inArray(gmailMessages.threadId, threadIds))
+          .orderBy(desc(gmailMessages.date)),
+        db
+          .select({
+            threadId: gmailMessages.threadId,
+            count: sql<number>`COUNT(*)`.as("count"),
+          })
+          .from(gmailAttachments)
+          .innerJoin(gmailMessages, eq(gmailAttachments.messageId, gmailMessages.id))
+          .where(inArray(gmailMessages.threadId, threadIds))
+          .groupBy(gmailMessages.threadId),
+      ])
+    : [[], []];
+
+  // Pick the first (latest by date DESC) message per thread
+  const msgMap = new Map<string, { fromName: string; fromEmail: string }>();
+  for (const row of senderRows) {
+    if (!msgMap.has(row.threadId)) {
+      msgMap.set(row.threadId, { fromName: row.fromName, fromEmail: row.fromEmail });
+    }
+  }
+  const attMap = new Map(attachmentCounts.map((r) => [r.threadId, r.count]));
+
+  const threads: ThreadListItem[] = pageRows.map((row) => {
+    const msg = msgMap.get(row.id);
+    return {
+      id: row.id,
+      gmailThreadId: row.gmailThreadId,
+      subject: row.subject,
+      snippet: row.snippet,
+      lastMessageAt: row.lastMessageAt,
+      labels: row.labels,
+      fromName: msg?.fromName ?? "",
+      fromEmail: msg?.fromEmail ?? "",
+      hasAttachment: (attMap.get(row.id) ?? 0) > 0,
+    };
+  });
+
+  const [countRow] = await db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(gmailThreads)
+    .where(where);
+  const totalCount = countRow?.count ?? 0;
+
+  return { threads, hasMore, totalCount };
+}
+
+export async function countFilteredThreads(
+  accountId: string,
+  filters: GmailFilterCondition[],
+): Promise<number> {
+  const where = buildFilterWhere(accountId, filters);
+  const [row] = await db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(gmailThreads)
+    .where(where);
+  return row?.count ?? 0;
+}
+
+export async function getContactSuggestions(
+  accountId: string,
+  limit = 100,
+): Promise<Array<{ name: string; email: string }>> {
+  const rows = await db
+    .select({
+      fromName: gmailMessages.fromName,
+      fromEmail: gmailMessages.fromEmail,
+      count: sql<number>`COUNT(*)`.as("cnt"),
+    })
+    .from(gmailMessages)
+    .where(and(
+      eq(gmailMessages.accountId, accountId),
+      sql`${gmailMessages.fromEmail} != ''`,
+    ))
+    .groupBy(gmailMessages.fromEmail)
+    .orderBy(sql`cnt DESC`)
+    .limit(limit);
+
+  return rows.map((r) => ({
+    name: r.fromName,
+    email: r.fromEmail,
+  }));
+}
+
+export async function getFieldSuggestions(
+  accountId: string,
+  field: "from" | "to" | "cc" | "subject" | "filename",
+  limit = 50,
+): Promise<Array<{ value: string; label: string }>> {
+  switch (field) {
+    case "from": {
+      const rows = await db
+        .select({
+          fromName: gmailMessages.fromName,
+          fromEmail: gmailMessages.fromEmail,
+        })
+        .from(gmailMessages)
+        .where(and(
+          eq(gmailMessages.accountId, accountId),
+          sql`${gmailMessages.fromEmail} != ''`,
+        ))
+        .groupBy(gmailMessages.fromEmail)
+        .orderBy(sql`COUNT(*) DESC`)
+        .limit(limit);
+      return rows.map((r) => ({
+        value: r.fromEmail,
+        label: r.fromName ? `${r.fromName} <${r.fromEmail}>` : r.fromEmail,
+      }));
+    }
+
+    case "to": {
+      const rows = await db
+        .select({ toHeader: gmailMessages.toHeader })
+        .from(gmailMessages)
+        .where(and(
+          eq(gmailMessages.accountId, accountId),
+          sql`${gmailMessages.toHeader} != ''`,
+        ))
+        .groupBy(gmailMessages.toHeader)
+        .orderBy(sql`COUNT(*) DESC`)
+        .limit(limit * 3);
+      return extractUniqueEmails(rows.map((r) => r.toHeader), limit);
+    }
+
+    case "cc": {
+      const rows = await db
+        .select({ ccHeader: gmailMessages.ccHeader })
+        .from(gmailMessages)
+        .where(and(
+          eq(gmailMessages.accountId, accountId),
+          sql`${gmailMessages.ccHeader} != ''`,
+        ))
+        .groupBy(gmailMessages.ccHeader)
+        .orderBy(sql`COUNT(*) DESC`)
+        .limit(limit * 3);
+      return extractUniqueEmails(rows.map((r) => r.ccHeader), limit);
+    }
+
+    case "subject": {
+      const rows = await db
+        .select({ subject: gmailMessages.subject })
+        .from(gmailMessages)
+        .where(and(
+          eq(gmailMessages.accountId, accountId),
+          sql`${gmailMessages.subject} != ''`,
+        ))
+        .groupBy(gmailMessages.subject)
+        .orderBy(sql`COUNT(*) DESC`)
+        .limit(limit);
+      return rows.map((r) => ({ value: r.subject, label: r.subject }));
+    }
+
+    case "filename": {
+      const rows = await db
+        .select({ filename: gmailAttachments.filename })
+        .from(gmailAttachments)
+        .innerJoin(gmailMessages, eq(gmailAttachments.messageId, gmailMessages.id))
+        .where(eq(gmailMessages.accountId, accountId))
+        .groupBy(gmailAttachments.filename)
+        .orderBy(sql`COUNT(*) DESC`)
+        .limit(limit);
+      return rows.map((r) => ({ value: r.filename, label: r.filename }));
+    }
+
+    default:
+      return [];
+  }
+}
+
+function extractUniqueEmails(
+  headers: string[],
+  limit: number,
+): Array<{ value: string; label: string }> {
+  const seen = new Map<string, string>();
+
+  for (const raw of headers) {
+    for (const part of raw.split(",")) {
+      const trimmed = part.trim();
+      if (!trimmed) continue;
+
+      const named = trimmed.match(/^(.+?)\s*<(.+?)>$/);
+      if (named) {
+        const email = named[2]!.trim().toLowerCase();
+        if (!seen.has(email)) {
+          const name = named[1]!.trim().replace(/^"|"$/g, "");
+          seen.set(email, name ? `${name} <${email}>` : email);
+        }
+      } else {
+        const email = trimmed.replace(/^<|>$/g, "").trim().toLowerCase();
+        if (email && !seen.has(email)) {
+          seen.set(email, email);
+        }
+      }
+
+      if (seen.size >= limit) break;
+    }
+    if (seen.size >= limit) break;
+  }
+
+  return [...seen.entries()].map(([email, label]) => ({ value: email, label }));
+}
+
+// ---------------------------------------------------------------------------
+// Search (LIKE-based)
 // ---------------------------------------------------------------------------
 
 export async function searchThreads(
   accountId: string,
   query: string,
   limit = 20,
-): Promise<GmailThreadRow[]> {
+): Promise<ThreadListItem[]> {
   const pattern = `%${query}%`;
 
-  // Find matching message thread IDs
   const matchingThreadIds = await db
     .select({ threadId: gmailMessages.threadId })
     .from(gmailMessages)
@@ -658,11 +1383,54 @@ export async function searchThreads(
   if (matchingThreadIds.length === 0) return [];
 
   const ids = matchingThreadIds.map((r) => r.threadId);
-  const placeholders = ids.map(() => "?").join(",");
 
-  return db
+  const rows = await db
     .select()
     .from(gmailThreads)
-    .where(sql`${gmailThreads.id} IN (${sql.raw(placeholders)})`)
+    .where(inArray(gmailThreads.id, ids))
     .orderBy(desc(gmailThreads.lastMessageAt));
+
+  const senderRows = await db
+    .select({
+      threadId: gmailMessages.threadId,
+      fromName: gmailMessages.fromName,
+      fromEmail: gmailMessages.fromEmail,
+      date: gmailMessages.date,
+    })
+    .from(gmailMessages)
+    .where(inArray(gmailMessages.threadId, ids))
+    .orderBy(desc(gmailMessages.date));
+
+  const msgMap = new Map<string, { fromName: string; fromEmail: string }>();
+  for (const row of senderRows) {
+    if (!msgMap.has(row.threadId)) {
+      msgMap.set(row.threadId, { fromName: row.fromName, fromEmail: row.fromEmail });
+    }
+  }
+
+  const attachmentCounts = await db
+    .select({
+      threadId: gmailMessages.threadId,
+      count: sql<number>`COUNT(*)`.as("count"),
+    })
+    .from(gmailAttachments)
+    .innerJoin(gmailMessages, eq(gmailAttachments.messageId, gmailMessages.id))
+    .where(inArray(gmailMessages.threadId, ids))
+    .groupBy(gmailMessages.threadId);
+  const attMap = new Map(attachmentCounts.map((r) => [r.threadId, r.count]));
+
+  return rows.map((row) => {
+    const msg = msgMap.get(row.id);
+    return {
+      id: row.id,
+      gmailThreadId: row.gmailThreadId,
+      subject: row.subject,
+      snippet: row.snippet,
+      lastMessageAt: row.lastMessageAt,
+      labels: row.labels,
+      fromName: msg?.fromName ?? "",
+      fromEmail: msg?.fromEmail ?? "",
+      hasAttachment: (attMap.get(row.id) ?? 0) > 0,
+    };
+  });
 }

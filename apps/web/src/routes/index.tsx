@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo, useTransition, startTransition as reactStartTransition, memo, type Dispatch, type SetStateAction } from "react";
 
 import type { FilterCondition, SectionSource, ColumnConfig } from "@g-spot/types/filters";
 import {
@@ -21,7 +21,7 @@ import {
 import { InboxSection } from "@/components/inbox/inbox-section";
 import { SectionBuilder } from "@/components/inbox/section-builder";
 import { useMarkGmailThreadReadMutation } from "@/hooks/use-gmail-actions";
-import { useGmailThread, usePrefetchGmailThread } from "@/hooks/use-gmail-thread";
+import { useGmailThread } from "@/hooks/use-gmail-thread";
 import { useSections, useUpdateSectionMutation } from "@/hooks/use-sections";
 import { useSectionCounts } from "@/contexts/section-counts-context";
 import type { GmailThread } from "@/lib/gmail/types";
@@ -66,6 +66,140 @@ function dedupeThreadsByThreadId(threads: GmailThread[]): GmailThread[] {
   return uniqueThreads;
 }
 
+type SectionRowProps = {
+  section: NonNullable<ReturnType<typeof useSections>["data"]>[number];
+  collapsed: boolean;
+  sortAsc: boolean;
+  itemCount: number;
+  countTotalPending: boolean;
+  isRefreshing: boolean;
+  selectedThreadId: string | null;
+  onToggle: Dispatch<SetStateAction<Record<string, boolean>>>;
+  onToggleSort: Dispatch<SetStateAction<Record<string, boolean>>>;
+  onRefresh: (sectionId: string, source: string) => void;
+  onEdit: (section: {
+    id: string;
+    name: string;
+    source: SectionSource;
+    filters: string;
+    repos: string;
+    columns: string;
+    accountId: string | null;
+    showBadge: boolean;
+  }) => void;
+  onCountChange: (sectionId: string, count: number, countTotalPending?: boolean) => void;
+  onSelectThread: (thread: GmailThread, accountId: string | null, threads: GmailThread[]) => void;
+};
+
+const SectionRow = memo(function SectionRow({
+  section,
+  collapsed,
+  sortAsc,
+  itemCount,
+  countTotalPending,
+  isRefreshing,
+  selectedThreadId,
+  onToggle,
+  onToggleSort,
+  onRefresh,
+  onEdit,
+  onCountChange,
+  onSelectThread,
+}: SectionRowProps) {
+  const filters = useMemo(() => parseFilters(section.filters), [section.filters]);
+  const columns = useMemo(() => parseJson<ColumnConfig[]>(section.columns, []), [section.columns]);
+  const repos = useMemo(() => parseJson<string[]>(section.repos, []), [section.repos]);
+  const updateMutation = useUpdateSectionMutation();
+  const [, startTransition] = useTransition();
+
+  return (
+    <div id={`section-${section.id}`}>
+      <InboxSection
+        section={{
+          id: section.id,
+          name: section.name,
+          source: section.source as SectionSource,
+          filters: section.filters,
+          collapsed,
+          showBadge: section.showBadge,
+        }}
+        itemCount={itemCount}
+        countTotalPending={countTotalPending}
+        sortAsc={sortAsc}
+        onToggleSort={() =>
+          onToggleSort((prev) => ({
+            ...prev,
+            [section.id]: !prev[section.id],
+          }))
+        }
+        onToggle={() => {
+          const newCollapsed = !collapsed;
+          startTransition(() => {
+            onToggle((prev) => ({
+              ...prev,
+              [section.id]: newCollapsed,
+            }));
+          });
+          setTimeout(() => {
+            updateMutation.mutate({
+              id: section.id,
+              collapsed: newCollapsed,
+            });
+          }, 0);
+        }}
+        onRefresh={() => onRefresh(section.id, section.source)}
+        isRefreshing={isRefreshing}
+        onEdit={() =>
+          onEdit({
+            id: section.id,
+            name: section.name,
+            source: section.source as SectionSource,
+            filters: section.filters,
+            repos: section.repos,
+            columns: section.columns,
+            accountId: section.accountId,
+            showBadge: section.showBadge,
+          })
+        }
+      >
+        {section.source === "github_pr" || section.source === "github_issue" ? (
+          <GitHubTable
+            source={section.source}
+            sectionId={section.id}
+            filters={filters}
+            repos={repos}
+            accountId={section.accountId}
+            sortAsc={sortAsc}
+            onCountChange={(count) => onCountChange(section.id, count)}
+            columns={columns}
+          />
+        ) : (
+          <GmailMailView
+            sectionId={section.id}
+            filters={filters}
+            accountId={section.accountId}
+            sortAsc={sortAsc}
+            onCountChange={(count, countTotalPending) =>
+              onCountChange(section.id, count, countTotalPending)
+            }
+            selectedThreadId={selectedThreadId}
+            onSelectThread={onSelectThread}
+            columns={columns}
+          />
+        )}
+      </InboxSection>
+    </div>
+  );
+}, (prev, next) =>
+  prev.section === next.section
+  && prev.collapsed === next.collapsed
+  && prev.sortAsc === next.sortAsc
+  && prev.itemCount === next.itemCount
+  && prev.countTotalPending === next.countTotalPending
+  && prev.isRefreshing === next.isRefreshing
+  && prev.selectedThreadId === next.selectedThreadId,
+);
+
 function InboxPage() {
   const queryClient = useQueryClient();
   const { data: sections, isLoading } = useSections();
@@ -82,9 +216,6 @@ function InboxPage() {
     showBadge: boolean;
   } | null>(null);
 
-  const updateSectionMutation = useUpdateSectionMutation();
-
-  // Per-section collapse overrides (optimistic, local-first)
   const [collapseState, setCollapseState] = useState<Record<string, boolean>>({});
 
   // Per-section sort direction (ascending = oldest first)
@@ -92,17 +223,22 @@ function InboxPage() {
 
   // Per-section item counts from data queries (shared with sidebar via context)
   const { counts: sectionCounts, setCount } = useSectionCounts();
-  const [sectionHasMore, setSectionHasMore] = useState<Record<string, boolean>>({});
+  const [sectionCountTotalPending, setSectionCountTotalPending] = useState<
+    Record<string, boolean>
+  >({});
 
-  const handleCountChange = useCallback((sectionId: string, count: number, hasMore?: boolean) => {
-    setCount(sectionId, count);
-    if (hasMore !== undefined) {
-      setSectionHasMore((prev) => {
-        if (prev[sectionId] === hasMore) return prev;
-        return { ...prev, [sectionId]: hasMore };
-      });
-    }
-  }, [setCount]);
+  const handleCountChange = useCallback(
+    (sectionId: string, count: number, countTotalPending?: boolean) => {
+      setCount(sectionId, count);
+      if (countTotalPending !== undefined) {
+        setSectionCountTotalPending((prev) => {
+          if (prev[sectionId] === countTotalPending) return prev;
+          return { ...prev, [sectionId]: countTotalPending };
+        });
+      }
+    },
+    [setCount],
+  );
 
   // Lifted selected thread state for the right detail panel
   const [selectedThread, setSelectedThread] = useState<SelectedThreadState>(null);
@@ -113,23 +249,29 @@ function InboxPage() {
   const accounts = user?.useConnectedAccounts();
 
   const handleSelectThread = useCallback((thread: GmailThread, accountId: string | null, threads: GmailThread[]) => {
-    setSelectedThread({
-      thread: { ...thread, isUnread: false },
-      accountId,
-      threads: dedupeThreadsByThreadId(threads),
+    reactStartTransition(() => {
+      setSelectedThread({
+        thread: { ...thread, isUnread: false },
+        accountId,
+        threads: dedupeThreadsByThreadId(threads),
+      });
     });
 
+    // Defer mark-read so its optimistic cache update doesn't cause a
+    // synchronous re-render of the thread table during the click handler.
     if (thread.isUnread) {
-      const account = accountId
-        ? accounts?.find((a) => a.providerAccountId === accountId)
-        : accounts?.find((a) => a.provider === "google");
+      queueMicrotask(() => {
+        const account = accountId
+          ? accounts?.find((a) => a.providerAccountId === accountId)
+          : accounts?.find((a) => a.provider === "google");
 
-      if (account) {
-        markThreadReadMutation.mutate({
-          account,
-          threadId: thread.threadId,
-        });
-      }
+        if (account) {
+          markThreadReadMutation.mutate({
+            account,
+            threadId: thread.threadId,
+          });
+        }
+      });
     }
   }, [accounts, markThreadReadMutation]);
 
@@ -148,7 +290,9 @@ function InboxPage() {
   }, [queryClient]);
 
   const handleCloseThread = useCallback(() => {
-    setSelectedThread(null);
+    reactStartTransition(() => {
+      setSelectedThread(null);
+    });
   }, []);
   const googleAccount = selectedThread?.accountId
     ? accounts?.find((a) => a.providerAccountId === selectedThread.accountId) ?? null
@@ -180,28 +324,8 @@ function InboxPage() {
 
   const { data: threadDetail, isLoading: isDetailLoading } = useGmailThread(
     selectedThread?.thread.threadId ?? null,
-    googleAccount ?? null,
+    selectedThread?.accountId ?? null,
   );
-
-  // Prefetch ±2 threads around the selected one
-  const prefetch = usePrefetchGmailThread();
-  const prefetchedRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!selectedThread || !googleAccount || currentIndex < 0) return;
-    const threadId = selectedThread.thread.threadId;
-    if (prefetchedRef.current === threadId) return;
-    prefetchedRef.current = threadId;
-
-    const nearby = selectedThread.threads.slice(
-      Math.max(0, currentIndex - 2),
-      currentIndex + 3,
-    );
-    for (const t of nearby) {
-      if (t.threadId !== threadId) {
-        prefetch(t.threadId, googleAccount);
-      }
-    }
-  }, [selectedThread, googleAccount, currentIndex, prefetch]);
 
   // Resizable drawer width (persisted to localStorage)
   const [drawerWidth, setDrawerWidth] = useState(() => {
@@ -276,86 +400,28 @@ function InboxPage() {
       {/* Sections list */}
       <div className="h-full overflow-y-auto">
         <div className="mx-auto max-w-5xl space-y-3 p-4">
-          {sections.map((section) => {
-            const filters = parseFilters(section.filters);
-            const isSortAsc = sortState[section.id] ?? false;
-            const collapsed =
-              collapseState[section.id] ?? section.collapsed;
-            const columns = parseJson<ColumnConfig[]>(section.columns, []);
-
-            return (
-              <div key={section.id} id={`section-${section.id}`}>
-                <InboxSection
-                  section={{
-                    id: section.id,
-                    name: section.name,
-                    source: section.source as SectionSource,
-                    filters: section.filters,
-                    collapsed,
-                    showBadge: section.showBadge,
-                  }}
-                  itemCount={sectionCounts[section.id] ?? 0}
-                  hasMoreItems={sectionHasMore[section.id] ?? false}
-                  sortAsc={isSortAsc}
-                  onToggleSort={() =>
-                    setSortState((prev) => ({
-                      ...prev,
-                      [section.id]: !prev[section.id],
-                    }))
-                  }
-                  onToggle={() => {
-                    const newCollapsed = !collapsed;
-                    setCollapseState((prev) => ({
-                      ...prev,
-                      [section.id]: newCollapsed,
-                    }));
-                    updateSectionMutation.mutate({
-                      id: section.id,
-                      collapsed: newCollapsed,
-                    });
-                  }}
-                  onRefresh={() => handleRefresh(section.id, section.source)}
-                  isRefreshing={refreshing[section.id] ?? false}
-                  onEdit={() =>
-                    setEditingSection({
-                      id: section.id,
-                      name: section.name,
-                      source: section.source as SectionSource,
-                      filters: section.filters,
-                      repos: section.repos,
-                      columns: section.columns,
-                      accountId: section.accountId,
-                      showBadge: section.showBadge,
-                    })
-                  }
-                >
-                  {section.source === "github_pr" || section.source === "github_issue" ? (
-                    <GitHubTable
-                      source={section.source}
-                      sectionId={section.id}
-                      filters={filters}
-                      repos={parseJson<string[]>(section.repos, [])}
-                      accountId={section.accountId}
-                      sortAsc={isSortAsc}
-                      onCountChange={(count) => handleCountChange(section.id, count)}
-                      columns={columns}
-                    />
-                  ) : (
-                    <GmailMailView
-                      sectionId={section.id}
-                      filters={filters}
-                      accountId={section.accountId}
-                      sortAsc={isSortAsc}
-                      onCountChange={(count, hasMore) => handleCountChange(section.id, count, hasMore)}
-                      selectedThreadId={selectedThread?.thread.threadId}
-                      onSelectThread={handleSelectThread}
-                      columns={columns}
-                    />
-                  )}
-                </InboxSection>
-              </div>
-            );
-          })}
+          {sections.map((section) => (
+            <SectionRow
+              key={section.id}
+              section={section}
+              collapsed={collapseState[section.id] ?? section.collapsed}
+              sortAsc={sortState[section.id] ?? false}
+              itemCount={sectionCounts[section.id] ?? 0}
+              countTotalPending={sectionCountTotalPending[section.id] ?? false}
+              isRefreshing={refreshing[section.id] ?? false}
+              selectedThreadId={
+                section.source === "gmail"
+                  ? (selectedThread?.thread.threadId ?? null)
+                  : null
+              }
+              onToggle={setCollapseState}
+              onToggleSort={setSortState}
+              onRefresh={handleRefresh}
+              onEdit={setEditingSection}
+              onCountChange={handleCountChange}
+              onSelectThread={handleSelectThread}
+            />
+          ))}
         </div>
 
         {/* Section editor dialog */}
@@ -397,7 +463,7 @@ function InboxPage() {
             <GmailThreadDetail
               key={(selectedThread ?? drawerThreadRef.current)!.thread.threadId}
               thread={(selectedThread ?? drawerThreadRef.current)!.thread}
-              detail={threadDetail}
+              detail={threadDetail ?? undefined}
               isLoading={isDetailLoading}
               googleAccount={googleAccount ?? null}
               onClose={handleCloseThread}

@@ -83,7 +83,6 @@ function audit(
 // ---------------------------------------------------------------------------
 
 function vectorSearchEntities(
-  userId: string,
   queryVec: Buffer,
   topK: number,
 ): { id: string; distance: number }[] {
@@ -93,13 +92,12 @@ function vectorSearchEntities(
       `SELECT e.id, v.distance
        FROM memory_entities AS e
        JOIN vector_full_scan('memory_entities', 'embedding', ?, CAST(? AS INTEGER)) AS v ON e.rowid = v.rowid
-       WHERE e.user_id = ? AND e.valid_to IS NULL AND e.embedding IS NOT NULL`,
+       WHERE e.e.valid_to IS NULL AND e.embedding IS NOT NULL`,
     )
-    .all(queryVec, k, userId) as { id: string; distance: number }[];
+    .all(queryVec, k) as { id: string; distance: number }[];
 }
 
 function vectorSearchObservations(
-  userId: string,
   queryVec: Buffer,
   topK: number,
 ): { id: string; distance: number; content: string }[] {
@@ -109,17 +107,17 @@ function vectorSearchObservations(
       `SELECT e.id, v.distance, e.content
        FROM memory_observations AS e
        JOIN vector_full_scan('memory_observations', 'embedding', ?, CAST(? AS INTEGER)) AS v ON e.rowid = v.rowid
-       WHERE e.user_id = ? AND e.valid_to IS NULL AND e.embedding IS NOT NULL
+       WHERE e.e.valid_to IS NULL AND e.embedding IS NOT NULL
          AND e.salience >= 0.05`,
     )
-    .all(queryVec, k, userId) as { id: string; distance: number; content: string }[];
+    .all(queryVec, k) as { id: string; distance: number; content: string }[];
 }
 
 // ---------------------------------------------------------------------------
 // Tool factory
 // ---------------------------------------------------------------------------
 
-export function createMemoryTools(userId: string): ToolDefinition[] {
+export function createMemoryTools(): ToolDefinition[] {
   // ------------------------------------------------------------------
   // 1. memory_search — vector + graph search
   // ------------------------------------------------------------------
@@ -142,7 +140,7 @@ export function createMemoryTools(userId: string): ToolDefinition[] {
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const result = await query(params.query, {
-        userId,
+
         topK: params.topK ?? 10,
         threshold: params.threshold ?? 0.5,
         includeGraph: true,
@@ -199,11 +197,11 @@ export function createMemoryTools(userId: string): ToolDefinition[] {
         .prepare(
           `SELECT id, name, entity_type, description, aliases, salience, created_at
            FROM memory_entities
-           WHERE user_id = ? AND valid_to IS NULL AND name LIKE ?
+           WHERE valid_to IS NULL AND name LIKE ?
            ORDER BY salience DESC
            LIMIT 10`,
         )
-        .all(userId, `%${params.name.toLowerCase()}%`) as {
+        .all(`%${params.name.toLowerCase()}%`) as {
         id: string;
         name: string;
         entity_type: string;
@@ -258,10 +256,10 @@ export function createMemoryTools(userId: string): ToolDefinition[] {
         .prepare(
           `SELECT id, name, entity_type, description
            FROM memory_entities
-           WHERE user_id = ? AND valid_to IS NULL AND name LIKE ?
+           WHERE valid_to IS NULL AND name LIKE ?
            ORDER BY salience DESC LIMIT 1`,
         )
-        .get(userId, `%${params.entityName.toLowerCase()}%`) as {
+        .get(`%${params.entityName.toLowerCase()}%`) as {
         id: string;
         name: string;
         entity_type: string;
@@ -412,8 +410,8 @@ export function createMemoryTools(userId: string): ToolDefinition[] {
       }),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      ensureDefaultBlocks(userId);
-      const value = scratchpadRead(userId, params.label);
+      ensureDefaultBlocks();
+      const value = scratchpadRead(params.label);
       const text =
         value.length > 0
           ? `<${params.label}>\n${value}\n</${params.label}>`
@@ -465,9 +463,9 @@ export function createMemoryTools(userId: string): ToolDefinition[] {
       // Check for existing entity by hash
       const existing = db()
         .prepare(
-          "SELECT id, description, aliases, version FROM memory_entities WHERE user_id = ? AND hash = ? AND valid_to IS NULL",
+          "SELECT id, description, aliases, version FROM memory_entities WHERE hash = ? AND valid_to IS NULL",
         )
-        .get(userId, entHash) as
+        .get(entHash) as
         | {
             id: string;
             description: string;
@@ -524,7 +522,7 @@ export function createMemoryTools(userId: string): ToolDefinition[] {
       }
 
       // Also check vector similarity for fuzzy dedup
-      const vecMatches = vectorSearchEntities(userId, entBuf, 5);
+      const vecMatches = vectorSearchEntities(entBuf, 5);
       const similarMatch = vecMatches.find(
         (m) => 1 - m.distance >= DEDUP_COSINE_THRESHOLD,
       );
@@ -599,13 +597,12 @@ export function createMemoryTools(userId: string): ToolDefinition[] {
       db()
         .prepare(
           `INSERT INTO memory_entities
-           (id, user_id, name, entity_type, description, aliases, hash, valid_from, version,
+           (id, name, entity_type, description, aliases, hash, valid_from, version,
             salience, decay_rate, last_accessed_at, embedding, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1.0, ?, ?, ?, ?, ?)`,
         )
         .run(
           id,
-          userId,
           params.name.toLowerCase(),
           params.entityType,
           params.description,
@@ -676,9 +673,9 @@ export function createMemoryTools(userId: string): ToolDefinition[] {
       // Check hash duplicate
       const hashDup = db()
         .prepare(
-          "SELECT id, content FROM memory_observations WHERE user_id = ? AND hash = ? AND valid_to IS NULL",
+          "SELECT id, content FROM memory_observations WHERE hash = ? AND valid_to IS NULL",
         )
-        .get(userId, obsHash) as
+        .get(obsHash) as
         | { id: string; content: string }
         | undefined;
 
@@ -697,7 +694,7 @@ export function createMemoryTools(userId: string): ToolDefinition[] {
       // Vector similarity check
       const obsVec = await embedOne(params.content);
       const obsBuf = toF32Buffer(obsVec);
-      const similar = vectorSearchObservations(userId, obsBuf, 5);
+      const similar = vectorSearchObservations(obsBuf, 5);
       const tooSimilar = similar.find(
         (m) => 1 - m.distance >= DEDUP_COSINE_THRESHOLD,
       );
@@ -719,9 +716,9 @@ export function createMemoryTools(userId: string): ToolDefinition[] {
       for (const name of params.entityNames) {
         const ent = db()
           .prepare(
-            "SELECT id FROM memory_entities WHERE user_id = ? AND name LIKE ? AND valid_to IS NULL ORDER BY salience DESC LIMIT 1",
+            "SELECT id FROM memory_entities WHERE name LIKE ? AND valid_to IS NULL ORDER BY salience DESC LIMIT 1",
           )
-          .get(userId, `%${name.toLowerCase()}%`) as
+          .get(`%${name.toLowerCase()}%`) as
           | { id: string }
           | undefined;
         if (ent) entityIds.push(ent.id);
@@ -734,13 +731,12 @@ export function createMemoryTools(userId: string): ToolDefinition[] {
       db()
         .prepare(
           `INSERT INTO memory_observations
-           (id, user_id, content, observation_type, confidence, source_message_id, entity_ids, hash,
+           (id, content, observation_type, confidence, source_message_id, entity_ids, hash,
             valid_from, version, salience, decay_rate, last_accessed_at, embedding, created_at, updated_at)
            VALUES (?, ?, ?, ?, 0.8, NULL, ?, ?, ?, 1, 1.0, ?, ?, ?, ?, ?)`,
         )
         .run(
           id,
-          userId,
           params.content,
           params.observationType,
           JSON.stringify(entityIds),
@@ -804,9 +800,9 @@ export function createMemoryTools(userId: string): ToolDefinition[] {
       // Resolve source entity
       const source = db()
         .prepare(
-          "SELECT id, name FROM memory_entities WHERE user_id = ? AND name LIKE ? AND valid_to IS NULL ORDER BY salience DESC LIMIT 1",
+          "SELECT id, name FROM memory_entities WHERE name LIKE ? AND valid_to IS NULL ORDER BY salience DESC LIMIT 1",
         )
-        .get(userId, `%${params.sourceName.toLowerCase()}%`) as
+        .get(`%${params.sourceName.toLowerCase()}%`) as
         | { id: string; name: string }
         | undefined;
 
@@ -825,9 +821,9 @@ export function createMemoryTools(userId: string): ToolDefinition[] {
       // Resolve target entity
       const target = db()
         .prepare(
-          "SELECT id, name FROM memory_entities WHERE user_id = ? AND name LIKE ? AND valid_to IS NULL ORDER BY salience DESC LIMIT 1",
+          "SELECT id, name FROM memory_entities WHERE name LIKE ? AND valid_to IS NULL ORDER BY salience DESC LIMIT 1",
         )
-        .get(userId, `%${params.targetName.toLowerCase()}%`) as
+        .get(`%${params.targetName.toLowerCase()}%`) as
         | { id: string; name: string }
         | undefined;
 
@@ -946,9 +942,9 @@ export function createMemoryTools(userId: string): ToolDefinition[] {
       // Find the existing observation
       const existing = db()
         .prepare(
-          "SELECT id, content, observation_type, entity_ids, decay_rate FROM memory_observations WHERE id = ? AND user_id = ? AND valid_to IS NULL",
+          "SELECT id, content, observation_type, entity_ids, decay_rate FROM memory_observations WHERE id = ? AND valid_to IS NULL",
         )
-        .get(params.observationId, userId) as
+        .get(params.observationId) as
         | {
             id: string;
             content: string;
@@ -995,13 +991,12 @@ export function createMemoryTools(userId: string): ToolDefinition[] {
       db()
         .prepare(
           `INSERT INTO memory_observations
-           (id, user_id, content, observation_type, confidence, source_message_id, entity_ids, hash,
+           (id, content, observation_type, confidence, source_message_id, entity_ids, hash,
             valid_from, version, salience, decay_rate, last_accessed_at, embedding, created_at, updated_at)
            VALUES (?, ?, ?, ?, 0.9, NULL, ?, ?, ?, 1, 1.0, ?, ?, ?, ?, ?)`,
         )
         .run(
           id,
-          userId,
           params.newContent,
           existing.observation_type,
           existing.entity_ids,
@@ -1050,9 +1045,9 @@ export function createMemoryTools(userId: string): ToolDefinition[] {
 
       const existing = db()
         .prepare(
-          "SELECT id, content FROM memory_observations WHERE id = ? AND user_id = ? AND valid_to IS NULL",
+          "SELECT id, content FROM memory_observations WHERE id = ? AND valid_to IS NULL",
         )
-        .get(params.observationId, userId) as
+        .get(params.observationId) as
         | { id: string; content: string }
         | undefined;
 
@@ -1112,10 +1107,10 @@ export function createMemoryTools(userId: string): ToolDefinition[] {
       value: Type.String({ description: "New content for the block" }),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      ensureDefaultBlocks(userId);
+      ensureDefaultBlocks();
 
       try {
-        scratchpadRewrite(userId, params.label, params.value, "agent");
+        scratchpadRewrite(params.label, params.value, "agent");
         return {
           content: [
             {

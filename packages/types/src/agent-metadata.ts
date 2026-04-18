@@ -17,7 +17,7 @@ export const piStoredCredentialsSchema = z.record(
   piStoredCredentialSchema,
 );
 
-export const piServerMetadataSchema = z.object({
+export const piClientMetadataSchema = z.object({
   [PI_PROVIDER_CREDENTIALS_METADATA_KEY]: piStoredCredentialsSchema.optional(),
   [PI_DEFAULT_CHAT_CONFIG_METADATA_KEY]: piAgentConfigSchema.optional(),
   [PI_DEFAULT_WORKER_CONFIG_METADATA_KEY]: piAgentConfigSchema.optional(),

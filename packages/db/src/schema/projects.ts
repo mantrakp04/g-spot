@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 /**
  * Projects (workspaces). Every chat belongs to a project. A project's `path`
@@ -12,20 +12,10 @@ export const projects = sqliteTable(
   "projects",
   {
     id: text("id").primaryKey(),
-    userId: text("user_id").notNull(),
     name: text("name").notNull(),
-    /** Absolute filesystem path; canonicalized via fs.realpath on create. Immutable. */
     path: text("path").notNull(),
-    /** Replaces Pi's default system prompt when set. */
     customInstructions: text("custom_instructions"),
-    /** Appended to the system prompt when set. */
     appendPrompt: text("append_prompt"),
-    /**
-     * Per-project Pi agent config (JSON-encoded `PiAgentConfig`). Seeded at
-     * creation time from the user's defaults (`/chat/settings`). Acts as the
-     * fallback any time a chat inside this project does not have its own
-     * per-chat override set. Empty string "{}" is treated as "no override".
-     */
     agentConfig: text("agent_config").notNull().default("{}"),
     createdAt: text("created_at")
       .notNull()
@@ -34,8 +24,5 @@ export const projects = sqliteTable(
       .notNull()
       .default(sql`(current_timestamp)`),
   },
-  (table) => [
-    index("projects_user_idx").on(table.userId),
-    uniqueIndex("projects_user_path_idx").on(table.userId, table.path),
-  ],
+  (table) => [uniqueIndex("projects_path_idx").on(table.path)],
 );

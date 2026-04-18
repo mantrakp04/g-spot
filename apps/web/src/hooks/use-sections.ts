@@ -156,11 +156,6 @@ export function useUpdateSectionMutation() {
       }
     },
     onSuccess: (_data, variables) => {
-      void queryClient.invalidateQueries({
-        queryKey: sectionsKeys.list(),
-        exact: true,
-      });
-
       if (affectsSectionDerivedData(variables)) {
         void invalidateSectionDerivedData(queryClient, variables.id);
       }

@@ -1,4 +1,6 @@
+import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { getProject } from "@g-spot/db/projects";
 
 import {
   type PiCatalog,
@@ -7,32 +9,51 @@ import {
   piProviderApiKeySchema,
 } from "@g-spot/types";
 
-import { authedProcedure, router } from "../index";
+import { publicProcedure, router } from "../index";
 import { cancelPiOAuthSession, getPiOAuthSession, listPiOAuthProviders, startPiOAuthSession, submitPiOAuthManualCode, submitPiOAuthPrompt } from "../lib/pi-auth";
 import {
-  createPiModelRegistryForUser,
   getPiAgentDefaults,
   getPiBuiltinTools,
-  getPiUserMetadata,
+  getPiUserState,
   patchPiAgentDefaults,
+  createPiModelRegistry,
   removePiCredential,
   upsertPiCredential,
 } from "../lib/pi";
+import {
+  installPiAddon,
+  listPiAddons,
+  removePiAddon,
+} from "../lib/pi-addons";
+import {
+  listPopularPiCatalog,
+  PiCatalogError,
+  searchPiCatalog,
+} from "../lib/pi-catalog";
+
+async function getProjectPathOrThrow(projectId: string | null) {
+  if (projectId === null) {
+    return null;
+  }
+
+  const project = await getProject(projectId);
+  if (!project) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "Project not found",
+    });
+  }
+
+  return project.path;
+}
 
 export const piRouter = router({
-  catalog: authedProcedure.query(async ({ ctx }) => {
-    const [{ modelRegistry }, defaults, metadata] = await Promise.all([
-      createPiModelRegistryForUser(ctx.userId),
-      getPiAgentDefaults(ctx.userId),
-      getPiUserMetadata(ctx.userId),
+  catalog: publicProcedure.query(async () => {
+    const [{ modelRegistry }, defaults, state] = await Promise.all([
+      createPiModelRegistry(),
+      getPiAgentDefaults(),
+      getPiUserState(),
     ]);
-
-    const configuredProviders: PiCredentialSummary[] = Object.entries(
-      metadata.credentials,
-    ).map(([provider, credential]) => ({
-      provider,
-      type: credential.type,
-    }));
 
     const catalog: PiCatalog = {
       oauthProviders: listPiOAuthProviders(),
@@ -40,32 +61,37 @@ export const piRouter = router({
       models: modelRegistry.getAll(),
       availableModels: modelRegistry.getAvailable(),
       defaults,
-      configuredProviders,
+      configuredProviders: Object.entries(state.credentials).map(
+        ([provider, credential]): PiCredentialSummary => ({
+          provider,
+          type: credential.type,
+        }),
+      ),
     };
 
     return catalog;
   }),
 
-  defaults: authedProcedure.query(async ({ ctx }) => {
-    return getPiAgentDefaults(ctx.userId);
+  defaults: publicProcedure.query(async () => {
+    return getPiAgentDefaults();
   }),
 
-  updateDefaults: authedProcedure
+  updateDefaults: publicProcedure
     .input(
       z.object({
         chat: piAgentConfigSchema.optional(),
         worker: piAgentConfigSchema.optional(),
       }),
     )
-    .mutation(async ({ ctx, input }) => {
-      await patchPiAgentDefaults(ctx.userId, input);
-      return getPiAgentDefaults(ctx.userId);
+    .mutation(async ({ input }) => {
+      await patchPiAgentDefaults(input);
+      return getPiAgentDefaults();
     }),
 
-  credentials: authedProcedure.query(async ({ ctx }) => {
-    const metadata = await getPiUserMetadata(ctx.userId);
+  credentials: publicProcedure.query(async () => {
+    const state = await getPiUserState();
     const credentials: PiCredentialSummary[] = Object.entries(
-      metadata.credentials,
+      state.credentials,
     ).map(([provider, credential]) => ({
       provider,
       type: credential.type,
@@ -73,10 +99,10 @@ export const piRouter = router({
     return credentials;
   }),
 
-  saveApiKey: authedProcedure
+  saveApiKey: publicProcedure
     .input(piProviderApiKeySchema)
-    .mutation(async ({ ctx, input }) => {
-      await upsertPiCredential(ctx.userId, input.provider, {
+    .mutation(async ({ input }) => {
+      await upsertPiCredential(input.provider, {
         type: "api_key",
         key: input.apiKey,
       });
@@ -87,28 +113,28 @@ export const piRouter = router({
       };
     }),
 
-  removeCredential: authedProcedure
+  removeCredential: publicProcedure
     .input(
       z.object({
         provider: z.string().min(1),
       }),
     )
-    .mutation(async ({ ctx, input }) => {
-      await removePiCredential(ctx.userId, input.provider);
+    .mutation(async ({ input }) => {
+      await removePiCredential(input.provider);
       return { provider: input.provider };
     }),
 
-  startOAuth: authedProcedure
+  startOAuth: publicProcedure
     .input(
       z.object({
         provider: z.string().min(1),
       }),
     )
-    .mutation(async ({ ctx, input }) => {
-      return startPiOAuthSession(ctx.userId, input.provider);
+    .mutation(async ({ input }) => {
+      return startPiOAuthSession(input.provider);
     }),
 
-  oauthSession: authedProcedure
+  oauthSession: publicProcedure
     .input(
       z.object({
         sessionId: z.string().min(1),
@@ -118,7 +144,7 @@ export const piRouter = router({
       return getPiOAuthSession(input.sessionId);
     }),
 
-  submitOAuthPrompt: authedProcedure
+  submitOAuthPrompt: publicProcedure
     .input(
       z.object({
         sessionId: z.string().min(1),
@@ -129,7 +155,7 @@ export const piRouter = router({
       return submitPiOAuthPrompt(input.sessionId, input.value);
     }),
 
-  submitOAuthManualCode: authedProcedure
+  submitOAuthManualCode: publicProcedure
     .input(
       z.object({
         sessionId: z.string().min(1),
@@ -140,7 +166,7 @@ export const piRouter = router({
       return submitPiOAuthManualCode(input.sessionId, input.value);
     }),
 
-  cancelOAuth: authedProcedure
+  cancelOAuth: publicProcedure
     .input(
       z.object({
         sessionId: z.string().min(1),
@@ -149,4 +175,86 @@ export const piRouter = router({
     .mutation(({ input }) => {
       return cancelPiOAuthSession(input.sessionId);
     }),
+
+  listAddons: publicProcedure
+    .input(
+      z.object({
+        projectId: z.string().min(1).nullable(),
+      }),
+    )
+    .query(async ({ input }) => {
+      return listPiAddons(await getProjectPathOrThrow(input.projectId));
+    }),
+
+  installAddon: publicProcedure
+    .input(
+      z.object({
+        projectId: z.string().min(1).nullable(),
+        source: z.string().min(1).max(512),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      await installPiAddon(
+        input.source.trim(),
+        await getProjectPathOrThrow(input.projectId),
+      );
+
+      return listPiAddons(await getProjectPathOrThrow(input.projectId));
+    }),
+
+  removeAddon: publicProcedure
+    .input(
+      z.object({
+        projectId: z.string().min(1).nullable(),
+        source: z.string().min(1).max(512),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      await removePiAddon(
+        input.source.trim(),
+        await getProjectPathOrThrow(input.projectId),
+      );
+
+      return listPiAddons(await getProjectPathOrThrow(input.projectId));
+    }),
+
+  popularCatalog: publicProcedure
+    .input(
+      z.object({
+        limit: z.number().int().min(1).max(50).default(24),
+      }),
+    )
+    .query(async ({ input }) => {
+      try {
+        return await listPopularPiCatalog(input.limit);
+      } catch (err) {
+        throw translatePiCatalogError(err);
+      }
+    }),
+
+  searchCatalog: publicProcedure
+    .input(
+      z.object({
+        query: z.string().min(1).max(128),
+        limit: z.number().int().min(1).max(50).default(24),
+      }),
+    )
+    .query(async ({ input }) => {
+      try {
+        return await searchPiCatalog(input.query.trim(), input.limit);
+      } catch (err) {
+        throw translatePiCatalogError(err);
+      }
+    }),
 });
+
+function translatePiCatalogError(err: unknown): TRPCError {
+  if (err instanceof PiCatalogError) {
+    return new TRPCError({ code: "BAD_GATEWAY", message: err.message });
+  }
+  if (err instanceof TRPCError) return err;
+  return new TRPCError({
+    code: "INTERNAL_SERVER_ERROR",
+    message: err instanceof Error ? err.message : "Pi catalog error",
+  });
+}

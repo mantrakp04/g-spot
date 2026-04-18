@@ -18,7 +18,7 @@ type MessageMetadataResponse = {
 function getHeaderValue(msg: MessageMetadataResponse, name: string): string {
   return (
     msg.payload?.headers?.find(
-      (h) => h.name.toLowerCase() === name.toLowerCase(),
+      (header) => header.name.toLowerCase() === name.toLowerCase(),
     )?.value ?? ""
   );
 }
@@ -30,7 +30,7 @@ function splitAddressList(raw: string): string[] {
   let angleDepth = 0;
 
   for (const char of raw) {
-    if (char === '"') inQuotes = !inQuotes;
+    if (char === "\"") inQuotes = !inQuotes;
     else if (char === "<") angleDepth++;
     else if (char === ">") angleDepth = Math.max(0, angleDepth - 1);
 
@@ -39,8 +39,10 @@ function splitAddressList(raw: string): string[] {
       current = "";
       continue;
     }
+
     current += char;
   }
+
   if (current.trim()) parts.push(current.trim());
   return parts;
 }
@@ -78,12 +80,12 @@ async function fetchMessageIds(
     maxResults: String(maxResults),
     q: query,
   });
-  const res = await fetch(`${GMAIL_API}/messages?${params}`, {
+  const response = await fetch(`${GMAIL_API}/messages?${params}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (!res.ok) return [];
-  const data: MessageListResponse = await res.json();
-  return data.messages?.map((m) => m.id) ?? [];
+  if (!response.ok) return [];
+  const data: MessageListResponse = await response.json();
+  return data.messages?.map((message) => message.id) ?? [];
 }
 
 async function fetchMessageMetadata(
@@ -92,15 +94,14 @@ async function fetchMessageMetadata(
   headers: string[],
 ): Promise<MessageMetadataResponse> {
   const params = new URLSearchParams({ format: "metadata" });
-  for (const h of headers) params.append("metadataHeaders", h);
-  const res = await fetch(`${GMAIL_API}/messages/${messageId}?${params}`, {
+  for (const header of headers) params.append("metadataHeaders", header);
+  const response = await fetch(`${GMAIL_API}/messages/${messageId}?${params}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (!res.ok) return {};
-  return res.json();
+  if (!response.ok) return {};
+  return response.json();
 }
 
-/** Fetch known contacts from recent sent + received messages. */
 export async function fetchKnownContacts(
   accessToken: string,
 ): Promise<KnownContact[]> {
@@ -134,43 +135,26 @@ export async function fetchKnownContacts(
     }
   }
 
-  for (const msg of sentMessages) {
+  for (const message of sentMessages) {
     for (const header of ["To", "Cc", "Bcc"]) {
-      const raw = getHeaderValue(msg, header);
+      const raw = getHeaderValue(message, header);
       if (!raw) continue;
-      for (const addr of splitAddressList(raw)) {
-        const contact = parseContact(addr);
+      for (const address of splitAddressList(raw)) {
+        const contact = parseContact(address);
         if (contact) addContact(contact);
       }
     }
   }
 
-  for (const msg of receivedMessages) {
-    const raw = getHeaderValue(msg, "From");
+  for (const message of receivedMessages) {
+    const raw = getHeaderValue(message, "From");
     if (!raw) continue;
     const contact = parseContact(raw);
     if (contact) addContact(contact);
   }
 
-  // Sort by frequency (most contacted first)
   return Array.from(contactMap.entries())
     .map(([email, { name, count }]) => ({ name, email, count }))
     .sort((a, b) => b.count - a.count)
     .map(({ name, email }) => ({ name, email }));
-}
-
-/** Filter contacts by query, matching name or email. */
-export function filterContacts(
-  contacts: KnownContact[],
-  query: string,
-  limit = 8,
-): KnownContact[] {
-  const q = query.toLowerCase().trim();
-  if (!q) return contacts.slice(0, limit);
-  return contacts
-    .filter(
-      (c) =>
-        c.email.includes(q) || c.name.toLowerCase().includes(q),
-    )
-    .slice(0, limit);
 }

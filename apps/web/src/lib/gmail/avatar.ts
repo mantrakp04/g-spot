@@ -1,5 +1,5 @@
 import { env } from "@g-spot/env/web";
-import { getInitials } from "@/lib/oauth";
+import { getInitials } from "@/lib/initials";
 
 const PERSONAL_DOMAINS = new Set([
   "gmail.com", "googlemail.com",

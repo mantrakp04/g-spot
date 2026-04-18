@@ -1,5 +1,7 @@
-const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
-const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL ?? "embeddinggemma";
+import { env } from "@g-spot/env/server";
+
+const OLLAMA_BASE_URL = env.OLLAMA_BASE_URL;
+const EMBEDDING_MODEL = env.EMBEDDING_MODEL;
 const EMBEDDING_DIM = 768;
 
 export { EMBEDDING_DIM };

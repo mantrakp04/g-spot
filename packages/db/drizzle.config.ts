@@ -1,15 +1,11 @@
-import dotenv from "dotenv";
+import { env } from "@g-spot/env/server";
 import { defineConfig } from "drizzle-kit";
-
-dotenv.config({
-  path: "../../apps/server/.env",
-});
 
 export default defineConfig({
   schema: "./src/schema",
   out: "./src/migrations",
   dialect: "turso",
   dbCredentials: {
-    url: process.env.DATABASE_URL || "",
+    url: env.DATABASE_URL,
   },
 });

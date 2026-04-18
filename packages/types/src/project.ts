@@ -50,7 +50,6 @@ export type UpdateProjectAgentConfigInput = z.infer<
 
 export type Project = {
   id: string;
-  userId: string;
   name: string;
   path: string;
   customInstructions: string | null;

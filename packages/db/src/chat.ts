@@ -45,23 +45,17 @@ function extractSerializedMessageCreatedAt(
   }
 }
 
-export async function listChats(
-  userId: string,
-  input: {
-    projectId: string;
-    cursor?: ChatListCursor | null;
-    limit?: number;
-  },
-) {
+export async function listChats(input: {
+  projectId: string;
+  cursor?: ChatListCursor | null;
+  limit?: number;
+}) {
   const limit = Math.min(Math.max(input.limit ?? 20, 1), 100);
   const cursor = input.cursor ?? null;
   const updatedAtSortValue = timestampSortValue(chats.updatedAt);
   const cursorUpdatedAtSortValue = cursor ? timestampSortValue(cursor.updatedAt) : null;
 
-  const scopeFilter = and(
-    eq(chats.userId, userId),
-    eq(chats.projectId, input.projectId),
-  );
+  const scopeFilter = eq(chats.projectId, input.projectId);
 
   const rows = await db
     .select()
@@ -98,22 +92,21 @@ export async function listChats(
   };
 }
 
-export async function getChat(userId: string, chatId: string) {
+export async function getChat(chatId: string) {
   const [chat] = await db
     .select()
     .from(chats)
-    .where(and(eq(chats.id, chatId), eq(chats.userId, userId)));
+    .where(eq(chats.id, chatId));
   return chat ?? null;
 }
 
-export async function createChat(userId: string, input: CreateChatInput) {
+export async function createChat(input: CreateChatInput) {
   const id = nanoid();
   const now = new Date().toISOString();
   const model = input.model ?? "gpt-5.4-mini";
 
   await db.insert(chats).values({
     id,
-    userId,
     projectId: input.projectId,
     title: input.title ?? "New Chat",
     model,
@@ -125,30 +118,21 @@ export async function createChat(userId: string, input: CreateChatInput) {
   return { id };
 }
 
-export async function updateChatTitle(
-  userId: string,
-  chatId: string,
-  title: string,
-) {
+export async function updateChatTitle(chatId: string, title: string) {
   await db
     .update(chats)
     .set({ title, updatedAt: new Date().toISOString() })
-    .where(and(eq(chats.id, chatId), eq(chats.userId, userId)));
+    .where(eq(chats.id, chatId));
 }
 
-export async function updateChatModel(
-  userId: string,
-  chatId: string,
-  model: string,
-) {
+export async function updateChatModel(chatId: string, model: string) {
   await db
     .update(chats)
     .set({ model, updatedAt: new Date().toISOString() })
-    .where(and(eq(chats.id, chatId), eq(chats.userId, userId)));
+    .where(eq(chats.id, chatId));
 }
 
 export async function updateChatAgentConfig(
-  userId: string,
   chatId: string,
   agentConfig: string,
   model: string,
@@ -160,13 +144,11 @@ export async function updateChatAgentConfig(
       agentConfig,
       updatedAt: new Date().toISOString(),
     })
-    .where(and(eq(chats.id, chatId), eq(chats.userId, userId)));
+    .where(eq(chats.id, chatId));
 }
 
-export async function deleteChat(userId: string, chatId: string) {
-  await db
-    .delete(chats)
-    .where(and(eq(chats.id, chatId), eq(chats.userId, userId)));
+export async function deleteChat(chatId: string) {
+  await db.delete(chats).where(eq(chats.id, chatId));
 }
 
 export async function getChatMessages(chatId: string) {
@@ -248,7 +230,6 @@ export async function replaceChatMessages(
 }
 
 export async function forkChat(
-  userId: string,
   projectId: string,
   title: string | undefined,
   model: string | undefined,
@@ -276,7 +257,6 @@ export async function forkChat(
   await db.transaction(async (tx) => {
     await tx.insert(chats).values({
       id,
-      userId,
       projectId,
       title: title ?? "New Chat",
       model: model ?? "gpt-5.4-mini",

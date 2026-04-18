@@ -1,10 +1,20 @@
 import { experimental_createQueryPersister } from "@tanstack/react-query-persist-client";
 import { get, set, del } from "idb-keyval";
 
-const persister = experimental_createQueryPersister({
-  storage: { getItem: get, setItem: set, removeItem: del },
-  maxAge: 1000 * 60 * 60 * 24, // 24h
-  prefix: "gspot-",
-});
+function createIdbQueryPersister(prefix: string, maxAge: number) {
+  return experimental_createQueryPersister({
+    storage: { getItem: get, setItem: set, removeItem: del },
+    maxAge,
+    prefix,
+  }).persisterFn;
+}
 
-export const queryPersister = persister.persisterFn;
+export const queryPersister = createIdbQueryPersister(
+  "gspot-",
+  1000 * 60 * 60 * 24,
+);
+
+export const preferenceQueryPersister = createIdbQueryPersister(
+  "gspot-pref-",
+  1000 * 60 * 60 * 24 * 365 * 10,
+);

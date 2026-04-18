@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback, useMemo, useState } from "react";
+import { memo, useRef, useEffect, useCallback, useMemo, useState } from "react";
 
 import {
   AlertDialog,
@@ -50,8 +50,19 @@ import type {
   ComposeMode,
   GmailThread,
   GmailFullMessage,
+  GmailThreadDraft,
 } from "@/lib/gmail/types";
 import type { GmailThreadDetail as GmailThreadDetailType } from "@/lib/gmail/types";
+
+const SANITIZED_HTML_CACHE_LIMIT = 100;
+const EMAIL_DOCUMENT_BACKGROUND = "rgb(255, 255, 255)";
+const EMAIL_DOCUMENT_FOREGROUND = "rgb(17, 24, 39)";
+const EMAIL_BLOCKQUOTE_BORDER = "rgb(226, 232, 240)";
+const EMAIL_BLOCKQUOTE_FOREGROUND = "rgb(100, 116, 139)";
+const sanitizedEmailHtmlCache = new Map<
+  string,
+  ReturnType<typeof sanitizeEmailHtml>
+>();
 
 function formatFullDate(date: string): string {
   const d = new Date(date);
@@ -164,7 +175,7 @@ function isLikelyTrackingImage(image: HTMLImageElement): boolean {
   );
 }
 
-function sanitizeEmailHtml(html: string): string {
+function sanitizeEmailHtml(html: string) {
   const doc = new DOMParser().parseFromString(html, "text/html");
 
   for (const element of doc.querySelectorAll("script, noscript, iframe, object, embed")) {
@@ -182,7 +193,13 @@ function sanitizeEmailHtml(html: string): string {
     image.removeAttribute("decoding");
   }
 
-  for (const element of Array.from(doc.body.querySelectorAll<HTMLElement>("*"))) {
+  const elements = [
+    doc.documentElement,
+    doc.body,
+    ...Array.from(doc.body.querySelectorAll<HTMLElement>("*")),
+  ];
+
+  for (const element of elements) {
     for (const attribute of Array.from(element.attributes)) {
       if (attribute.name.toLowerCase().startsWith("on")) {
         element.removeAttribute(attribute.name);
@@ -190,129 +207,132 @@ function sanitizeEmailHtml(html: string): string {
     }
   }
 
-  return doc.body.innerHTML;
+  const styles = Array.from(doc.querySelectorAll("style"))
+    .map((style) => style.textContent?.trim() ?? "")
+    .filter(Boolean)
+    .join("\n");
+
+  for (const style of doc.querySelectorAll("style")) {
+    style.remove();
+  }
+
+  return {
+    bodyAttributes: Array.from(doc.body.attributes).map(({ name, value }) => ({
+      name,
+      value,
+    })),
+    bodyHtml: doc.body.innerHTML,
+    styles,
+  };
 }
 
-function MessageBody({ html, text }: { html: string | null; text: string | null }) {
+function MessageBody({
+
+  html,
+  text,
+}: {
+  html: string | null;
+  text: string | null;
+}) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [pendingUrl, setPendingUrl] = useState<string | null>(null);
   const [dontShowAgain, setDontShowAgain] = useState(false);
   const { dismissed, dismiss } = useLinkWarningDismissed();
   const dismissedRef = useRef(dismissed);
   dismissedRef.current = dismissed;
+  const [sanitizedHtml, setSanitizedHtml] = useState(() => {
+    if (!html) return null;
+    return sanitizedEmailHtmlCache.get(html) ?? null;
+  });
 
   useEffect(() => {
-    if (!html || !iframeRef.current) return;
-    const doc = iframeRef.current.contentDocument;
-    if (!doc) return;
-    const root = document.documentElement;
-    const rootStyles = getComputedStyle(root);
-    const isDark = root.classList.contains("dark");
-    const sanitizedHtml = sanitizeEmailHtml(html);
-
-    doc.open();
-    doc.write(`
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta name="color-scheme" content="${isDark ? "dark" : "light"}">
-        <style>
-          :root {
-            color-scheme: ${isDark ? "dark" : "light"};
-          }
-          html {
-            box-sizing: border-box;
-            width: 100%;
-            max-width: 100%;
-            background: var(--background);
-            overflow-x: hidden;
-            overflow-y: hidden;
-          }
-          body {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            width: 100%;
-            max-width: 100%;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            font-size: 14px;
-            line-height: 1.6;
-            background: var(--background);
-            color: var(--foreground);
-            overflow-wrap: break-word;
-            word-break: break-word;
-            overflow-x: hidden;
-            overflow-y: hidden;
-            -webkit-font-smoothing: antialiased;
-            text-rendering: optimizeLegibility;
-          }
-          *, *::before, *::after {
-            box-sizing: border-box;
-          }
-          img, video, canvas, svg, table, iframe {
-            max-width: 100%;
-          }
-          img { height: auto; }
-          pre {
-            white-space: pre-wrap;
-            overflow-wrap: anywhere;
-          }
-          table {
-            width: auto !important;
-            border-collapse: collapse;
-          }
-          a { color: var(--primary); cursor: pointer; }
-          blockquote {
-            margin: 8px 0;
-            padding-left: 12px;
-            border-left: 3px solid var(--border);
-            color: var(--muted-foreground);
-          }
-        </style>
-      </head>
-      <body>${sanitizedHtml}</body>
-      </html>
-    `);
-    doc.close();
-
-    doc.documentElement.className = root.className;
-
-    for (let i = 0; i < rootStyles.length; i += 1) {
-      const property = rootStyles.item(i);
-      if (!property.startsWith("--")) continue;
-
-      const value = rootStyles.getPropertyValue(property);
-      if (value) {
-        doc.documentElement.style.setProperty(property, value);
-      }
+    if (!html) {
+      setSanitizedHtml(null);
+      return;
     }
 
-    const themedBackground =
-      parseRgbColor(doc.defaultView?.getComputedStyle(doc.body).backgroundColor ?? "") ??
-      [255, 255, 255];
-
-    const elements = Array.from(doc.body.querySelectorAll<HTMLElement>("*"));
-    for (const element of elements) {
-      if (element.tagName === "A") continue;
-
-      const computedColor = doc.defaultView?.getComputedStyle(element).color;
-      if (!computedColor) continue;
-
-      const parsedColor = parseRgbColor(computedColor);
-      if (!parsedColor) continue;
-
-      const hasExplicitColor =
-        element.hasAttribute("color") ||
-        (element.getAttribute("style")?.toLowerCase().includes("color") ?? false);
-
-      if (!hasExplicitColor) continue;
-
-      if (contrastRatio(parsedColor, themedBackground) < 3) {
-        element.style.color = "var(--foreground)";
-      }
+    const cached = sanitizedEmailHtmlCache.get(html);
+    if (cached) {
+      setSanitizedHtml(cached);
+      return;
     }
 
-    // Intercept link clicks — open in new tab with optional warning
+    // Run DOMParser off the render path
+    const id = requestAnimationFrame(() => {
+      const sanitized = sanitizeEmailHtml(html);
+      sanitizedEmailHtmlCache.set(html, sanitized);
+
+      if (sanitizedEmailHtmlCache.size > SANITIZED_HTML_CACHE_LIMIT) {
+        const oldestKey = sanitizedEmailHtmlCache.keys().next().value;
+        if (oldestKey) sanitizedEmailHtmlCache.delete(oldestKey);
+      }
+
+      setSanitizedHtml(sanitized);
+    });
+
+    return () => cancelAnimationFrame(id);
+  }, [html]);
+
+  const srcdoc = useMemo(() => {
+    if (!sanitizedHtml) return null;
+
+    const bodyAttrs = sanitizedHtml.bodyAttributes
+      .map((a) => `${a.name}="${a.value.replace(/"/g, "&quot;")}"`)
+      .join(" ");
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+<meta name="color-scheme" content="light">
+<style>
+:root { color-scheme: light; }
+html {
+  box-sizing: border-box;
+  width: 100%; max-width: 100%; min-height: 100%;
+  background: ${EMAIL_DOCUMENT_BACKGROUND};
+  overflow-x: hidden; overflow-y: hidden;
+}
+body {
+  margin: 0; padding: 0; box-sizing: border-box;
+  width: 100%; max-width: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px; line-height: 1.6;
+  background: ${EMAIL_DOCUMENT_BACKGROUND};
+  color: ${EMAIL_DOCUMENT_FOREGROUND};
+  overflow-wrap: break-word; word-break: break-word;
+  overflow-x: hidden; overflow-y: hidden;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+*, *::before, *::after { box-sizing: border-box; }
+img, video, canvas, svg { max-width: 100%; }
+img { height: auto; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+table { border-collapse: collapse; }
+a { cursor: pointer; }
+blockquote {
+  margin: 8px 0; padding-left: 12px;
+  border-left: 3px solid ${EMAIL_BLOCKQUOTE_BORDER};
+  color: ${EMAIL_BLOCKQUOTE_FOREGROUND};
+}
+</style>
+${sanitizedHtml.styles ? `<style>${sanitizedHtml.styles}</style>` : ""}
+</head>
+<body ${bodyAttrs}>${sanitizedHtml.bodyHtml}</body>
+</html>`;
+  }, [sanitizedHtml]);
+
+  useEffect(() => {
+    if (!srcdoc || !iframeRef.current) return;
+    const iframe = iframeRef.current;
+
+    let cancelled = false;
+    let frameId: number | null = null;
+    let resizeObserver: ResizeObserver | null = null;
+    let idleHandle: number | null = null;
+    let scheduleResizeRef: (() => void) | null = null;
+    let loadedDoc: Document | null = null;
+
     const handleLinkClick = (e: MouseEvent) => {
       const anchor = (e.target as HTMLElement).closest?.("a");
       if (!anchor) return;
@@ -320,72 +340,94 @@ function MessageBody({ html, text }: { html: string | null; text: string | null 
       if (!href || href.startsWith("#") || href.startsWith("mailto:")) return;
       e.preventDefault();
       e.stopPropagation();
-
       if (dismissedRef.current) {
         window.open(href, "_blank", "noopener,noreferrer");
       } else {
         setPendingUrl(href);
       }
     };
-    doc.addEventListener("click", handleLinkClick);
 
-    // Auto-resize iframe to content height
-    let frameId: number | null = null;
-    const scheduleResize = () => {
-      if (frameId !== null) {
-        window.cancelAnimationFrame(frameId);
-      }
-      frameId = window.requestAnimationFrame(() => {
-        frameId = null;
-        resize();
-      });
-    };
+    const handleLoad = () => {
+      if (cancelled) return;
+      const doc = iframe.contentDocument;
+      if (!doc?.body) return;
+      loadedDoc = doc;
 
-    const resize = () => {
-      if (iframeRef.current && doc.body && doc.documentElement) {
-        const nextHeight = Math.max(
+      const resize = () => {
+        if (!doc.body || !doc.documentElement) return;
+        iframe.style.height = `${Math.max(
           doc.body.scrollHeight,
           doc.documentElement.scrollHeight,
           doc.body.offsetHeight,
           doc.documentElement.offsetHeight,
-        );
-        iframeRef.current.style.height = `${nextHeight}px`;
-      }
-    };
-    scheduleResize();
-
-    const imageLoadCleanup = Array.from(doc.images).map((image) => {
-      image.addEventListener("load", scheduleResize);
-      image.addEventListener("error", scheduleResize);
-      return () => {
-        image.removeEventListener("load", scheduleResize);
-        image.removeEventListener("error", scheduleResize);
+        )}px`;
       };
-    });
 
-    // Re-check after DOM changes and host panel resizes.
-    const observer = new MutationObserver(scheduleResize);
-    observer.observe(doc.body, { childList: true, subtree: true });
-    const resizeObserver = new ResizeObserver(scheduleResize);
-    resizeObserver.observe(doc.documentElement);
-    resizeObserver.observe(doc.body);
-    if (iframeRef.current) {
-      resizeObserver.observe(iframeRef.current);
-    }
-    window.addEventListener("resize", scheduleResize);
-    return () => {
-      if (frameId !== null) {
-        window.cancelAnimationFrame(frameId);
+      const scheduleResize = () => {
+        if (frameId !== null) window.cancelAnimationFrame(frameId);
+        frameId = window.requestAnimationFrame(() => {
+          frameId = null;
+          resize();
+        });
+      };
+
+      scheduleResizeRef = scheduleResize;
+      scheduleResize();
+
+      for (const image of doc.images) {
+        image.addEventListener("load", scheduleResize);
+        image.addEventListener("error", scheduleResize);
       }
-      for (const cleanup of imageLoadCleanup) {
-        cleanup();
+
+      resizeObserver = new ResizeObserver(scheduleResize);
+      resizeObserver.observe(doc.documentElement);
+      resizeObserver.observe(doc.body);
+      window.addEventListener("resize", scheduleResize);
+      doc.addEventListener("click", handleLinkClick);
+
+      // Defer contrast fix off the critical path
+      if (sanitizedHtml && sanitizedHtml.bodyHtml.length <= 150_000) {
+        const runContrastFix = () => {
+          if (cancelled || !doc.body || !doc.defaultView) return;
+          const bg =
+            parseRgbColor(doc.defaultView.getComputedStyle(doc.body).backgroundColor ?? "") ??
+            [255, 255, 255];
+          for (const el of doc.body.querySelectorAll<HTMLElement>("*")) {
+            if (el.tagName === "A") continue;
+            const hasExplicit =
+              el.hasAttribute("color") ||
+              (el.getAttribute("style")?.toLowerCase().includes("color") ?? false);
+            if (!hasExplicit) continue;
+            const c = parseRgbColor(doc.defaultView!.getComputedStyle(el).color ?? "");
+            if (c && contrastRatio(c, bg) < 3) {
+              el.style.color = EMAIL_DOCUMENT_FOREGROUND;
+            }
+          }
+          scheduleResize();
+        };
+
+        if ("requestIdleCallback" in window) {
+          idleHandle = window.requestIdleCallback(runContrastFix, { timeout: 500 });
+        } else {
+          setTimeout(runContrastFix, 50);
+        }
       }
-      observer.disconnect();
-      resizeObserver.disconnect();
-      window.removeEventListener("resize", scheduleResize);
-      doc.removeEventListener("click", handleLinkClick);
     };
-  }, [html]);
+
+    iframe.addEventListener("load", handleLoad);
+
+    return () => {
+      cancelled = true;
+      iframe.removeEventListener("load", handleLoad);
+      if (frameId !== null) window.cancelAnimationFrame(frameId);
+      if (idleHandle !== null && "cancelIdleCallback" in window) {
+        window.cancelIdleCallback(idleHandle);
+      }
+      resizeObserver?.disconnect();
+      if (scheduleResizeRef) window.removeEventListener("resize", scheduleResizeRef);
+      if (loadedDoc) loadedDoc.removeEventListener("click", handleLinkClick);
+    };
+  }, [srcdoc, sanitizedHtml]);
 
   const openPendingUrl = () => {
     if (dontShowAgain) dismiss();
@@ -406,6 +448,7 @@ function MessageBody({ html, text }: { html: string | null; text: string | null 
       className="block w-full overflow-hidden border-0 bg-transparent"
       sandbox="allow-same-origin"
       scrolling="no"
+      srcDoc={srcdoc ?? undefined}
       style={{ minHeight: 100 }}
     />
   ) : text ? (
@@ -486,6 +529,97 @@ export function GmailThreadDetailEmpty() {
   );
 }
 
+const ThreadMessageRow = memo(function ThreadMessageRow({
+  msg,
+  showSeparator,
+  draft,
+  isEditingDraft,
+  isExpanded,
+  onToggleExpanded,
+  onEditDraft,
+}: {
+  msg: GmailFullMessage;
+  showSeparator: boolean;
+  draft: GmailThreadDraft | null;
+  isEditingDraft: boolean;
+  isExpanded: boolean;
+  onToggleExpanded: (id: string) => void;
+  onEditDraft: (draftId: string) => void;
+}) {
+  const previewText = useMemo(
+    () => msg.bodyText?.replace(/\s+/g, " ").trim().slice(0, 180) ?? null,
+    [msg.bodyText],
+  );
+
+  return (
+    <div>
+      {showSeparator && <Separator />}
+      <div className="px-6 py-4">
+        <div className="flex items-start gap-3">
+          <GmailSenderAvatar name={msg.from.name} email={msg.from.email} />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-baseline justify-between gap-2">
+              <div className="flex min-w-0 items-baseline gap-1.5">
+                <span className="shrink-0 text-sm font-semibold">
+                  {msg.from.name}
+                </span>
+                <span className="min-w-0 truncate text-xs text-muted-foreground">
+                  &lt;{msg.from.email}&gt;
+                </span>
+                {draft && (
+                  <Badge variant="outline" className="h-5 shrink-0 px-1.5 text-[10px] uppercase">
+                    Draft
+                  </Badge>
+                )}
+              </div>
+              <span className="shrink-0 text-xs text-muted-foreground">
+                {formatFullDate(msg.date)}
+              </span>
+            </div>
+            <div className="mt-1 flex items-center justify-between gap-3">
+              <p className="truncate text-xs text-muted-foreground">
+                To: {msg.to}
+              </p>
+              <div className="flex shrink-0 items-center gap-1">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  className="text-xs"
+                  onClick={() => onToggleExpanded(msg.id)}
+                >
+                  {isExpanded ? "Hide body" : "Show body"}
+                </Button>
+                {draft && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    className="text-xs"
+                    onClick={() => onEditDraft(draft.draftId)}
+                  >
+                    {isEditingDraft ? "Editing below" : "Edit draft"}
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+        {!isEditingDraft && isExpanded && (
+          <div className="mt-4">
+            <MessageBody html={msg.bodyHtml} text={msg.bodyText} />
+          </div>
+        )}
+        {!isEditingDraft && !isExpanded && previewText && (
+          <p className="mt-4 line-clamp-3 text-sm text-muted-foreground">
+            {previewText}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+});
+
 type GmailThreadDetailProps = {
   thread: GmailThread;
   detail: GmailThreadDetailType | undefined;
@@ -514,6 +648,7 @@ export function GmailThreadDetail({
   const autoOpenedDraftIdRef = useRef<string | null>(null);
   const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null);
   const [pendingDraftToOpenId, setPendingDraftToOpenId] = useState<string | null>(null);
+  const [expandedMessageIds, setExpandedMessageIds] = useState<Set<string>>(() => new Set());
   const accountId = googleAccount?.providerAccountId ?? null;
 
   const {
@@ -579,6 +714,16 @@ export function GmailThreadDetail({
     setSelectedDraftId(null);
     setPendingDraftToOpenId(null);
   }, [thread.threadId]);
+
+  const messageIdsKey = useMemo(
+    () => (detail?.messages ?? []).map((message) => message.id).join(","),
+    [detail?.messages],
+  );
+
+  useEffect(() => {
+    const latestMessageId = detail?.messages.at(-1)?.id ?? null;
+    setExpandedMessageIds(latestMessageId ? new Set([latestMessageId]) : new Set());
+  }, [thread.threadId, messageIdsKey]);
 
   // Auto-open latest draft for this thread
   useEffect(() => {
@@ -649,6 +794,18 @@ export function GmailThreadDetail({
       ?? null
     );
   }, [inlineDraft?.gmailDraftId, draftCompose?.messageId, threadDrafts]);
+
+  const toggleMessageExpanded = useCallback((messageId: string) => {
+    setExpandedMessageIds((current) => {
+      const next = new Set(current);
+      if (next.has(messageId)) {
+        next.delete(messageId);
+      } else {
+        next.add(messageId);
+      }
+      return next;
+    });
+  }, []);
 
   const openComposeFromToolbar = useCallback(
     (mode: ComposeMode) => {
@@ -876,68 +1033,21 @@ export function GmailThreadDetail({
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto">
-        {messages.map((msg, idx) => {
-          const draft = draftsByMessageId.get(msg.id);
-          const isEditingThisDraft = editingDraftMessageId === msg.id;
-
-          return (
-          <div key={msg.id}>
-            {idx > 0 && <Separator />}
-            <div className="px-6 py-4">
-              <div className="flex items-start gap-3">
-                <GmailSenderAvatar
-                  name={msg.from.name}
-                  email={msg.from.email}
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <div className="flex min-w-0 items-baseline gap-1.5">
-                      <span className="shrink-0 text-sm font-semibold">
-                        {msg.from.name}
-                      </span>
-                      <span className="min-w-0 truncate text-xs text-muted-foreground">
-                        &lt;{msg.from.email}&gt;
-                      </span>
-                      {draft && (
-                        <Badge variant="outline" className="h-5 shrink-0 px-1.5 text-[10px] uppercase">
-                          Draft
-                        </Badge>
-                      )}
-                    </div>
-                    <span className="shrink-0 text-xs text-muted-foreground">
-                      {formatFullDate(msg.date)}
-                    </span>
-                  </div>
-                  <div className="mt-1 flex items-center justify-between gap-3">
-                    <p className="truncate text-xs text-muted-foreground">
-                      To: {msg.to}
-                    </p>
-                    {draft && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="xs"
-                        className="shrink-0 text-xs"
-                        onClick={() => {
-                          setSelectedDraftId(draft.draftId);
-                          setPendingDraftToOpenId(draft.draftId);
-                        }}
-                      >
-                        {isEditingThisDraft ? "Editing below" : "Edit draft"}
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              </div>
-              {!isEditingThisDraft && (
-                <div className="mt-4">
-                  <MessageBody html={msg.bodyHtml} text={msg.bodyText} />
-                </div>
-              )}
-            </div>
-          </div>
-          );
-        })}
+        {messages.map((msg, idx) => (
+          <ThreadMessageRow
+            key={msg.id}
+            msg={msg}
+            showSeparator={idx > 0}
+            draft={draftsByMessageId.get(msg.id) ?? null}
+            isEditingDraft={editingDraftMessageId === msg.id}
+            isExpanded={expandedMessageIds.has(msg.id)}
+            onToggleExpanded={toggleMessageExpanded}
+            onEditDraft={(draftId) => {
+              setSelectedDraftId(draftId);
+              setPendingDraftToOpenId(draftId);
+            }}
+          />
+        ))}
 
         {/* Inline compose for reply/reply-all/forward */}
         <div ref={composeAnchorRef} className="scroll-mt-2">

@@ -22,7 +22,7 @@ type ComposeInlineProps = {
 };
 
 export function ComposeInline({ draft, googleAccount }: ComposeInlineProps) {
-  const { updateField, setGmailDraftId, closeDraft, setInlineDraft, addAttachments, removeAttachment } = useDrafts();
+  const { updateField, setGmailDraftId, setAccountId, closeDraft, setInlineDraft, addAttachments, removeAttachment } = useDrafts();
   const { data: profile } = useGoogleProfile(googleAccount);
   const userEmail = profile?.email ?? "";
   const deleteDraftMutation = useDeleteGmailDraftMutation(googleAccount);
@@ -49,6 +49,14 @@ export function ComposeInline({ draft, googleAccount }: ComposeInlineProps) {
       updateField(draft.id, field, value);
     },
     [draft.id, updateField],
+  );
+
+  const handleAccountIdChange = useCallback(
+    (accountId: string) => {
+      cancelPendingSave();
+      setAccountId(draft.id, accountId);
+    },
+    [cancelPendingSave, draft.id, setAccountId],
   );
 
   const handleDiscard = useCallback(async () => {
@@ -133,6 +141,8 @@ export function ComposeInline({ draft, googleAccount }: ComposeInlineProps) {
           mode={draft.mode}
           form={draft.form}
           onUpdateField={handleUpdateField}
+          accountId={draft.accountId}
+          onAccountIdChange={handleAccountIdChange}
           onSend={handleSend}
           onDiscard={handleDiscard}
           onClose={handleClose}

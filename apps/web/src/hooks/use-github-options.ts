@@ -3,12 +3,10 @@ import { Octokit } from "octokit";
 import type { OAuthConnection } from "@stackframe/react";
 import type { FilterCondition } from "@g-spot/types/filters";
 
+import { getConnectedAccountAccessToken } from "@/lib/connected-account";
 import { buildGitHubSearchQuery, type GitHubItemType } from "@/lib/github/api";
-import { getOAuthToken } from "@/lib/oauth";
 import { githubKeys } from "@/lib/query-keys";
 import { persistedStaleWhileRevalidateQueryOptions } from "@/utils/query-defaults";
-
-// ─── Repo Search ────────────────────────────────────────────────────────────
 
 export type RepoOption = {
   value: string;
@@ -55,8 +53,11 @@ export function useGitHubRepoSearch(
   return useInfiniteQuery({
     queryKey: githubKeys.repoSearch(account?.providerAccountId, normalizedQuery),
     queryFn: async ({ pageParam }): Promise<RepoPage> => {
-      const token = await getOAuthToken(account!);
-      const octokit = new Octokit({ auth: token });
+      const accessToken = await getConnectedAccountAccessToken(account!, [
+        "repo",
+        "read:org",
+      ]);
+      const octokit = new Octokit({ auth: accessToken });
 
       if (normalizedQuery.endsWith("/")) {
         return fetchOwnerRepos(octokit, normalizedQuery.slice(0, -1), pageParam);
@@ -128,8 +129,6 @@ async function fetchOwnerRepos(
   }
 }
 
-// ─── Labels & Users ─────────────────────────────────────────────────────────
-
 export function useGitHubLabels(
   account: OAuthConnection | null,
   repos: string[],
@@ -137,8 +136,11 @@ export function useGitHubLabels(
   return useQuery({
     queryKey: githubKeys.labels(account?.providerAccountId, repos),
     queryFn: async () => {
-      const token = await getOAuthToken(account!);
-      const octokit = new Octokit({ auth: token });
+      const accessToken = await getConnectedAccountAccessToken(account!, [
+        "repo",
+        "read:org",
+      ]);
+      const octokit = new Octokit({ auth: accessToken });
 
       const allLabels = await Promise.all(
         repos.map(async (repo) => {
@@ -175,8 +177,11 @@ export async function fetchGitHubUserSearch(
   const trimmedQuery = query.trim();
   if (!trimmedQuery) return [];
 
-  const token = await getOAuthToken(account);
-  const octokit = new Octokit({ auth: token });
+  const accessToken = await getConnectedAccountAccessToken(account, [
+    "repo",
+    "read:org",
+  ]);
+  const octokit = new Octokit({ auth: accessToken });
   const { data } = await octokit.rest.search.users({
     q: trimmedQuery,
     per_page: 10,
@@ -193,34 +198,35 @@ export function useGitHubUsers(
 ) {
   return useQuery({
     queryKey: githubKeys.users(account?.providerAccountId, query),
-    queryFn: async () => fetchGitHubUserSearch(account!, query),
+    queryFn: () => fetchGitHubUserSearch(account!, query),
     enabled: !!account && query.length >= 2,
     ...persistedStaleWhileRevalidateQueryOptions,
   });
 }
 
+export async function fetchGitHubProfileForConnection(
+  account: OAuthConnection,
+) {
+  const accessToken = await getConnectedAccountAccessToken(account, [
+    "repo",
+    "read:org",
+  ]);
+  const octokit = new Octokit({ auth: accessToken });
+  const { data } = await octokit.rest.users.getAuthenticated();
+  return { login: data.login, avatarUrl: data.avatar_url, name: data.name };
+}
+
 export function useGitHubProfile(account: OAuthConnection | null) {
   return useQuery({
     queryKey: githubKeys.profile(account?.providerAccountId),
-    queryFn: async () => {
-      const token = await getOAuthToken(account!);
-      const octokit = new Octokit({ auth: token });
-      const { data } = await octokit.rest.users.getAuthenticated();
-      return { login: data.login, avatarUrl: data.avatar_url, name: data.name };
-    },
+    queryFn: () => fetchGitHubProfileForConnection(account!),
     enabled: !!account,
     ...persistedStaleWhileRevalidateQueryOptions,
   });
 }
 
-// ─── Unified Filter Suggestions ─────────────────────────────────────────────
-
 const FILTER_SUGGESTION_RESULT_LIMIT = 25;
 
-/**
- * GraphQL fragments per field, keyed by item type.
- * PR fragments include review-related fields that issues don't have.
- */
 const SUGGESTION_FRAGMENTS: Record<GitHubItemType, Record<string, string>> = {
   pr: {
     author: `author { login }`,
@@ -325,17 +331,17 @@ function extractSuggestions(field: string, node: SuggestionNode, options: Filter
       pushUserSuggestion(options, node.author?.login);
       break;
     case "reviewer":
-      node.latestReviews?.nodes.forEach((r) => pushUserSuggestion(options, r.author?.login));
-      node.reviewRequests?.nodes.forEach((r) => {
-        if (r.requestedReviewer?.__typename === "User") {
-          pushUserSuggestion(options, r.requestedReviewer.login);
+      node.latestReviews?.nodes.forEach((review) => pushUserSuggestion(options, review.author?.login));
+      node.reviewRequests?.nodes.forEach((request) => {
+        if (request.requestedReviewer?.__typename === "User") {
+          pushUserSuggestion(options, request.requestedReviewer.login);
         }
       });
       break;
     case "team_reviewer":
-      node.reviewRequests?.nodes.forEach((r) => {
-        if (r.requestedReviewer?.__typename === "Team") {
-          const team = r.requestedReviewer;
+      node.reviewRequests?.nodes.forEach((request) => {
+        if (request.requestedReviewer?.__typename === "Team") {
+          const team = request.requestedReviewer;
           const value = team.organization?.login
             ? `${team.organization.login}/${team.slug}`
             : team.slug;
@@ -344,14 +350,14 @@ function extractSuggestions(field: string, node: SuggestionNode, options: Filter
       });
       break;
     case "assignee":
-      node.assignees?.nodes.forEach((a) => pushUserSuggestion(options, a.login));
+      node.assignees?.nodes.forEach((assignee) => pushUserSuggestion(options, assignee.login));
       break;
     case "mentions":
     case "involves":
-      node.participants?.nodes.forEach((p) => pushUserSuggestion(options, p.login));
+      node.participants?.nodes.forEach((participant) => pushUserSuggestion(options, participant.login));
       pushUserSuggestion(options, node.author?.login);
-      node.assignees?.nodes.forEach((a) => pushUserSuggestion(options, a.login));
-      node.latestReviews?.nodes?.forEach((r) => pushUserSuggestion(options, r.author?.login));
+      node.assignees?.nodes.forEach((assignee) => pushUserSuggestion(options, assignee.login));
+      node.latestReviews?.nodes?.forEach((review) => pushUserSuggestion(options, review.author?.login));
       break;
     case "repo":
       if (node.repository?.nameWithOwner) {
@@ -359,7 +365,7 @@ function extractSuggestions(field: string, node: SuggestionNode, options: Filter
       }
       break;
     case "label":
-      node.labels?.nodes.forEach((l) => options.push({ value: l.name, label: l.name }));
+      node.labels?.nodes.forEach((label) => options.push({ value: label.name, label: label.name }));
       break;
     case "milestone":
       if (node.milestone?.title) {
@@ -368,7 +374,10 @@ function extractSuggestions(field: string, node: SuggestionNode, options: Filter
       break;
     case "language":
       if (node.repository?.primaryLanguage?.name) {
-        options.push({ value: node.repository.primaryLanguage.name, label: node.repository.primaryLanguage.name });
+        options.push({
+          value: node.repository.primaryLanguage.name,
+          label: node.repository.primaryLanguage.name,
+        });
       }
       break;
     case "head":
@@ -383,8 +392,8 @@ function extractSuggestions(field: string, node: SuggestionNode, options: Filter
 function isMissingGitHubOrgScopeError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   return (
-    error.message.includes("requires one of the following scopes") &&
-    (error.message.includes("read:org") || error.message.includes("read:discussion"))
+    error.message.includes("requires one of the following scopes")
+    && (error.message.includes("read:org") || error.message.includes("read:discussion"))
   );
 }
 
@@ -399,8 +408,11 @@ export async function fetchGitHubFilterSuggestions(
   const fragment = fragments[field];
   if (!fragment) return [];
 
-  const token = await getOAuthToken(account);
-  const octokit = new Octokit({ auth: token });
+  const accessToken = await getConnectedAccountAccessToken(account, [
+    "repo",
+    "read:org",
+  ]);
+  const octokit = new Octokit({ auth: accessToken });
   const searchQuery = buildGitHubSearchQuery(itemType, filters, repos);
   const graphqlType = itemType === "pr" ? "PullRequest" : "Issue";
 

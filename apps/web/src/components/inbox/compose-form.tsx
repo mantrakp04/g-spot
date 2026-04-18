@@ -5,16 +5,21 @@ import { Input } from "@g-spot/ui/components/input";
 import { Separator } from "@g-spot/ui/components/separator";
 import { Textarea } from "@g-spot/ui/components/textarea";
 import type { OAuthConnection } from "@stackframe/react";
+import { useUser } from "@stackframe/react";
 import { Loader2, Send, Trash2, ChevronDown, Paperclip, X as XIcon } from "lucide-react";
 
 import type { ComposeAttachment } from "@/contexts/drafts-context";
+import { usePreferredComposeGoogleAccount } from "@/hooks/use-preferred-compose-google-account";
 import type { ComposeMode, ComposeFormState } from "@/lib/gmail/types";
+import { ConnectedAccountSelect } from "./connected-account-select";
 import { RecipientInput } from "./recipient-input";
 
 type ComposeFormProps = {
   mode: ComposeMode;
   form: ComposeFormState;
   onUpdateField: (field: keyof ComposeFormState, value: string) => void;
+  accountId?: string | null;
+  onAccountIdChange?: (accountId: string) => void;
   onSend: () => void;
   onDiscard: () => void;
   onClose: () => void;
@@ -43,6 +48,8 @@ export function ComposeForm({
   mode,
   form,
   onUpdateField,
+  accountId,
+  onAccountIdChange,
   onSend,
   onDiscard,
   isSaving,
@@ -55,8 +62,12 @@ export function ComposeForm({
   onRemoveAttachment,
   googleAccount,
 }: ComposeFormProps) {
+  const user = useUser();
+  const accounts = user?.useConnectedAccounts();
+  const { setPreferredAccountId } = usePreferredComposeGoogleAccount(accounts);
   const [showCcBcc, setShowCcBcc] = useState(!!form.cc || !!form.bcc);
   const showSubject = mode === "new" || mode === "forward";
+  const canSelectFromAccount = !!onAccountIdChange && form.threadId == null;
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleKeyDown = useCallback(
@@ -71,6 +82,25 @@ export function ComposeForm({
 
   return (
     <div className="flex flex-col gap-2">
+      {canSelectFromAccount && (
+        <>
+          <div className="flex items-center gap-2">
+            <span className="w-12 shrink-0 text-xs text-muted-foreground">From</span>
+            <ConnectedAccountSelect
+              accounts={accounts ?? []}
+              provider="google"
+              value={accountId ?? googleAccount?.providerAccountId ?? null}
+              onValueChange={(nextAccountId) => {
+                setPreferredAccountId(nextAccountId);
+                onAccountIdChange?.(nextAccountId);
+              }}
+              className="h-8 flex-1"
+            />
+          </div>
+          <Separator />
+        </>
+      )}
+
       {/* To */}
       <div className="flex items-start gap-2">
         <span className="mt-1.5 w-12 shrink-0 text-xs text-muted-foreground">To</span>
@@ -232,7 +262,7 @@ export function ComposeForm({
           <Button
             size="sm"
             onClick={onSend}
-            disabled={isSending || !form.to.trim()}
+            disabled={isSending || !form.to.trim() || !googleAccount}
           >
             {isSending ? (
               <Loader2 className="size-3.5 animate-spin" />

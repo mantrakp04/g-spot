@@ -162,6 +162,10 @@ export type ChatStreamEvent =
   | ToolApprovalRequestEvent
   | ToolApprovalResolvedEvent;
 
+export type ChatSocketStateEvent =
+  | { type: "socket_attached" }
+  | { type: "socket_missing" };
+
 function base64ImageUrl(data: string, mimeType: string) {
   return `data:${mimeType};base64,${data}`;
 }
@@ -517,52 +521,16 @@ export function isGSpotErrorEvent(event: ChatStreamEvent): event is GSpotErrorEv
   return event.type === "gspot_error";
 }
 
-/**
- * Parse an SSE byte stream from /api/chat (or its reconnect variant) into a
- * sequence of typed events. Handles partial chunks, multi-line `data:` blocks,
- * and the standard `\n\n` boundary.
- */
-export async function* readChatEvents(
-  stream: ReadableStream<Uint8Array>,
-): AsyncGenerator<ChatStreamEvent> {
-  const reader = stream.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
+export function parseChatSocketMessage(
+  payload: string,
+): ChatStreamEvent | ChatSocketStateEvent {
+  return JSON.parse(payload) as ChatStreamEvent | ChatSocketStateEvent;
+}
 
-  try {
-    for (;;) {
-      const result = await reader.read();
-      if (result.done) {
-        break;
-      }
-
-      buffer += decoder.decode(result.value, { stream: true });
-
-      for (;;) {
-        const boundary = buffer.indexOf("\n\n");
-        if (boundary === -1) {
-          break;
-        }
-
-        const block = buffer.slice(0, boundary);
-        buffer = buffer.slice(boundary + 2);
-
-        const payload = block
-          .split("\n")
-          .filter((line) => line.startsWith("data:"))
-          .map((line) => line.slice(5).trimStart())
-          .join("\n");
-
-        if (!payload) {
-          continue;
-        }
-
-        yield JSON.parse(payload) as ChatStreamEvent;
-      }
-    }
-  } finally {
-    reader.releaseLock();
-  }
+export function isChatSocketStateEvent(
+  event: ChatStreamEvent | ChatSocketStateEvent,
+): event is ChatSocketStateEvent {
+  return event.type === "socket_attached" || event.type === "socket_missing";
 }
 
 export function getMessageText(message: UIMessage) {

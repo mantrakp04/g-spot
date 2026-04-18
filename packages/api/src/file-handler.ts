@@ -4,7 +4,6 @@ import {
   getFileById,
 } from "@g-spot/db/files";
 
-import { verifyStackToken } from "./lib/verify-token";
 import { getObject, getObjectSize, objectExists, putObject } from "./lib/storage";
 
 async function sha256(buffer: ArrayBuffer): Promise<string> {
@@ -45,11 +44,6 @@ async function toDownloadStream(body: DownloadBody): Promise<ReadableStream> {
 
 /** POST /api/files/upload — accepts multipart/form-data with a "file" field. */
 export async function handleFileUpload(request: Request): Promise<Response> {
-  const accessToken = request.headers.get("x-stack-access-token");
-  if (!accessToken) return new Response("Unauthorized", { status: 401 });
-  const userId = await verifyStackToken(accessToken);
-  if (!userId) return new Response("Unauthorized", { status: 401 });
-
   const formData = await request.formData();
   const file = formData.get("file");
   if (!file || !(file instanceof File)) {
@@ -73,7 +67,6 @@ export async function handleFileUpload(request: Request): Promise<Response> {
 
   await ensureFileHash(hash, buffer.length);
   const fileId = await createFileMetadata({
-    userId,
     hash,
     filename: file.name,
     mimeType,

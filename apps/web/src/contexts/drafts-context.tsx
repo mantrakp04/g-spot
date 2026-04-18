@@ -42,6 +42,7 @@ type DraftsAction =
   | { type: "EXPAND"; id: string }
   | { type: "UPDATE_FIELD"; id: string; field: keyof ComposeFormState; value: string }
   | { type: "SET_GMAIL_DRAFT_ID"; id: string; gmailDraftId: string }
+  | { type: "SET_ACCOUNT_ID"; id: string; accountId: string | null }
   | { type: "SET_INLINE"; id: string | null }
   | { type: "UPDATE_LABEL"; id: string; label: string }
   | { type: "ADD_ATTACHMENTS"; id: string; attachments: ComposeAttachment[] }
@@ -89,6 +90,19 @@ function reducer(state: DraftsState, action: DraftsAction): DraftsState {
             ? { ...d, gmailDraftId: action.gmailDraftId }
             : d,
         ),
+      };
+    case "SET_ACCOUNT_ID":
+      return {
+        ...state,
+        drafts: state.drafts.map((d) => {
+          if (d.id !== action.id) return d;
+          if (d.accountId === action.accountId) return d;
+          return {
+            ...d,
+            accountId: action.accountId,
+            gmailDraftId: null,
+          };
+        }),
       };
     case "SET_INLINE":
       return { ...state, inlineDraftId: action.id };
@@ -165,6 +179,7 @@ type DraftsContextValue = {
   expandDraft: (id: string) => void;
   updateField: (id: string, field: keyof ComposeFormState, value: string) => void;
   setGmailDraftId: (id: string, gmailDraftId: string) => void;
+  setAccountId: (id: string, accountId: string | null) => void;
   setInlineDraft: (id: string | null) => void;
   getDraft: (id: string) => DraftEntry | undefined;
   getDraftForThread: (threadId: string) => DraftEntry | undefined;
@@ -277,6 +292,10 @@ export function DraftsProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "SET_GMAIL_DRAFT_ID", id, gmailDraftId });
   }, []);
 
+  const setAccountId = useCallback((id: string, accountId: string | null) => {
+    dispatch({ type: "SET_ACCOUNT_ID", id, accountId });
+  }, []);
+
   const addAttachments = useCallback((id: string, files: File[]) => {
     const attachments: ComposeAttachment[] = files.map((file) => ({
       id: `att-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -323,6 +342,7 @@ export function DraftsProvider({ children }: { children: ReactNode }) {
       expandDraft,
       updateField,
       setGmailDraftId,
+      setAccountId,
       setInlineDraft,
       getDraft,
       getDraftForThread,
@@ -340,6 +360,7 @@ export function DraftsProvider({ children }: { children: ReactNode }) {
       expandDraft,
       updateField,
       setGmailDraftId,
+      setAccountId,
       setInlineDraft,
       getDraft,
       getDraftForThread,

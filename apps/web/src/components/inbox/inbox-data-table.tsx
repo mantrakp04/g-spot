@@ -8,6 +8,7 @@ import {
   type RowData,
   type VisibilityState,
 } from "@tanstack/react-table";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   useCallback,
   useEffect,
@@ -365,6 +366,21 @@ export function InboxDataTable<TData>({
   const headerGroups = table.getHeaderGroups();
   const rows = table.getRowModel().rows;
   const showSkeletonRows = isLoading && rows.length === 0;
+  const visibleColumnCount = visibleLeafColumns.length;
+
+  const rowVirtualizer = useVirtualizer({
+    count: showSkeletonRows ? 0 : rows.length,
+    getScrollElement: () => scrollContainer,
+    estimateSize: () => 40,
+    overscan: 8,
+  });
+  const virtualRows = rowVirtualizer.getVirtualItems();
+  const virtualTotalSize = rowVirtualizer.getTotalSize();
+  const paddingTop = virtualRows.length > 0 ? virtualRows[0]!.start : 0;
+  const paddingBottom =
+    virtualRows.length > 0
+      ? virtualTotalSize - virtualRows[virtualRows.length - 1]!.end
+      : 0;
 
   return (
     <TooltipProvider>
@@ -489,58 +505,75 @@ export function InboxDataTable<TData>({
                     })}
                   </TableRow>
                 ))
-              : rows.map((row) => {
-                  const rowEl = (
-                    <TableRow
-                      key={row.id}
-                      className={cn(
-                        "group",
-                        onRowClick && "cursor-pointer",
-                        rowClassName?.(row.original),
-                      )}
-                      onClick={onRowClick ? () => onRowClick(row.original) : undefined}
-                    >
-                      {row.getVisibleCells().map((cell) => {
-                        const meta = resolveMeta(cell.column);
-                        return (
-                          <TableCell
-                            key={cell.id}
-                            style={{
-                              width: getRenderedColumnWidth(
-                                cell.column.id,
-                                cell.column.getSize(),
-                              ),
-                            }}
-                            className={cn(
-                              "overflow-hidden",
-                              BREAKPOINT_CLASS[meta.breakpoint],
-                              ALIGN_TEXT[meta.align],
-                              meta.cellClassName,
-                            )}
-                          >
-                            <div
+              : (
+                <>
+                  {paddingTop > 0 && (
+                    <tr aria-hidden="true">
+                      <td colSpan={visibleColumnCount} style={{ height: paddingTop, padding: 0, border: 0 }} />
+                    </tr>
+                  )}
+                  {virtualRows.map((virtualRow) => {
+                    const row = rows[virtualRow.index]!;
+                    const rowEl = (
+                      <TableRow
+                        key={row.id}
+                        data-index={virtualRow.index}
+                        ref={rowVirtualizer.measureElement}
+                        className={cn(
+                          "group",
+                          onRowClick && "cursor-pointer",
+                          rowClassName?.(row.original),
+                        )}
+                        onClick={onRowClick ? () => onRowClick(row.original) : undefined}
+                      >
+                        {row.getVisibleCells().map((cell) => {
+                          const meta = resolveMeta(cell.column);
+                          return (
+                            <TableCell
+                              key={cell.id}
+                              style={{
+                                width: getRenderedColumnWidth(
+                                  cell.column.id,
+                                  cell.column.getSize(),
+                                ),
+                              }}
                               className={cn(
-                                "flex w-full min-w-0 items-center gap-1 overflow-hidden",
-                                ALIGN_JUSTIFY[meta.align],
-                                meta.contentClassName,
+                                "overflow-hidden",
+                                BREAKPOINT_CLASS[meta.breakpoint],
+                                ALIGN_TEXT[meta.align],
+                                meta.cellClassName,
                               )}
                             >
-                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                            </div>
-                          </TableCell>
-                        );
-                      })}
-                    </TableRow>
-                  );
+                              <div
+                                className={cn(
+                                  "flex w-full min-w-0 items-center gap-1 overflow-hidden",
+                                  ALIGN_JUSTIFY[meta.align],
+                                  meta.contentClassName,
+                                )}
+                              >
+                                {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                              </div>
+                            </TableCell>
+                          );
+                        })}
+                      </TableRow>
+                    );
 
-                  return rowWrapper ? (
-                    <RowWrapperSlot key={row.id} wrapper={rowWrapper} row={row.original}>
-                      {rowEl}
-                    </RowWrapperSlot>
-                  ) : (
-                    rowEl
-                  );
-                })}
+                    return rowWrapper ? (
+                      <RowWrapperSlot key={row.id} wrapper={rowWrapper} row={row.original}>
+                        {rowEl}
+                      </RowWrapperSlot>
+                    ) : (
+                      rowEl
+                    );
+                  })}
+                  {paddingBottom > 0 && (
+                    <tr aria-hidden="true">
+                      <td colSpan={visibleColumnCount} style={{ height: paddingBottom, padding: 0, border: 0 }} />
+                    </tr>
+                  )}
+                </>
+              )}
           </TableBody>
         </Table>
 

@@ -25,14 +25,12 @@ export const skills = sqliteTable(
   "skills",
   {
     id: text("id").primaryKey(),
-    userId: text("user_id").notNull(),
     projectId: text("project_id").references(() => projects.id, {
       onDelete: "cascade",
     }),
     name: text("name").notNull(),
     description: text("description").notNull(),
     content: text("content").notNull().default(""),
-    /** JSON-encoded string array used only for local slash-command ranking. */
     triggerKeywords: text("trigger_keywords").notNull().default("[]"),
     disableModelInvocation: integer("disable_model_invocation", {
       mode: "boolean",
@@ -47,10 +45,9 @@ export const skills = sqliteTable(
       .default(sql`(current_timestamp)`),
   },
   (table) => [
-    index("skills_user_idx").on(table.userId),
     index("skills_project_idx").on(table.projectId),
     uniqueIndex("skills_global_name_unique")
-      .on(table.userId, table.name)
+      .on(table.name)
       .where(sql`${table.projectId} IS NULL`),
     uniqueIndex("skills_project_name_unique")
       .on(table.projectId, table.name)

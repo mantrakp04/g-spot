@@ -17,7 +17,7 @@ import {
   type Project,
 } from "@g-spot/types";
 
-import { authedProcedure, router } from "../index";
+import { publicProcedure, router } from "../index";
 import {
   getPiAgentDefaults,
   normalizePiAgentConfig,
@@ -40,7 +40,6 @@ function withParsedAgentConfig(
 ): Project {
   return {
     id: row.id,
-    userId: row.userId,
     name: row.name,
     path: row.path,
     customInstructions: row.customInstructions,
@@ -52,39 +51,35 @@ function withParsedAgentConfig(
 }
 
 export const projectsRouter = router({
-  list: authedProcedure.query(async ({ ctx }) => {
-    const [rows, defaults] = await Promise.all([
-      listProjects(ctx.userId),
-      getPiAgentDefaults(ctx.userId),
-    ]);
+  list: publicProcedure.query(async () => {
+    const defaults = await getPiAgentDefaults();
+    const rows = await listProjects();
     return rows.map((row) => withParsedAgentConfig(row, defaults.chat));
   }),
 
-  get: authedProcedure
+  get: publicProcedure
     .input(z.object({ id: z.string().min(1) }))
-    .query(async ({ ctx, input }) => {
-      const project = await getProject(ctx.userId, input.id);
+    .query(async ({ input }) => {
+      const defaults = await getPiAgentDefaults();
+      const project = await getProject(input.id);
       if (!project) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
       }
-      const defaults = await getPiAgentDefaults(ctx.userId);
       return withParsedAgentConfig(project, defaults.chat);
     }),
 
-  create: authedProcedure
+  create: publicProcedure
     .input(createProjectInputSchema)
-    .mutation(async ({ ctx, input }) => {
-      const canonicalPath = await validateProjectPath(ctx.userId, input.path);
+    .mutation(async ({ input }) => {
+      const canonicalPath = await validateProjectPath(input.path);
+      const defaults = await getPiAgentDefaults();
 
-      // Seed the project's `agent_config` from the user's current Pi chat
-      // defaults so `/chat/settings` actually behaves as the "defaults for
-      // new projects" the user configured. Subsequent project edits
-      // decouple the per-project config from those defaults.
-      const defaults = await getPiAgentDefaults(ctx.userId);
-      const seededConfig = JSON.stringify(defaults.chat);
+      const seededConfig = JSON.stringify(
+        normalizePiAgentConfig(defaults.chat),
+      );
 
       try {
-        const created = await createProject(ctx.userId, {
+        const created = await createProject({
           name: input.name,
           path: canonicalPath,
           customInstructions: input.customInstructions ?? null,
@@ -97,40 +92,39 @@ export const projectsRouter = router({
       }
     }),
 
-  update: authedProcedure
+  update: publicProcedure
     .input(updateProjectInputSchema)
-    .mutation(async ({ ctx, input }) => {
-      const existing = await getProject(ctx.userId, input.id);
+    .mutation(async ({ input }) => {
+      const defaults = await getPiAgentDefaults();
+      const existing = await getProject(input.id);
       if (!existing) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
       }
-      await updateProject(ctx.userId, input.id, {
+      await updateProject(input.id, {
         name: input.name,
         customInstructions: input.customInstructions,
         appendPrompt: input.appendPrompt,
       });
-      const updated = await getProject(ctx.userId, input.id);
-      const defaults = await getPiAgentDefaults(ctx.userId);
+      const updated = await getProject(input.id);
       return withParsedAgentConfig(updated!, defaults.chat);
     }),
 
-  updateAgentConfig: authedProcedure
+  updateAgentConfig: publicProcedure
     .input(updateProjectAgentConfigInputSchema)
-    .mutation(async ({ ctx, input }) => {
-      const existing = await getProject(ctx.userId, input.id);
+    .mutation(async ({ input }) => {
+      const existing = await getProject(input.id);
       if (!existing) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
       }
       const normalized = normalizePiAgentConfig(input.agentConfig);
       await updateProjectAgentConfig(
-        ctx.userId,
         input.id,
         JSON.stringify(normalized),
       );
       return { id: input.id, agentConfig: normalized };
     }),
 
-  delete: authedProcedure
+  delete: publicProcedure
     .input(
       z.object({
         id: z.string().min(1),
@@ -143,25 +137,25 @@ export const projectsRouter = router({
         force: z.boolean().optional(),
       }),
     )
-    .mutation(async ({ ctx, input }) => {
-      const existing = await getProject(ctx.userId, input.id);
+    .mutation(async ({ input }) => {
+      const existing = await getProject(input.id);
       if (!existing) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
       }
-      const chatCount = await countChatsInProject(ctx.userId, input.id);
+      const chatCount = await countChatsInProject(input.id);
       if (chatCount > 0 && !input.force) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
           message: `Project has ${chatCount} chat${chatCount === 1 ? "" : "s"}. Pass force=true to delete it and all of its chats.`,
         });
       }
-      await deleteProject(ctx.userId, input.id);
+      await deleteProject(input.id);
       return { id: input.id, deletedChatCount: chatCount };
     }),
 
-  chatCount: authedProcedure
+  chatCount: publicProcedure
     .input(z.object({ id: z.string().min(1) }))
-    .query(async ({ ctx, input }) => {
-      return countChatsInProject(ctx.userId, input.id);
+    .query(async ({ input }) => {
+      return countChatsInProject(input.id);
     }),
 });

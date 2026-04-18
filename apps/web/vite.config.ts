@@ -13,7 +13,7 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    include: ["react-dom", "scheduler"],
+    include: ["react-dom"],
   },
   server: {
     port: 3001,

@@ -3,44 +3,58 @@ import { z } from "zod";
 import {
   getGmailAccount,
   getSyncState,
-  getUnresolvedFailures,
+  getRetryableSyncFailures,
   upsertGmailAccount,
 } from "@g-spot/db/gmail";
 
-import { authedProcedure, router } from "../index";
+import { publicProcedure, router } from "../index";
 import {
   cancelSync,
   getActiveSync,
-  retryFailedThreads,
+  syncStartIntents,
   startSync,
 } from "../lib/gmail-sync";
 import { getProfile } from "../lib/gmail-client";
+import { getStackConnectedAccountAccessToken } from "../lib/stack-server";
 
 export const gmailSyncRouter = router({
   /**
-   * Start a Gmail sync. Client passes the OAuth access token.
+   * Start a Gmail sync.
    */
-  startSync: authedProcedure
+  startSync: publicProcedure
     .input(
       z.object({
         providerAccountId: z.string(),
-        accessToken: z.string(),
-        mode: z.enum(["full", "incremental"]).default("incremental"),
+        intent: z.enum(syncStartIntents).default("auto"),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      // Ensure account exists
-      const profile = await getProfile(input.accessToken);
-      const { id: accountId } = await upsertGmailAccount(ctx.userId, {
-        email: profile.emailAddress,
-        providerAccountId: input.providerAccountId,
-      });
+      const accessToken = await getStackConnectedAccountAccessToken(
+        ctx.stackAuthHeaders,
+        "google",
+        input.providerAccountId,
+      );
 
-      const orch = startSync(
-        ctx.userId,
+      const existingAccount = await getGmailAccount(
+        input.providerAccountId,
+      );
+      let accountId = existingAccount?.id;
+
+      if (!accountId) {
+        const profile = await getProfile(accessToken);
+        accountId = (
+          await upsertGmailAccount({
+            email: profile.emailAddress,
+            providerAccountId: input.providerAccountId,
+            historyId: profile.historyId,
+          })
+        ).id;
+      }
+
+      const orch = await startSync(
         accountId,
-        input.accessToken,
-        input.mode,
+        accessToken,
+        input.intent,
       );
 
       return { accountId, progress: orch.getProgress() };
@@ -49,17 +63,16 @@ export const gmailSyncRouter = router({
   /**
    * Get current sync progress.
    */
-  getSyncProgress: authedProcedure
+  getSyncProgress: publicProcedure
     .input(z.object({ providerAccountId: z.string() }))
-    .query(async ({ ctx, input }) => {
+    .query(async ({ input }) => {
       const account = await getGmailAccount(
-        ctx.userId,
         input.providerAccountId,
       );
       if (!account) return null;
 
       // Try in-memory first (active sync)
-      const active = getActiveSync(ctx.userId, account.id);
+      const active = getActiveSync(account.id);
       if (active) return active.getProgress();
 
       // Fall back to DB state
@@ -81,57 +94,27 @@ export const gmailSyncRouter = router({
   /**
    * Cancel a running sync.
    */
-  cancelSync: authedProcedure
+  cancelSync: publicProcedure
     .input(z.object({ providerAccountId: z.string() }))
-    .mutation(async ({ ctx, input }) => {
+    .mutation(async ({ input }) => {
       const account = await getGmailAccount(
-        ctx.userId,
         input.providerAccountId,
       );
       if (!account) return { cancelled: false };
-      return { cancelled: cancelSync(ctx.userId, account.id) };
+      return { cancelled: await cancelSync(account.id) };
     }),
 
   /**
    * Get unresolved sync failures for an account.
    */
-  getFailures: authedProcedure
+  getFailures: publicProcedure
     .input(z.object({ providerAccountId: z.string() }))
-    .query(async ({ ctx, input }) => {
+    .query(async ({ input }) => {
       const account = await getGmailAccount(
-        ctx.userId,
         input.providerAccountId,
       );
       if (!account) return [];
-      return getUnresolvedFailures(account.id);
+      return getRetryableSyncFailures(account.id);
     }),
 
-  /**
-   * Retry failed sync items. Optionally pass specific failure IDs,
-   * or omit to retry all unresolved failures for the account.
-   */
-  retryFailed: authedProcedure
-    .input(
-      z.object({
-        providerAccountId: z.string(),
-        accessToken: z.string(),
-        failureIds: z.array(z.string()).optional(),
-      }),
-    )
-    .mutation(async ({ ctx, input }) => {
-      const account = await getGmailAccount(
-        ctx.userId,
-        input.providerAccountId,
-      );
-      if (!account) {
-        throw new Error("Gmail account not found");
-      }
-
-      return retryFailedThreads(
-        ctx.userId,
-        account.id,
-        input.accessToken,
-        input.failureIds,
-      );
-    }),
 });

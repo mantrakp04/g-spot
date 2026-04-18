@@ -14,7 +14,6 @@ import { Route as ChatRouteImport } from './routes/chat'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ProjectsIndexRouteImport } from './routes/projects/index'
 import { Route as ChatIndexRouteImport } from './routes/chat/index'
-import { Route as SettingsSkillsRouteImport } from './routes/settings/skills'
 import { Route as SettingsMemoryRouteImport } from './routes/settings/memory'
 import { Route as SettingsConnectionsRouteImport } from './routes/settings/connections'
 import { Route as ProjectsNewRouteImport } from './routes/projects/new'
@@ -23,7 +22,6 @@ import { Route as HandlerSplatRouteImport } from './routes/handler/$'
 import { Route as ChatSettingsRouteImport } from './routes/chat/settings'
 import { Route as ChatChatIdRouteImport } from './routes/chat/$chatId'
 import { Route as ProjectsProjectIdIndexRouteImport } from './routes/projects/$projectId/index'
-import { Route as ProjectsProjectIdSkillsRouteImport } from './routes/projects/$projectId/skills'
 import { Route as ProjectsProjectIdSettingsRouteImport } from './routes/projects/$projectId/settings'
 import { Route as ProjectsProjectIdChatChatIdRouteImport } from './routes/projects/$projectId/chat/$chatId'
 
@@ -51,11 +49,6 @@ const ChatIndexRoute = ChatIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => ChatRoute,
-} as any)
-const SettingsSkillsRoute = SettingsSkillsRouteImport.update({
-  id: '/settings/skills',
-  path: '/settings/skills',
-  getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsMemoryRoute = SettingsMemoryRouteImport.update({
   id: '/settings/memory',
@@ -97,11 +90,6 @@ const ProjectsProjectIdIndexRoute = ProjectsProjectIdIndexRouteImport.update({
   path: '/',
   getParentRoute: () => ProjectsProjectIdRoute,
 } as any)
-const ProjectsProjectIdSkillsRoute = ProjectsProjectIdSkillsRouteImport.update({
-  id: '/skills',
-  path: '/skills',
-  getParentRoute: () => ProjectsProjectIdRoute,
-} as any)
 const ProjectsProjectIdSettingsRoute =
   ProjectsProjectIdSettingsRouteImport.update({
     id: '/settings',
@@ -126,11 +114,9 @@ export interface FileRoutesByFullPath {
   '/projects/new': typeof ProjectsNewRoute
   '/settings/connections': typeof SettingsConnectionsRoute
   '/settings/memory': typeof SettingsMemoryRoute
-  '/settings/skills': typeof SettingsSkillsRoute
   '/chat/': typeof ChatIndexRoute
   '/projects/': typeof ProjectsIndexRoute
   '/projects/$projectId/settings': typeof ProjectsProjectIdSettingsRoute
-  '/projects/$projectId/skills': typeof ProjectsProjectIdSkillsRoute
   '/projects/$projectId/': typeof ProjectsProjectIdIndexRoute
   '/projects/$projectId/chat/$chatId': typeof ProjectsProjectIdChatChatIdRoute
 }
@@ -142,11 +128,9 @@ export interface FileRoutesByTo {
   '/projects/new': typeof ProjectsNewRoute
   '/settings/connections': typeof SettingsConnectionsRoute
   '/settings/memory': typeof SettingsMemoryRoute
-  '/settings/skills': typeof SettingsSkillsRoute
   '/chat': typeof ChatIndexRoute
   '/projects': typeof ProjectsIndexRoute
   '/projects/$projectId/settings': typeof ProjectsProjectIdSettingsRoute
-  '/projects/$projectId/skills': typeof ProjectsProjectIdSkillsRoute
   '/projects/$projectId': typeof ProjectsProjectIdIndexRoute
   '/projects/$projectId/chat/$chatId': typeof ProjectsProjectIdChatChatIdRoute
 }
@@ -162,11 +146,9 @@ export interface FileRoutesById {
   '/projects/new': typeof ProjectsNewRoute
   '/settings/connections': typeof SettingsConnectionsRoute
   '/settings/memory': typeof SettingsMemoryRoute
-  '/settings/skills': typeof SettingsSkillsRoute
   '/chat/': typeof ChatIndexRoute
   '/projects/': typeof ProjectsIndexRoute
   '/projects/$projectId/settings': typeof ProjectsProjectIdSettingsRoute
-  '/projects/$projectId/skills': typeof ProjectsProjectIdSkillsRoute
   '/projects/$projectId/': typeof ProjectsProjectIdIndexRoute
   '/projects/$projectId/chat/$chatId': typeof ProjectsProjectIdChatChatIdRoute
 }
@@ -183,11 +165,9 @@ export interface FileRouteTypes {
     | '/projects/new'
     | '/settings/connections'
     | '/settings/memory'
-    | '/settings/skills'
     | '/chat/'
     | '/projects/'
     | '/projects/$projectId/settings'
-    | '/projects/$projectId/skills'
     | '/projects/$projectId/'
     | '/projects/$projectId/chat/$chatId'
   fileRoutesByTo: FileRoutesByTo
@@ -199,11 +179,9 @@ export interface FileRouteTypes {
     | '/projects/new'
     | '/settings/connections'
     | '/settings/memory'
-    | '/settings/skills'
     | '/chat'
     | '/projects'
     | '/projects/$projectId/settings'
-    | '/projects/$projectId/skills'
     | '/projects/$projectId'
     | '/projects/$projectId/chat/$chatId'
   id:
@@ -218,11 +196,9 @@ export interface FileRouteTypes {
     | '/projects/new'
     | '/settings/connections'
     | '/settings/memory'
-    | '/settings/skills'
     | '/chat/'
     | '/projects/'
     | '/projects/$projectId/settings'
-    | '/projects/$projectId/skills'
     | '/projects/$projectId/'
     | '/projects/$projectId/chat/$chatId'
   fileRoutesById: FileRoutesById
@@ -234,7 +210,6 @@ export interface RootRouteChildren {
   HandlerSplatRoute: typeof HandlerSplatRoute
   SettingsConnectionsRoute: typeof SettingsConnectionsRoute
   SettingsMemoryRoute: typeof SettingsMemoryRoute
-  SettingsSkillsRoute: typeof SettingsSkillsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -273,13 +248,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/chat/'
       preLoaderRoute: typeof ChatIndexRouteImport
       parentRoute: typeof ChatRoute
-    }
-    '/settings/skills': {
-      id: '/settings/skills'
-      path: '/settings/skills'
-      fullPath: '/settings/skills'
-      preLoaderRoute: typeof SettingsSkillsRouteImport
-      parentRoute: typeof rootRouteImport
     }
     '/settings/memory': {
       id: '/settings/memory'
@@ -337,13 +305,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectsProjectIdIndexRouteImport
       parentRoute: typeof ProjectsProjectIdRoute
     }
-    '/projects/$projectId/skills': {
-      id: '/projects/$projectId/skills'
-      path: '/skills'
-      fullPath: '/projects/$projectId/skills'
-      preLoaderRoute: typeof ProjectsProjectIdSkillsRouteImport
-      parentRoute: typeof ProjectsProjectIdRoute
-    }
     '/projects/$projectId/settings': {
       id: '/projects/$projectId/settings'
       path: '/settings'
@@ -377,14 +338,12 @@ const ChatRouteWithChildren = ChatRoute._addFileChildren(ChatRouteChildren)
 
 interface ProjectsProjectIdRouteChildren {
   ProjectsProjectIdSettingsRoute: typeof ProjectsProjectIdSettingsRoute
-  ProjectsProjectIdSkillsRoute: typeof ProjectsProjectIdSkillsRoute
   ProjectsProjectIdIndexRoute: typeof ProjectsProjectIdIndexRoute
   ProjectsProjectIdChatChatIdRoute: typeof ProjectsProjectIdChatChatIdRoute
 }
 
 const ProjectsProjectIdRouteChildren: ProjectsProjectIdRouteChildren = {
   ProjectsProjectIdSettingsRoute: ProjectsProjectIdSettingsRoute,
-  ProjectsProjectIdSkillsRoute: ProjectsProjectIdSkillsRoute,
   ProjectsProjectIdIndexRoute: ProjectsProjectIdIndexRoute,
   ProjectsProjectIdChatChatIdRoute: ProjectsProjectIdChatChatIdRoute,
 }
@@ -415,7 +374,6 @@ const rootRouteChildren: RootRouteChildren = {
   HandlerSplatRoute: HandlerSplatRoute,
   SettingsConnectionsRoute: SettingsConnectionsRoute,
   SettingsMemoryRoute: SettingsMemoryRoute,
-  SettingsSkillsRoute: SettingsSkillsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

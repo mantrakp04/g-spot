@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { authedProcedure, router } from "../index";
+import { publicProcedure, router } from "../index";
 import {
   compileContext,
   decayTick,
@@ -64,7 +64,7 @@ export const memoryRouter = router({
    * Ingest extracted entities, observations, and edges into the memory graph.
    * Should be called after the 2-step LLM extraction + resolution process.
    */
-  ingest: authedProcedure
+  ingest: publicProcedure
     .input(
       z.object({
         extraction: z.object({
@@ -76,9 +76,8 @@ export const memoryRouter = router({
         sourceMessageId: z.string().optional(),
       }),
     )
-    .mutation(async ({ ctx, input }) => {
+    .mutation(async ({ input }) => {
       return ingest(
-        ctx.userId,
         input.extraction as ExtractionResult,
         input.resolutions as ResolveAction[],
         input.sourceMessageId,
@@ -88,7 +87,7 @@ export const memoryRouter = router({
   /**
    * Query memory — hybrid vector + graph search.
    */
-  query: authedProcedure
+  query: publicProcedure
     .input(
       z.object({
         query: z.string(),
@@ -99,9 +98,8 @@ export const memoryRouter = router({
         hopDepth: z.number().min(0).max(5).optional(),
       }),
     )
-    .query(async ({ ctx, input }) => {
+    .query(async ({ input }) => {
       return query(input.query, {
-        userId: ctx.userId,
         topK: input.topK,
         threshold: input.threshold,
         includeGraph: input.includeGraph,
@@ -113,7 +111,7 @@ export const memoryRouter = router({
   /**
    * Temporal query — point-in-time memory search.
    */
-  temporalQuery: authedProcedure
+  temporalQuery: publicProcedure
     .input(
       z.object({
         query: z.string(),
@@ -121,8 +119,8 @@ export const memoryRouter = router({
         to: z.number(),
       }),
     )
-    .query(async ({ ctx, input }) => {
-      return temporalQuery(ctx.userId, input.query, {
+    .query(async ({ input }) => {
+      return temporalQuery(input.query, {
         from: input.from,
         to: input.to,
       });
@@ -131,7 +129,7 @@ export const memoryRouter = router({
   /**
    * Compile context for injection into the system prompt.
    */
-  compileContext: authedProcedure
+  compileContext: publicProcedure
     .input(
       z.object({
         query: z.string(),
@@ -141,8 +139,8 @@ export const memoryRouter = router({
         queryResultsK: z.number().optional(),
       }),
     )
-    .query(async ({ ctx, input }) => {
-      return compileContext(ctx.userId, input.query, {
+    .query(async ({ input }) => {
+      return compileContext(input.query, {
         maxTokens: input.maxTokens,
         includeProfile: input.includeProfile,
         includeActive: input.includeActive,
@@ -153,7 +151,7 @@ export const memoryRouter = router({
   /**
    * Resolve contradictions for an entity.
    */
-  resolveContradiction: authedProcedure
+  resolveContradiction: publicProcedure
     .input(
       z.object({
         entityId: z.string(),
@@ -167,9 +165,8 @@ export const memoryRouter = router({
         ),
       }),
     )
-    .mutation(async ({ ctx, input }) => {
+    .mutation(async ({ input }) => {
       return resolveContradiction(
-        ctx.userId,
         input.entityId,
         input.newFact,
         input.decisions,
@@ -179,34 +176,34 @@ export const memoryRouter = router({
   /**
    * Run decay tick — background maintenance.
    */
-  decayTick: authedProcedure.mutation(async ({ ctx }) => {
-    return decayTick(ctx.userId);
+  decayTick: publicProcedure.mutation(async () => {
+    return decayTick();
   }),
 
   /**
    * Get memory stats for the current user.
    */
-  stats: authedProcedure.query(({ ctx }) => {
-    return getMemoryStats(ctx.userId);
+  stats: publicProcedure.query(() => {
+    return getMemoryStats();
   }),
 
   /**
    * Get full graph data for visualization.
    */
-  graph: authedProcedure.query(({ ctx }) => {
-    return getGraphData(ctx.userId);
+  graph: publicProcedure.query(() => {
+    return getGraphData();
   }),
 
   // ----- Scratchpad operations -----
 
-  scratchpadRead: authedProcedure
+  scratchpadRead: publicProcedure
     .input(z.object({ label: z.string() }))
-    .query(({ ctx, input }) => {
-      ensureDefaultBlocks(ctx.userId);
-      return scratchpadRead(ctx.userId, input.label);
+    .query(({ input }) => {
+      ensureDefaultBlocks();
+      return scratchpadRead(input.label);
     }),
 
-  scratchpadAppend: authedProcedure
+  scratchpadAppend: publicProcedure
     .input(
       z.object({
         label: z.string(),
@@ -214,11 +211,11 @@ export const memoryRouter = router({
         changedBy: z.enum(["agent", "system", "user"]).optional(),
       }),
     )
-    .mutation(({ ctx, input }) => {
-      scratchpadAppend(ctx.userId, input.label, input.content, input.changedBy);
+    .mutation(({ input }) => {
+      scratchpadAppend(input.label, input.content, input.changedBy);
     }),
 
-  scratchpadReplace: authedProcedure
+  scratchpadReplace: publicProcedure
     .input(
       z.object({
         label: z.string(),
@@ -227,11 +224,11 @@ export const memoryRouter = router({
         changedBy: z.enum(["agent", "system", "user"]).optional(),
       }),
     )
-    .mutation(({ ctx, input }) => {
-      scratchpadReplace(ctx.userId, input.label, input.oldText, input.newText, input.changedBy);
+    .mutation(({ input }) => {
+      scratchpadReplace(input.label, input.oldText, input.newText, input.changedBy);
     }),
 
-  scratchpadRewrite: authedProcedure
+  scratchpadRewrite: publicProcedure
     .input(
       z.object({
         label: z.string(),
@@ -239,18 +236,18 @@ export const memoryRouter = router({
         changedBy: z.enum(["agent", "system", "user"]).optional(),
       }),
     )
-    .mutation(({ ctx, input }) => {
-      scratchpadRewrite(ctx.userId, input.label, input.value, input.changedBy);
+    .mutation(({ input }) => {
+      scratchpadRewrite(input.label, input.value, input.changedBy);
     }),
 
-  scratchpadUndo: authedProcedure
+  scratchpadUndo: publicProcedure
     .input(
       z.object({
         label: z.string(),
         steps: z.number().min(1).optional(),
       }),
     )
-    .mutation(({ ctx, input }) => {
-      scratchpadUndo(ctx.userId, input.label, input.steps);
+    .mutation(({ input }) => {
+      scratchpadUndo(input.label, input.steps);
     }),
 });

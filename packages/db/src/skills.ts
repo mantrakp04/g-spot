@@ -6,7 +6,6 @@ import { projects, skills } from "./schema";
 
 export type SkillRow = typeof skills.$inferSelect;
 
-/** Parsed shape exposed by the router/hooks — `triggerKeywords` deserialized from JSON. */
 export type SkillRecord = Omit<SkillRow, "triggerKeywords"> & {
   triggerKeywords: string[];
 };
@@ -33,48 +32,40 @@ function toRecord(row: SkillRow): SkillRecord {
   return { ...row, triggerKeywords };
 }
 
-export async function listGlobalSkills(userId: string): Promise<SkillRecord[]> {
+export async function listGlobalSkills(): Promise<SkillRecord[]> {
   const rows = await db
     .select()
     .from(skills)
-    .where(and(eq(skills.userId, userId), isNull(skills.projectId)))
+    .where(isNull(skills.projectId))
     .orderBy(asc(skills.name));
   return rows.map(toRecord);
 }
 
 export async function listProjectSkills(
-  userId: string,
   projectId: string,
 ): Promise<SkillRecord[]> {
   const rows = await db
     .select()
     .from(skills)
-    .where(and(eq(skills.userId, userId), eq(skills.projectId, projectId)))
+    .where(eq(skills.projectId, projectId))
     .orderBy(asc(skills.name));
   return rows.map(toRecord);
 }
 
 /**
  * Returns the merged skill list that the Pi agent should see for a given
- * project: global skills for the user, plus project-scoped skills, with
- * project-scoped skills shadowing any global skill that shares a name.
+ * project: global skills plus project-scoped skills, with project-scoped
+ * skills shadowing any global skill that shares a name.
  */
 export async function listSkillsForAgent(
-  userId: string,
   projectId: string,
 ): Promise<SkillRecord[]> {
   const rows = await db
     .select()
     .from(skills)
-    .where(
-      and(
-        eq(skills.userId, userId),
-        or(isNull(skills.projectId), eq(skills.projectId, projectId)),
-      ),
-    );
+    .where(or(isNull(skills.projectId), eq(skills.projectId, projectId)));
 
   const byName = new Map<string, SkillRow>();
-  // Seed with globals first, then let project rows overwrite on collision.
   for (const row of rows) {
     if (row.projectId === null) byName.set(row.name, row);
   }
@@ -88,46 +79,35 @@ export async function listSkillsForAgent(
 }
 
 export async function getSkill(
-  userId: string,
   skillId: string,
 ): Promise<SkillRecord | null> {
   const [row] = await db
     .select()
     .from(skills)
-    .where(and(eq(skills.id, skillId), eq(skills.userId, userId)));
+    .where(eq(skills.id, skillId));
   return row ? toRecord(row) : null;
 }
 
-/**
- * Verifies a caller owns the project before touching a project-scoped skill.
- * Returns true for global skills (projectId === null) without a join.
- */
-async function assertProjectOwnership(
-  userId: string,
-  projectId: string | null,
-): Promise<void> {
+async function assertProjectExists(projectId: string | null): Promise<void> {
   if (projectId === null) return;
   const [row] = await db
     .select({ id: projects.id })
     .from(projects)
-    .where(and(eq(projects.id, projectId), eq(projects.userId, userId)));
+    .where(eq(projects.id, projectId));
   if (!row) {
-    throw new Error("Project not found or not owned by user");
+    throw new Error("Project not found");
   }
 }
 
-export async function createSkill(
-  userId: string,
-  input: {
-    projectId: string | null;
-    name: string;
-    description: string;
-    content?: string;
-    triggerKeywords?: string[];
-    disableModelInvocation?: boolean;
-  },
-): Promise<{ id: string }> {
-  await assertProjectOwnership(userId, input.projectId);
+export async function createSkill(input: {
+  projectId: string | null;
+  name: string;
+  description: string;
+  content?: string;
+  triggerKeywords?: string[];
+  disableModelInvocation?: boolean;
+}): Promise<{ id: string }> {
+  await assertProjectExists(input.projectId);
 
   const id = nanoid();
   const now = new Date().toISOString();
@@ -135,7 +115,6 @@ export async function createSkill(
   try {
     await db.insert(skills).values({
       id,
-      userId,
       projectId: input.projectId,
       name: input.name,
       description: input.description,
@@ -161,7 +140,6 @@ export async function createSkill(
 }
 
 export async function updateSkill(
-  userId: string,
   skillId: string,
   input: {
     name?: string;
@@ -187,10 +165,7 @@ export async function updateSkill(
   values.updatedAt = new Date().toISOString();
 
   try {
-    await db
-      .update(skills)
-      .set(values)
-      .where(and(eq(skills.id, skillId), eq(skills.userId, userId)));
+    await db.update(skills).set(values).where(eq(skills.id, skillId));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     if (
@@ -204,22 +179,16 @@ export async function updateSkill(
   }
 }
 
-export async function deleteSkill(
-  userId: string,
-  skillId: string,
-): Promise<void> {
-  await db
-    .delete(skills)
-    .where(and(eq(skills.id, skillId), eq(skills.userId, userId)));
+export async function deleteSkill(skillId: string): Promise<void> {
+  await db.delete(skills).where(eq(skills.id, skillId));
 }
 
 export async function countSkillsInProject(
-  userId: string,
   projectId: string,
 ): Promise<number> {
   const [row] = await db
     .select({ value: sql<number>`count(*)` })
     .from(skills)
-    .where(and(eq(skills.userId, userId), eq(skills.projectId, projectId)));
+    .where(and(eq(skills.projectId, projectId)));
   return row?.value ?? 0;
 }

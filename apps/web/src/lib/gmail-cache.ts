@@ -133,6 +133,21 @@ export function clearGmailDraftQueries(
 }
 
 export function invalidateGmailThreads(queryClient: QueryClient) {
+  // Trim each infinite cache to its first page before invalidating so the
+  // refetch only re-fetches page 1 instead of every accumulated page.
+  // v5's refetchPage option was removed; setQueryData is the sanctioned path.
+  queryClient.setQueriesData<InfiniteData<GmailThreadPage>>(
+    { queryKey: gmailKeys.threadsRoot() },
+    (old) => {
+      if (!isGmailThreadsInfiniteData(old)) return old;
+      if (old.pages.length <= 1) return old;
+      return {
+        ...old,
+        pages: old.pages.slice(0, 1),
+        pageParams: old.pageParams.slice(0, 1),
+      };
+    },
+  );
   return queryClient.invalidateQueries({
     queryKey: gmailKeys.threadsRoot(),
   });

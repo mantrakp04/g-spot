@@ -54,4 +54,10 @@ local-storage
 memory.db
 memory.db-wal
 memory.db-shm
+relay.db
+relay.db-wal
+relay.db-shm
+apps/gmail-relay/relay.db
+apps/gmail-relay/relay.db-wal
+apps/gmail-relay/relay.db-shm
 extensions/

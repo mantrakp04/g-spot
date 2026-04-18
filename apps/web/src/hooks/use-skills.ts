@@ -97,6 +97,15 @@ export function useCatalogSearch(query: string, limit = 12) {
   });
 }
 
+export function usePopularCatalog(limit = 12, enabled = true) {
+  return useQuery({
+    queryKey: skillsKeys.catalogPopular(limit),
+    queryFn: () => trpcClient.skills.popularCatalog.query({ limit }),
+    enabled,
+    staleTime: 60_000,
+  });
+}
+
 export function useInstallSkillFromSourceMutation(projectId: string | null) {
   const queryClient = useQueryClient();
 

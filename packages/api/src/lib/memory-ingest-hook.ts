@@ -11,6 +11,9 @@ import { extractAssistantText } from "./pi";
 import { extractAndIngestThread } from "./memory-extractor";
 import { scheduleDecayTick, registerUserForDecay } from "./memory-cron";
 
+/** Single-tenant key for memory decay when Stack user ids are not used server-side. */
+const LOCAL_MEMORY_USER_ID = "local";
+
 /**
  * Build a text transcript from the last N messages for memory extraction.
  */
@@ -52,7 +55,6 @@ function buildTranscript(messages: Message[], maxMessages = 6): string {
  * so there is no separate scratchpad update step here.
  */
 export async function extractChatTurnToMemory(args: {
-  userId: string;
   chatId: string;
   messages: Message[];
 }): Promise<void> {
@@ -61,15 +63,11 @@ export async function extractChatTurnToMemory(args: {
     if (!transcript || transcript.length < 20) return;
 
     // Register user for background decay and schedule a tick
-    registerUserForDecay(args.userId);
-    scheduleDecayTick(args.userId);
+    registerUserForDecay(LOCAL_MEMORY_USER_ID);
+    scheduleDecayTick(LOCAL_MEMORY_USER_ID);
 
     // Extract and ingest — the agent handles everything via tools
-    await extractAndIngestThread(
-      args.userId,
-      transcript,
-      args.chatId,
-    );
+    await extractAndIngestThread(transcript, args.chatId);
   } catch (error) {
     console.error("[memory-ingest-hook] Failed:", error);
   }

@@ -14,7 +14,8 @@ export type GmailThread = {
 export type GmailThreadPage = {
   threads: GmailThread[];
   nextPageToken: string | null;
-  resultSizeEstimate: number;
+  /** Threads in the local store matching filters (same basis as `getThreadCount`). */
+  totalMatchingThreads: number;
 };
 
 export type GmailThreadDraft = {

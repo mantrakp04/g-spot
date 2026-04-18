@@ -1,0 +1,32 @@
+{
+  "name": "@g-spot/relay-db",
+  "type": "module",
+  "exports": {
+    ".": {
+      "default": "./src/index.ts"
+    },
+    "./schema": {
+      "default": "./src/schema/index.ts"
+    },
+    "./*": {
+      "default": "./src/*.ts"
+    }
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "db:push": "drizzle-kit push",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate"
+  },
+  "dependencies": {
+    "@libsql/client": "catalog:",
+    "@g-spot/env": "workspace:*",
+    "drizzle-orm": "^0.45.2",
+    "libsql": "catalog:"
+  },
+  "devDependencies": {
+    "@g-spot/config": "workspace:*",
+    "drizzle-kit": "^0.31.10",
+    "typescript": "^6"
+  }
+}

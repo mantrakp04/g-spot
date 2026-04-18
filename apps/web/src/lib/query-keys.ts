@@ -6,12 +6,22 @@ export const sectionsKeys = {
   list: () => trpc.sections.list.queryOptions().queryKey,
 };
 
+export const sidebarKeys = {
+  setupChecklistDismissed: () => ["sidebar", "setup-checklist-dismissed"] as const,
+};
+
 export const piKeys = {
   catalog: () => ["pi", "catalog"] as const,
   defaults: () => ["pi", "defaults"] as const,
   credentials: () => ["pi", "credentials"] as const,
+  addons: (projectId: string | null) =>
+    ["pi", "addons", projectId ?? "global"] as const,
   oauthSession: (sessionId: string | null) =>
     ["pi", "oauth-session", sessionId ?? null] as const,
+  addonCatalogPopular: (limit: number) =>
+    ["pi", "addon-catalog", "popular", limit] as const,
+  addonCatalogSearch: (query: string, limit: number) =>
+    ["pi", "addon-catalog", "search", query, limit] as const,
 };
 
 export const chatKeys = {
@@ -33,6 +43,8 @@ export const skillsKeys = {
   global: () => ["skills", "list", "global"] as const,
   project: (projectId: string) => ["skills", "list", "project", projectId] as const,
   detail: (skillId: string) => ["skills", "detail", skillId] as const,
+  catalogPopular: (limit: number) =>
+    ["skills", "catalog", "popular", limit] as const,
   catalogSearch: (query: string, limit: number) =>
     ["skills", "catalog", "search", query, limit] as const,
 };
@@ -85,6 +97,7 @@ export const githubKeys = {
 
 export const gmailKeys = {
   root: () => ["gmail"] as const,
+  composePreferredAccount: () => ["gmail", "compose", "preferred-account"] as const,
   threadsRoot: () => ["gmail", "threads"] as const,
   threadsSection: (sectionId: string) => ["gmail", "threads", sectionId] as const,
   threads: (

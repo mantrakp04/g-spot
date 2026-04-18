@@ -1,28 +1,41 @@
-import "dotenv/config";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { config as loadEnv } from "dotenv";
 import { createEnv } from "@t3-oss/env-core";
 import { z } from "zod";
+
+loadEnv({ path: fileURLToPath(new URL("../../../.env", import.meta.url)) });
+
+const databasePath = resolve(
+  fileURLToPath(new URL("../../..", import.meta.url)),
+  "apps/server/local.db",
+);
 
 const serverConfig = createEnv({
   server: {
     SERVER_HOST: z.string().min(1).default("localhost"),
-    SERVER_PORT: z.number().default(3000),
+    SERVER_PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   },
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,
-})
+});
 
 export const env = createEnv({
   extends: [serverConfig],
   server: {
-    DATABASE_URL: z.string().min(1),
-    CORS_ORIGIN: z.url(),
+    DATABASE_URL: z.string().min(1).default(`file:${databasePath}`),
+    CORS_ORIGIN: z.url().default("http://localhost:3001"),
     NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
     STACK_PROJECT_ID: z.string().min(1),
-    STACK_SECRET_SERVER_KEY: z.string().min(1),
     // Gmail sync
     GMAIL_SYNC_CONCURRENCY: z.coerce.number().int().min(1).max(50).default(20),
+    GMAIL_PUSH_RELAY_URL: z.string().min(1).default("ws://localhost:8787/api/ws"),
     MEMORY_WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(20).default(8),
     GMAIL_RATE_LIMIT_RPS: z.coerce.number().int().min(1).max(100).default(50),
+    SKILLS_API_URL: z.string().url().default("https://skills.sh"),
+    OLLAMA_BASE_URL: z.string().url().default("http://localhost:11434"),
+    EMBEDDING_MODEL: z.string().min(1).default("embeddinggemma"),
+    VECTOR_EXTENSION_PATH: z.string().min(1).optional(),
   },
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,

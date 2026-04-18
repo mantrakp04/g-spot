@@ -9,10 +9,8 @@ async function getMainViewUrl(): Promise<string> {
   if (channel === "dev") {
     try {
       await fetch(DEV_SERVER_URL, { method: "HEAD" });
-      console.log(`HMR enabled: Using web dev server at ${DEV_SERVER_URL}`);
       return DEV_SERVER_URL;
     } catch {
-      console.log('Web dev server not running. Run "bun run dev:hmr" for HMR support.');
     }
   }
 
@@ -31,5 +29,3 @@ new BrowserWindow({
     y: 120,
   },
 });
-
-console.log("Electrobun desktop shell started.");

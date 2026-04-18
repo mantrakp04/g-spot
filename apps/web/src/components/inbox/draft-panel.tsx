@@ -36,6 +36,7 @@ type DraftPanelProps = {
   googleAccount: OAuthConnection | null;
   onUpdateField: (id: string, field: keyof ComposeFormState, value: string) => void;
   onSetGmailDraftId: (id: string, gmailDraftId: string) => void;
+  onSetAccountId: (id: string, accountId: string | null) => void;
   onMinimize: (id: string) => void;
   onExpand: (id: string) => void;
   onClose: (id: string) => void;
@@ -48,6 +49,7 @@ export function DraftPanel({
   googleAccount,
   onUpdateField,
   onSetGmailDraftId,
+  onSetAccountId,
   onMinimize,
   onExpand,
   onClose,
@@ -161,6 +163,14 @@ export function DraftPanel({
     [draft.id, onUpdateField],
   );
 
+  const handleAccountIdChange = useCallback(
+    (accountId: string) => {
+      cancelPendingSave();
+      onSetAccountId(draft.id, accountId);
+    },
+    [cancelPendingSave, draft.id, onSetAccountId],
+  );
+
   const isMinimized = draft.windowState === "minimized";
   const ModeIcon = MODE_ICONS[draft.mode] ?? Mail;
   const accentColor = MODE_COLORS[draft.mode] ?? "bg-primary";
@@ -268,6 +278,8 @@ export function DraftPanel({
             mode={draft.mode}
             form={draft.form}
             onUpdateField={handleUpdateField}
+            accountId={draft.accountId}
+            onAccountIdChange={handleAccountIdChange}
             onSend={handleSend}
             onDiscard={handleDiscard}
             onClose={handleClose}

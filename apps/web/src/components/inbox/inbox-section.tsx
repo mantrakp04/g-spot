@@ -17,7 +17,8 @@ export type InboxSectionData = {
 type InboxSectionProps = {
   section: InboxSectionData;
   itemCount: number;
-  hasMoreItems?: boolean;
+  /** When true, append "+" (e.g. Gmail total count query still in flight). */
+  countTotalPending?: boolean;
   children: ReactNode;
   onToggle: () => void;
   onEdit: () => void;
@@ -30,7 +31,7 @@ type InboxSectionProps = {
 export function InboxSection({
   section,
   itemCount,
-  hasMoreItems,
+  countTotalPending,
   children,
   onToggle,
   onEdit,
@@ -72,7 +73,7 @@ export function InboxSection({
               variant="secondary"
               className="ml-1 tabular-nums"
             >
-              {itemCount}{hasMoreItems && "+"}
+              {itemCount}{countTotalPending && "+"}
             </Badge>
           )}
         </button>

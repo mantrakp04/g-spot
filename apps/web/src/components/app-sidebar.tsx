@@ -358,6 +358,7 @@ export function AppSidebar({ onToggleCollapse }: AppSidebarProps) {
                   pathname === "/settings/memory" && "bg-muted text-foreground",
                 )}
                 aria-label="Memory graph"
+                nativeButton={false}
                 render={<Link to="/settings/memory" />}
               >
                 <BrainIcon className="size-3" />
@@ -370,6 +371,7 @@ export function AppSidebar({ onToggleCollapse }: AppSidebarProps) {
                   isChatSettings && "bg-muted text-foreground",
                 )}
                 aria-label="Agent settings"
+                nativeButton={false}
                 render={<Link to="/chat/settings" />}
               >
                 <Settings2 className="size-3" />
@@ -379,6 +381,7 @@ export function AppSidebar({ onToggleCollapse }: AppSidebarProps) {
                 size="icon-xs"
                 className="size-6 shrink-0 text-muted-foreground hover:text-foreground"
                 aria-label="New project"
+                nativeButton={false}
                 render={<Link to="/projects/new" />}
               >
                 <Plus className="size-3" />

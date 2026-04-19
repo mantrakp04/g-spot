@@ -111,8 +111,14 @@ export function useDeleteChatMutation() {
 
   return useMutation({
     mutationFn: (chatId: string) => trpcClient.chat.delete.mutate({ chatId }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: chatKeys.list() });
+    onSuccess: (_, chatId) => {
+      void queryClient.invalidateQueries({ queryKey: chatKeys.list() });
+      void queryClient.invalidateQueries({
+        queryKey: chatKeys.detail(chatId),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: chatKeys.messages(chatId),
+      });
     },
   });
 }

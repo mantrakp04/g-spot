@@ -47,7 +47,6 @@ import {
 } from "@/components/chat/slash-command-popover";
 import { ChatBranchSelect } from "@/components/chat/chat-branch-select";
 import { ChatProjectSelect } from "@/components/chat/chat-project-select";
-import { ChatWorkModeSelect } from "@/components/chat/chat-work-mode-select";
 import { PiModelPicker } from "@/components/pi/pi-model-picker";
 import {
   useChatDetail,
@@ -61,11 +60,13 @@ import {
 import {
   usePiCatalog,
   usePiDefaults,
-  useUpdatePiDefaultsMutation,
 } from "@/hooks/use-pi";
 import type { BuiltinHandlers } from "@/lib/slash-commands";
 import { stackClientApp } from "@/stack/client";
-import { useProject } from "@/hooks/use-projects";
+import {
+  useProject,
+  useUpdateProjectAgentConfigMutation,
+} from "@/hooks/use-projects";
 
 import { ChatMessage } from "./chat-message";
 
@@ -107,12 +108,13 @@ import {
 } from "@/lib/pi-agent-config";
 import { chatKeys } from "@/lib/query-keys";
 import { consumePendingChatSubmission, setPendingChatSubmission } from "@/lib/pending-chat-submissions";
+import { trpc } from "@/utils/trpc";
 
 /** Attach files button — must be a child of PromptInput to access attachments context */
 function AttachFilesButton() {
   const attachments = usePromptInputAttachments();
   return (
-    <PromptInputButton onClick={() => attachments.openFileDialog()}>
+    <PromptInputButton size="icon-xs" onClick={() => attachments.openFileDialog()}>
       <PaperclipIcon className="size-4" />
     </PromptInputButton>
   );
@@ -278,6 +280,7 @@ export function ChatView({ chatId, projectId }: ChatViewProps) {
       chatId={chatId ?? null}
       projectId={projectId}
       projectName={projectName}
+      projectAgentConfig={projectQuery.data?.agentConfig ?? null}
       chatAgentConfig={chat?.agentConfig ?? null}
       dbMessages={dbMessages ?? []}
     />
@@ -288,6 +291,7 @@ interface ChatViewInnerProps {
   chatId: string | null;
   projectId: string;
   projectName: string;
+  projectAgentConfig: PiAgentConfig | null;
   chatAgentConfig: PiAgentConfig | null;
   dbMessages: PiChatHistoryMessage[];
 }
@@ -296,6 +300,7 @@ function ChatViewInner({
   chatId,
   projectId,
   projectName,
+  projectAgentConfig,
   chatAgentConfig,
   dbMessages,
 }: ChatViewInnerProps) {
@@ -305,7 +310,7 @@ function ChatViewInner({
   const piDefaults = usePiDefaults();
   const createChat = useCreateChatMutation();
   const updateChatAgentConfig = useUpdateChatAgentConfigMutation();
-  const updatePiDefaults = useUpdatePiDefaultsMutation();
+  const updateProjectAgentConfig = useUpdateProjectAgentConfigMutation();
   const replaceMessages = useReplaceChatMessagesMutation();
   const forkChat = useForkChatMutation();
   const markChatRead = useMarkChatReadMutation();
@@ -322,21 +327,13 @@ function ChatViewInner({
     () => new Set((piCatalog.data?.oauthProviders ?? []).map((provider) => provider.id)),
     [piCatalog.data?.oauthProviders],
   );
-  const draftDefaultConfig = useMemo(
+  const draftProjectConfig = useMemo(
     () =>
       normalizeAgentConfig(
-        piDefaults.data?.chat ?? FALLBACK_PI_AGENT_CONFIG,
+        projectAgentConfig ?? piDefaults.data?.chat ?? FALLBACK_PI_AGENT_CONFIG,
         allModels,
       ),
-    [allModels, piDefaults.data?.chat],
-  );
-  const draftWorkerDefaultConfig = useMemo(
-    () =>
-      normalizeAgentConfig(
-        piDefaults.data?.worker ?? FALLBACK_PI_AGENT_CONFIG,
-        allModels,
-      ),
-    [allModels, piDefaults.data?.worker],
+    [allModels, piDefaults.data?.chat, projectAgentConfig],
   );
   const persistedAgentConfig = useMemo(
     () =>
@@ -347,7 +344,7 @@ function ChatViewInner({
     [allModels, chatAgentConfig],
   );
   const [agentConfig, setAgentConfig] = useState<PiAgentConfig>(
-    isDraft ? draftDefaultConfig : persistedAgentConfig,
+    isDraft ? draftProjectConfig : persistedAgentConfig,
   );
   const lastAppliedDraftConfigRef = useRef<PiAgentConfig | null>(null);
 
@@ -358,19 +355,19 @@ function ChatViewInner({
           lastAppliedDraftConfigRef.current === null ||
           areAgentConfigsEqual(current, lastAppliedDraftConfigRef.current);
 
-        lastAppliedDraftConfigRef.current = draftDefaultConfig;
+        lastAppliedDraftConfigRef.current = draftProjectConfig;
 
         if (!shouldSync) {
           return current;
         }
 
         logChatDebug("agent-config-sync", {
-          source: "draft-defaults",
+          source: "draft-project",
           chatId,
-          agentConfig: draftDefaultConfig,
+          agentConfig: draftProjectConfig,
         });
 
-        return draftDefaultConfig;
+        return draftProjectConfig;
       });
       return;
     }
@@ -382,7 +379,18 @@ function ChatViewInner({
       chatId,
       agentConfig: persistedAgentConfig,
     });
-  }, [draftDefaultConfig, isDraft, persistedAgentConfig]);
+  }, [draftProjectConfig, isDraft, persistedAgentConfig]);
+
+  const persistDraftProjectAgentConfig = useCallback(
+    async (nextAgentConfig: PiAgentConfig) => {
+      await updateProjectAgentConfig.mutateAsync({
+        id: projectId,
+        agentConfig: nextAgentConfig,
+      });
+      lastAppliedDraftConfigRef.current = nextAgentConfig;
+    },
+    [projectId, updateProjectAgentConfig],
+  );
 
   const initialMessages = useMemo<ChatUiMessage[]>(
     () => piHistoryToUiMessages(dbMessages),
@@ -558,12 +566,25 @@ function ChatViewInner({
       void queryClient.invalidateQueries({
         queryKey: chatKeys.messages(id),
       });
+      void queryClient.invalidateQueries({
+        queryKey: chatKeys.detail(id),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: trpc.git.listWorkspaces.queryKey({ projectId }),
+      });
       // The user is currently viewing this chat (the stream is bound to
       // this view), so the run shouldn't show up as a green "unread"
       // dot in the sidebar. Ack it immediately.
       markChatRead.mutate(id);
     },
   });
+
+  const invalidateGitBranches = useCallback(() => {
+    if (!projectId) return;
+    void queryClient.invalidateQueries({
+      queryKey: trpc.git.listWorkspaces.queryKey({ projectId }),
+    });
+  }, [projectId, queryClient]);
 
   useEffect(() => {
     if (isStreamActive) {
@@ -645,13 +666,14 @@ function ChatViewInner({
       pendingSubmission,
     });
 
+    invalidateGitBranches();
     void startStream({
       id: pendingSubmission.messageId,
       role: "user",
       parts: pendingSubmission.parts,
       createdAt: new Date().toISOString(),
     });
-  }, [chatId, startStream]);
+  }, [chatId, invalidateGitBranches, startStream]);
 
   // Reconnect probe: on mount (or chatId change), check whether the server
   // still has an active run for this chat and reattach to its buffered
@@ -732,9 +754,19 @@ function ChatViewInner({
       if (!chatId) {
         return;
       }
+      invalidateGitBranches();
       await startStream(userMsg);
     },
-    [agentConfig, chatId, createChat, isDraft, navigate, projectId, startStream],
+    [
+      agentConfig,
+      chatId,
+      createChat,
+      invalidateGitBranches,
+      isDraft,
+      navigate,
+      projectId,
+      startStream,
+    ],
   );
 
   /** Edit a user message, persist the new branch, then resubmit from that point. */
@@ -942,6 +974,7 @@ function ChatViewInner({
 
       try {
         if (isDraft) {
+          await persistDraftProjectAgentConfig(nextAgentConfig);
           return;
         }
 
@@ -962,91 +995,28 @@ function ChatViewInner({
         );
       }
     },
-    [agentConfig, allModels, chatId, isDraft, updateChatAgentConfig],
-  );
-
-  const handleWorkModeChange = useCallback(
-    async (workMode: PiAgentConfig["workMode"]) => {
-      if (workMode === "worktree") {
-        try {
-          const branches = await trpcClient.git.listBranches.query({ projectId });
-          const isGitRepo =
-            branches.local.length > 0 ||
-            branches.remote.length > 0 ||
-            branches.current !== null;
-
-          if (!isGitRepo) {
-            toast.info("Worktree mode needs a git repo. Using local mode instead.");
-            workMode = "local";
-          }
-        } catch {
-          toast.info("Could not inspect git state. Using local mode instead.");
-          workMode = "local";
-        }
-      }
-
-      const nextAgentConfig = {
-        ...agentConfig,
-        workMode,
-      };
-      const previousAgentConfig = agentConfig;
-
-      setAgentConfig(nextAgentConfig);
-      logChatDebug("work-mode-change", {
-        chatId,
-        previousAgentConfig,
-        nextAgentConfig,
-        isDraft,
-      });
-
-      try {
-        if (isDraft) {
-          await updatePiDefaults.mutateAsync({
-            chat: {
-              ...draftDefaultConfig,
-              workMode,
-              branch: nextAgentConfig.branch,
-            },
-          });
-          return;
-        }
-
-        if (!chatId) {
-          return;
-        }
-
-        await updateChatAgentConfig.mutateAsync({
-          chatId,
-          agentConfig: nextAgentConfig,
-        });
-      } catch (error) {
-        setAgentConfig(previousAgentConfig);
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : isDraft
-              ? "Could not save default work mode"
-              : "Could not save chat work mode",
-        );
-      }
-    },
     [
       agentConfig,
+      allModels,
       chatId,
-      draftDefaultConfig,
       isDraft,
-      projectId,
+      persistDraftProjectAgentConfig,
       updateChatAgentConfig,
-      updatePiDefaults,
     ],
   );
 
+  /**
+   * Attach this chat to a workspace by name. The name can be a real branch or
+   * a worktree slug — the server resolves which kind it is and routes the cwd
+   * accordingly. `null` means "use HEAD."
+   */
   const handleBranchChange = useCallback(
     async (branch: string | null) => {
-      const nextAgentConfig = {
-        ...agentConfig,
-        branch,
-      };
+      if (agentConfig.branch === branch) {
+        return;
+      }
+
+      const nextAgentConfig = { ...agentConfig, branch };
       const previousAgentConfig = agentConfig;
 
       setAgentConfig(nextAgentConfig);
@@ -1059,19 +1029,11 @@ function ChatViewInner({
 
       try {
         if (isDraft) {
-          await updatePiDefaults.mutateAsync({
-            chat: {
-              ...draftDefaultConfig,
-              workMode: nextAgentConfig.workMode,
-              branch,
-            },
-          });
+          await persistDraftProjectAgentConfig(nextAgentConfig);
           return;
         }
 
-        if (!chatId) {
-          return;
-        }
+        if (!chatId) return;
 
         await updateChatAgentConfig.mutateAsync({
           chatId,
@@ -1083,18 +1045,17 @@ function ChatViewInner({
           error instanceof Error
             ? error.message
             : isDraft
-              ? "Could not save default branch"
-              : "Could not save chat branch",
+              ? "Could not save default workspace"
+              : "Could not save chat workspace",
         );
       }
     },
     [
       agentConfig,
       chatId,
-      draftDefaultConfig,
       isDraft,
+      persistDraftProjectAgentConfig,
       updateChatAgentConfig,
-      updatePiDefaults,
     ],
   );
 
@@ -1119,13 +1080,7 @@ function ChatViewInner({
 
       try {
         if (isDraft) {
-          await updatePiDefaults.mutateAsync({
-            chat: applyPermissionModePreset(draftDefaultConfig, presetId),
-            worker: applyPermissionModePreset(
-              draftWorkerDefaultConfig,
-              presetId,
-            ),
-          });
+          await persistDraftProjectAgentConfig(nextAgentConfig);
           return;
         }
 
@@ -1151,11 +1106,9 @@ function ChatViewInner({
     [
       agentConfig,
       chatId,
-      draftDefaultConfig,
-      draftWorkerDefaultConfig,
       isDraft,
+      persistDraftProjectAgentConfig,
       updateChatAgentConfig,
-      updatePiDefaults,
     ],
   );
 
@@ -1177,16 +1130,7 @@ function ChatViewInner({
 
       try {
         if (isDraft) {
-          await updatePiDefaults.mutateAsync({
-            chat: {
-              ...draftDefaultConfig,
-              thinkingLevel,
-            },
-            worker: {
-              ...draftWorkerDefaultConfig,
-              thinkingLevel,
-            },
-          });
+          await persistDraftProjectAgentConfig(nextAgentConfig);
           return;
         }
 
@@ -1212,11 +1156,9 @@ function ChatViewInner({
     [
       agentConfig,
       chatId,
-      draftDefaultConfig,
-      draftWorkerDefaultConfig,
       isDraft,
+      persistDraftProjectAgentConfig,
       updateChatAgentConfig,
-      updatePiDefaults,
     ],
   );
 
@@ -1259,7 +1201,7 @@ function ChatViewInner({
         );
       }
     },
-    [chatId],
+    [chatId, projectId, queryClient],
   );
 
   /**
@@ -1358,7 +1300,6 @@ function ChatViewInner({
                     onThinkingLevelChange={handleThinkingLevelChange}
                     onModelChange={handleModelChange}
                     onPermissionModeChange={handlePermissionModeChange}
-                    onWorkModeChange={handleWorkModeChange}
                     onBranchChange={handleBranchChange}
                     builtinHandlers={{
                       onFork: () => {
@@ -1454,7 +1395,6 @@ function ChatViewInner({
                 onThinkingLevelChange={handleThinkingLevelChange}
                 onModelChange={handleModelChange}
                 onPermissionModeChange={handlePermissionModeChange}
-                onWorkModeChange={handleWorkModeChange}
                 onBranchChange={handleBranchChange}
                 builtinHandlers={{
                   onFork: () => {
@@ -1510,7 +1450,6 @@ interface ChatPromptInputAreaProps {
   onPermissionModeChange: (
     presetId: PermissionModePresetId,
   ) => Promise<void> | void;
-  onWorkModeChange: (mode: PiAgentConfig["workMode"]) => Promise<void> | void;
   onBranchChange: (branch: string | null) => Promise<void> | void;
   builtinHandlers: BuiltinHandlers;
   layout: "empty" | "docked";
@@ -1530,7 +1469,6 @@ function ChatPromptInputArea({
   onThinkingLevelChange,
   onModelChange,
   onPermissionModeChange,
-  onWorkModeChange,
   onBranchChange,
   builtinHandlers,
   layout,
@@ -1618,9 +1556,8 @@ function ChatPromptInputArea({
                 })}
               </PromptInputSelectContent>
             </PromptInputSelect>
-
-            <div className="flex-1" />
-
+          </PromptInputTools>
+          <div className="flex min-w-0 items-center gap-1">
             <PiModelPicker
               value={getModelValue({
                 provider: agentConfig.provider,
@@ -1658,19 +1595,13 @@ function ChatPromptInputArea({
               </PromptInputSelectContent>
             </PromptInputSelect>
 
-          </PromptInputTools>
-
-          <PromptInputSubmit status={status} onStop={onStop} />
+            <PromptInputSubmit size="icon-xs" status={status} onStop={onStop} />
+          </div>
         </PromptInputFooter>
       </PromptInput>
 
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <ChatProjectSelect projectId={projectId} projectName={projectName} />
-        <ChatWorkModeSelect
-          value={agentConfig.workMode}
-          onValueChange={onWorkModeChange}
-          disabled={chatId !== null}
-        />
         <ChatBranchSelect
           projectId={projectId}
           value={agentConfig.branch}

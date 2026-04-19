@@ -4,7 +4,6 @@ import type {
   PiNetworkAccess,
   PiSandboxMode,
   PiSdkModel,
-  PiWorkMode,
 } from "@g-spot/types";
 
 export type PiModelOption = Pick<PiSdkModel, "provider" | "id" | "name">;
@@ -136,14 +135,6 @@ export const APPROVAL_POLICY_OPTIONS = [
   label: string;
 }>;
 
-export const WORK_MODE_OPTIONS = [
-  { value: "local", label: "Work locally" },
-  { value: "worktree", label: "Worktree" },
-] as const satisfies ReadonlyArray<{
-  value: PiWorkMode;
-  label: string;
-}>;
-
 export const THINKING_LEVEL_OPTIONS = [
   { value: "off", label: "Off" },
   { value: "minimal", label: "Minimal" },
@@ -175,7 +166,6 @@ export const FALLBACK_PI_AGENT_CONFIG: PiAgentConfig = {
   sandboxMode: "workspace-write",
   networkAccess: "off",
   approvalPolicy: "approval-required",
-  workMode: "local",
   branch: null,
 };
 
@@ -190,7 +180,6 @@ export function areAgentConfigsEqual(a: PiAgentConfig, b: PiAgentConfig) {
     a.sandboxMode === b.sandboxMode &&
     a.networkAccess === b.networkAccess &&
     a.approvalPolicy === b.approvalPolicy &&
-    a.workMode === b.workMode &&
     a.branch === b.branch &&
     a.activeToolNames.length === b.activeToolNames.length &&
     a.activeToolNames.every((toolName, index) => toolName === b.activeToolNames[index])

@@ -130,7 +130,11 @@ export function SidebarProjectItem({
         )}
 
         {chats.map((chat) => {
-          const chatStatus = runtimeStatuses[chat.id] ?? null;
+          const rawChatStatus = runtimeStatuses[chat.id] ?? null;
+          const chatStatus =
+            activeChatId === chat.id && rawChatStatus === "finished-unread"
+              ? null
+              : rawChatStatus;
           return (
             <Link
               key={chat.id}

@@ -16,6 +16,7 @@
     "@g-spot/db": "workspace:*",
     "@g-spot/env": "workspace:*",
     "@g-spot/types": "workspace:*",
+    "@huggingface/transformers": "catalog:",
     "@mariozechner/pi-agent-core": "^0.65.0",
     "@mariozechner/pi-ai": "^0.65.0",
     "@mariozechner/pi-coding-agent": "^0.65.0",
@@ -26,6 +27,7 @@
     "@trpc/server": "catalog:",
     "dotenv": "catalog:",
     "nanoid": "^5.1.7",
+    "unique-names-generator": "catalog:",
     "ws": "^8.18.3",
     "zod": "catalog:"
   },

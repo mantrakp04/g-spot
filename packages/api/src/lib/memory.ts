@@ -629,7 +629,7 @@ export async function query(
     hopDepth = 2,
   } = options;
 
-  const queryVec = await embedOne(q);
+  const queryVec = await embedOne(q, "query");
   const queryBuf = toF32Buffer(queryVec);
 
   const obsResults = vectorSearchObservations(queryBuf, topK, timeRange);

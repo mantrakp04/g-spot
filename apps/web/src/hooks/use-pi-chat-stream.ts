@@ -45,9 +45,14 @@ export function usePiChatStream(args: UsePiChatStreamArgs): PiChatStreamApi {
   const [status, setStatus] = useState<ChatStatus>("ready");
   const socketRef = useRef<WebSocket | null>(null);
   const modeRef = useRef<StreamMode>("idle");
+  const ignoredCloseSocketsRef = useRef(new WeakSet<WebSocket>());
 
   const closeActiveSocket = useCallback(() => {
-    socketRef.current?.close();
+    const socket = socketRef.current;
+    if (socket) {
+      ignoredCloseSocketsRef.current.add(socket);
+      socket.close();
+    }
     socketRef.current = null;
     modeRef.current = "idle";
   }, []);
@@ -71,6 +76,7 @@ export function usePiChatStream(args: UsePiChatStreamArgs): PiChatStreamApi {
         const socket = new WebSocket(buildSocketUrl(targetChatId));
         let settled = false;
         let attached = false;
+        let completionHandled = false;
 
         socketRef.current = socket;
         modeRef.current = mode;
@@ -81,6 +87,28 @@ export function usePiChatStream(args: UsePiChatStreamArgs): PiChatStreamApi {
           }
           settled = true;
           callback();
+        };
+
+        const handleStreamComplete = () => {
+          if (completionHandled) {
+            return;
+          }
+
+          completionHandled = true;
+          setStatus("ready");
+          argsRef.current.onStreamComplete?.(targetChatId);
+          logChatDebug("stream-complete", {
+            targetChatId,
+            isReconnect: mode === "reconnect",
+          });
+
+          if (socketRef.current === socket) {
+            socketRef.current = null;
+            modeRef.current = "idle";
+          }
+
+          ignoredCloseSocketsRef.current.add(socket);
+          socket.close();
         };
 
         socket.addEventListener("open", () => {
@@ -112,7 +140,19 @@ export function usePiChatStream(args: UsePiChatStreamArgs): PiChatStreamApi {
           if (isChatSocketStateEvent(event)) {
             if (event.type === "socket_missing") {
               settle(() => resolve(false));
+              ignoredCloseSocketsRef.current.add(socket);
               socket.close();
+              return;
+            }
+
+            if (event.type === "stream_finished") {
+              attached = true;
+              settle(() => resolve(true));
+              handleStreamComplete();
+              return;
+            }
+
+            if (completionHandled) {
               return;
             }
 
@@ -136,6 +176,11 @@ export function usePiChatStream(args: UsePiChatStreamArgs): PiChatStreamApi {
         });
 
         socket.addEventListener("close", () => {
+          const ignoredClose = ignoredCloseSocketsRef.current.has(socket);
+          if (ignoredClose) {
+            ignoredCloseSocketsRef.current.delete(socket);
+          }
+
           if (socketRef.current === socket) {
             socketRef.current = null;
             modeRef.current = "idle";
@@ -146,16 +191,18 @@ export function usePiChatStream(args: UsePiChatStreamArgs): PiChatStreamApi {
             return;
           }
 
-          if (!attached) {
+          if (ignoredClose || completionHandled || !attached) {
             return;
           }
 
-          setStatus("ready");
-          argsRef.current.onStreamComplete?.(targetChatId);
-          logChatDebug("stream-complete", {
+          const err = new Error("Chat socket closed unexpectedly");
+          setStatus("error");
+          logChatDebug("stream-close-unexpected", {
             targetChatId,
             isReconnect: mode === "reconnect",
+            error: err,
           });
+          argsRef.current.onError?.(err);
         });
 
         socket.addEventListener("error", () => {

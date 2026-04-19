@@ -29,7 +29,6 @@ import {
   normalizeStoredChatAgentConfig,
   normalizeStoredProjectAgentConfig,
 } from "../lib/pi";
-import { removeWorktree } from "../lib/git";
 
 function withParsedAgentConfig<T extends { agentConfig?: string | null; model?: string }>(
   chat: T,
@@ -147,22 +146,7 @@ export const chatRouter = router({
   delete: publicProcedure
     .input(z.object({ chatId: z.string() }))
     .mutation(async ({ input }) => {
-      const chat = await getChat(input.chatId);
       await deleteChat(input.chatId);
-
-      if (!chat) {
-        return;
-      }
-
-      const project = await getProject(chat.projectId);
-      if (!project) {
-        return;
-      }
-
-      void removeWorktree({
-        projectPath: project.path,
-        chatId: input.chatId,
-      });
     }),
 
   messages: publicProcedure

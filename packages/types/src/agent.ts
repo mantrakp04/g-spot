@@ -39,15 +39,20 @@ export const PI_APPROVAL_POLICY_VALUES = [
   "auto",
   "approval-required",
 ] as const;
-export const PI_WORK_MODE_VALUES = ["local", "worktree"] as const;
 
 export const piQueueModeSchema = z.enum(PI_QUEUE_MODE_VALUES);
 export const piBuiltinToolNameSchema = z.enum(PI_BUILTIN_TOOL_NAME_VALUES);
 export const piSandboxModeSchema = z.enum(PI_SANDBOX_MODE_VALUES);
 export const piNetworkAccessSchema = z.enum(PI_NETWORK_ACCESS_VALUES);
 export const piApprovalPolicySchema = z.enum(PI_APPROVAL_POLICY_VALUES);
-export const piWorkModeSchema = z.enum(PI_WORK_MODE_VALUES);
 
+/**
+ * `branch` is the chat's single workspace identity. It can name a real local
+ * branch (work happens in the project's main worktree on that branch) or a
+ * worktree slug (work happens in that isolated dir). The server resolves the
+ * kind by lookup; collisions are statistically negligible thanks to the slug
+ * format. `null` means "use whatever HEAD is."
+ */
 export const piAgentConfigSchema = z.object({
   provider: z.string().min(1).default("openai-codex"),
   modelId: z.string().min(1).default("gpt-5.4-mini"),
@@ -66,7 +71,6 @@ export const piAgentConfigSchema = z.object({
   sandboxMode: piSandboxModeSchema.default("workspace-write"),
   networkAccess: piNetworkAccessSchema.default("off"),
   approvalPolicy: piApprovalPolicySchema.default("approval-required"),
-  workMode: piWorkModeSchema.default("local"),
   branch: z.string().nullable().default(null),
 });
 
@@ -81,7 +85,6 @@ export type PiBuiltinToolName = z.infer<typeof piBuiltinToolNameSchema>;
 export type PiSandboxMode = z.infer<typeof piSandboxModeSchema>;
 export type PiNetworkAccess = z.infer<typeof piNetworkAccessSchema>;
 export type PiApprovalPolicy = z.infer<typeof piApprovalPolicySchema>;
-export type PiWorkMode = z.infer<typeof piWorkModeSchema>;
 export type PiProviderApiKeyInput = z.infer<typeof piProviderApiKeySchema>;
 
 export type PiSdkTransport = Transport;

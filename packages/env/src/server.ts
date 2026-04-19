@@ -33,8 +33,10 @@ export const env = createEnv({
     MEMORY_WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(20).default(8),
     GMAIL_RATE_LIMIT_RPS: z.coerce.number().int().min(1).max(100).default(50),
     SKILLS_API_URL: z.string().url().default("https://skills.sh"),
-    OLLAMA_BASE_URL: z.string().url().default("http://localhost:11434"),
-    EMBEDDING_MODEL: z.string().min(1).default("embeddinggemma"),
+    EMBEDDING_MODEL: z
+      .string()
+      .min(1)
+      .default("onnx-community/embeddinggemma-300m-ONNX"),
     VECTOR_EXTENSION_PATH: z.string().min(1).optional(),
   },
   runtimeEnv: process.env,

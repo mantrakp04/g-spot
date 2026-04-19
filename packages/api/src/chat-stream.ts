@@ -1,4 +1,8 @@
-import { getChat, getChatMessages, saveChatMessage } from "@g-spot/db/chat";
+import {
+  getChat,
+  getChatMessages,
+  saveChatMessage,
+} from "@g-spot/db/chat";
 import { getProject } from "@g-spot/db/projects";
 import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent";
 import type { Message } from "@mariozechner/pi-ai";
@@ -14,7 +18,7 @@ import {
 } from "./chat-runtime";
 import { refreshChatTitle } from "./chat-title";
 import { extractChatTurnToMemory } from "./lib/memory-ingest-hook";
-import { ensureWorktree } from "./lib/git";
+import { listWorkspaces } from "./lib/git";
 import {
   createPiAgentSession,
   normalizeStoredChatAgentConfig,
@@ -138,31 +142,14 @@ async function startChatRun(body: ChatStreamRequestBody): Promise<void> {
   const chatConfig = normalizeStoredChatAgentConfig(chat);
   let projectPath = projectRow.path;
 
-  if (chatConfig.workMode === "worktree") {
-    try {
-      const worktreePath = await ensureWorktree({
-        projectPath: projectRow.path,
-        chatId: body.chatId,
-        branch: chatConfig.branch,
-      });
-
-      if (worktreePath) {
-        projectPath = worktreePath;
-      }
-    } catch (error) {
-      const { stream } = startChatRuntimeStream(body.chatId, {
-        abortCurrentRun: () => undefined,
-      });
-
-      stream.publish({
-        type: "gspot_error",
-        message:
-          error instanceof Error
-            ? `Could not create worktree: ${error.message}`
-            : "Could not create worktree.",
-      });
-      finishChatRuntimeStream(body.chatId);
-      return;
+  if (chatConfig.branch) {
+    const { workspaces } = await listWorkspaces(projectRow.path);
+    const worktree = workspaces.find(
+      (workspace) =>
+        workspace.kind === "worktree" && workspace.name === chatConfig.branch,
+    );
+    if (worktree && worktree.kind === "worktree") {
+      projectPath = worktree.path;
     }
   }
 
@@ -337,6 +324,9 @@ async function startChatRun(body: ChatStreamRequestBody): Promise<void> {
           message: error instanceof Error ? error.message : "Chat stream failed",
         });
       } finally {
+        stream.publish({
+          type: "stream_finished",
+        });
         unsubscribe();
         finishChatRuntimeStream(body.chatId);
       }

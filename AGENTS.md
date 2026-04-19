@@ -42,6 +42,15 @@ Rule of thumb: **stay on task unless told otherwise or the interrupt would make 
 - When a change can affect cross-context behavior (chat vs workflow, server vs client, trigger vs interactive path), ask first and get approval.
 - Default to asking one targeted clarifying question rather than executing on inferred intent.
 
+## Research grounding (web search)
+
+**Treat the public web as the default source of truth for anything outside this repository.** Training data is not sufficient on its own for research, comparisons, or “how does X work today?”
+
+- **Run web search** before you assert facts about third-party APIs, CLI behavior, framework versions, platform limits, security advisories, deprecations, licensing, or current events. Prefer primary sources (official docs, release notes, standards bodies) surfaced via search.
+- **Ground questions to the user** in what search already showed. Prefer “I found [A] vs [B] in current docs; which matches your setup?” over guesses. If search is inconclusive, say that and point to what you checked.
+- **Internal-only work** (reading this repo, inferring types, following existing patterns) does not require web search. **External claims and integration decisions do.**
+- **Stack with other tools:** **Context7** for third-party SDK shapes and examples; **DeepWiki** (or repo docs) for a specific GitHub project’s behavior; **web search** for freshness, version matrices, and anything not covered by those. If two sources disagree, trust newer primary documentation after search, not memory.
+
 ## DO
 
 - **Infer and derive types from existing packages** — avoid new types; use `Pick`, `Omit`, and built-in TS utilities.
@@ -50,7 +59,7 @@ Rule of thumb: **stay on task unless told otherwise or the interrupt would make 
 - **Rename symbols to match reality** — if code moves across server/client boundaries, rename the original vars, schemas, imports, and helpers so the names describe what they actually are.
 - **Use Context7 for third-party SDK API verification** before integrating.
 - **For Convex deployment config (especially Vercel build commands), follow official Convex docs as source of truth.**
-- **Verify against DeepWiki before asserting.**
+- **Verify against DeepWiki (or upstream repo docs) before asserting behavior of a specific open-source project; use web search for time-sensitive or general external facts** (see Research grounding above).
 - **Keep responses terse** and actionable.
 - **Use memo with custom comparison** for streaming optimization.
 - **Use `useSyncExternalStore`** for shared mutable state.

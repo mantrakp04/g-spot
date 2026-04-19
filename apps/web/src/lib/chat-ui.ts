@@ -164,7 +164,8 @@ export type ChatStreamEvent =
 
 export type ChatSocketStateEvent =
   | { type: "socket_attached" }
-  | { type: "socket_missing" };
+  | { type: "socket_missing" }
+  | { type: "stream_finished" };
 
 function base64ImageUrl(data: string, mimeType: string) {
   return `data:${mimeType};base64,${data}`;
@@ -530,7 +531,11 @@ export function parseChatSocketMessage(
 export function isChatSocketStateEvent(
   event: ChatStreamEvent | ChatSocketStateEvent,
 ): event is ChatSocketStateEvent {
-  return event.type === "socket_attached" || event.type === "socket_missing";
+  return (
+    event.type === "socket_attached" ||
+    event.type === "socket_missing" ||
+    event.type === "stream_finished"
+  );
 }
 
 export function getMessageText(message: UIMessage) {

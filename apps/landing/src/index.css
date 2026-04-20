@@ -1,0 +1,15 @@
+@import "@g-spot/ui/globals.css";
+
+/* Override the desktop-shell lock from @g-spot/ui globals.css.
+   Unlayered rules beat @layer base, so these win without !important. */
+html,
+body {
+  height: auto;
+  min-height: 100%;
+  overflow: auto;
+  overflow-x: hidden;
+}
+
+#app {
+  min-height: 100svh;
+}

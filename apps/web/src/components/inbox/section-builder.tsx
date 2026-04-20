@@ -365,13 +365,20 @@ export function SectionBuilder({
   const updateMutation = useUpdateSectionMutation();
   const deleteMutation = useDeleteSectionMutation();
 
-  function addCondition() {
+  function insertCondition(atIndex: number, logic: "and" | "or" = "and") {
     const defaultField = source === "gmail" ? "from" : "status";
-    setFilters((prev) => [
-      ...prev,
-      { field: defaultField, operator: "is" as const, value: "", logic: "and" as const },
-    ]);
-    setFilterSearchQueries((prev) => [...prev, ""]);
+    const newCond: FilterCondition = {
+      field: defaultField,
+      operator: "is" as const,
+      value: "",
+      logic,
+    };
+    setFilters((prev) => [...prev.slice(0, atIndex), newCond, ...prev.slice(atIndex)]);
+    setFilterSearchQueries((prev) => [...prev.slice(0, atIndex), "", ...prev.slice(atIndex)]);
+  }
+
+  function addCondition(logic: "and" | "or" = "and") {
+    insertCondition(filters.length, logic);
   }
 
   function updateCondition(index: number, updated: FilterCondition) {
@@ -575,63 +582,140 @@ export function SectionBuilder({
           <Separator />
 
           {/* Filters */}
-          <div className="space-y-1">
+          <div className="space-y-2">
             <Label className="text-xs font-medium text-muted-foreground">Filters</Label>
 
             {filters.length === 0 && (
-              <p className="py-2 text-xs text-muted-foreground/60">
+              <p className="rounded-lg bg-muted/30 px-3 py-3 text-center text-xs text-muted-foreground/60 ring-1 ring-inset ring-border/40">
                 No filters — all items will be shown.
               </p>
             )}
 
-            <div className="space-y-0">
-              {filters.map((condition, index) => {
-                const { options, isLoading } = suggestionStates[index] ?? {};
-                const supportsTypedSuggestions =
-                  (source === "github_pr"
-                    && ["author", "reviewer", "assignee", "mentions", "involves"].includes(condition.field))
-                  || (source === "github_issue"
-                    && ["author", "assignee", "mentions", "involves"].includes(condition.field));
-                return (
-                  <FilterConditionRow
-                    key={index}
-                    condition={condition}
-                    source={isEdit ? section!.source : source}
-                    index={index}
-                    onChange={(updated) => updateCondition(index, updated)}
-                    onSearchChange={
-                      supportsTypedSuggestions
-                        ? (query) =>
-                            setFilterSearchQueries((prev) =>
-                              prev.map((current, currentIndex) =>
-                                currentIndex === index ? query : current,
-                              ),
-                            )
-                        : undefined
-                    }
-                    onRemove={() => removeCondition(index)}
-                    dynamicOptions={options}
-                    isLoadingOptions={
-                      isLoading
-                      || (isGitHubSource && condition.field === "label" && loadingLabels)
-                      || (source === "gmail" && condition.field === "label" && loadingGmailLabels)
-                      || (isGitHubSource && condition.field === "repo" && loadingRepos)
-                    }
-                  />
-                );
-              })}
-            </div>
+            {(() => {
+              // Group conditions by OR boundaries: a condition with logic="or" starts a new group.
+              const groups: Array<{ indices: number[] }> = [];
+              filters.forEach((c, i) => {
+                if (i === 0 || c.logic === "or") {
+                  groups.push({ indices: [i] });
+                } else {
+                  groups[groups.length - 1].indices.push(i);
+                }
+              });
 
-            <Button
+              return (
+                <div className="space-y-2">
+                  {groups.map((group, gi) => {
+                    const lastIndex = group.indices[group.indices.length - 1];
+                    return (
+                      <div key={gi}>
+                        {gi > 0 && (
+                          <div className="flex items-center gap-3 py-2">
+                            <div className="h-px flex-1 bg-border/40" />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateCondition(group.indices[0], {
+                                  ...filters[group.indices[0]],
+                                  logic: "and",
+                                })
+                              }
+                              className={cn(
+                                "rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-widest transition-colors",
+                                "border border-border/60 text-muted-foreground",
+                                "hover:border-foreground/30 hover:text-foreground",
+                              )}
+                              title="Click to merge into previous group"
+                            >
+                              Or
+                            </button>
+                            <div className="h-px flex-1 bg-border/40" />
+                          </div>
+                        )}
+
+                        <div className="space-y-1.5">
+                          {group.indices.map((globalIndex, localIndex) => {
+                            const condition = filters[globalIndex];
+                            const { options, isLoading } = suggestionStates[globalIndex] ?? {};
+                            const supportsTypedSuggestions =
+                              (source === "github_pr"
+                                && ["author", "reviewer", "assignee", "mentions", "involves"].includes(condition.field))
+                              || (source === "github_issue"
+                                && ["author", "assignee", "mentions", "involves"].includes(condition.field));
+                            return (
+                              <FilterConditionRow
+                                key={globalIndex}
+                                condition={condition}
+                                source={isEdit ? section!.source : source}
+                                prefix={localIndex === 0 ? null : "And"}
+                                onPrefixClick={
+                                  localIndex === 0
+                                    ? undefined
+                                    : () =>
+                                        updateCondition(globalIndex, {
+                                          ...condition,
+                                          logic: "or",
+                                        })
+                                }
+                                onChange={(updated) => updateCondition(globalIndex, updated)}
+                                onSearchChange={
+                                  supportsTypedSuggestions
+                                    ? (query) =>
+                                        setFilterSearchQueries((prev) =>
+                                          prev.map((current, currentIndex) =>
+                                            currentIndex === globalIndex ? query : current,
+                                          ),
+                                        )
+                                    : undefined
+                                }
+                                onRemove={() => removeCondition(globalIndex)}
+                                dynamicOptions={options}
+                                isLoadingOptions={
+                                  isLoading
+                                  || (isGitHubSource && condition.field === "label" && loadingLabels)
+                                  || (source === "gmail" && condition.field === "label" && loadingGmailLabels)
+                                  || (isGitHubSource && condition.field === "repo" && loadingRepos)
+                                }
+                              />
+                            );
+                          })}
+
+                          <div className="flex items-stretch gap-2">
+                            <div className="w-10 shrink-0" />
+                            <button
+                              type="button"
+                              onClick={() => insertCondition(lastIndex + 1, "and")}
+                              className={cn(
+                                "group/add flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg",
+                                "bg-muted/25 text-xs font-medium text-muted-foreground/80",
+                                "ring-1 ring-inset ring-border/40 transition-colors",
+                                "hover:bg-muted/50 hover:text-foreground hover:ring-border/70",
+                              )}
+                            >
+                              <Plus className="size-3 opacity-70 transition-opacity group-hover/add:opacity-100" />
+                              Add condition
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+
+            <button
               type="button"
-              variant="ghost"
-              size="sm"
-              className="mt-1 w-full gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-              onClick={addCondition}
+              onClick={() => addCondition(filters.length === 0 ? "and" : "or")}
+              className={cn(
+                "group/add mt-2 flex h-10 w-full items-center justify-center gap-1.5 rounded-lg",
+                "bg-muted/50 text-xs font-medium text-foreground/80",
+                "ring-1 ring-inset ring-border/60 transition-colors",
+                "hover:bg-muted/70 hover:text-foreground hover:ring-border",
+              )}
             >
-              <Plus className="size-3" />
-              Add condition
-            </Button>
+              <Plus className="size-3 opacity-70 transition-opacity group-hover/add:opacity-100" />
+              Add filter
+            </button>
           </div>
 
           {/* Columns */}

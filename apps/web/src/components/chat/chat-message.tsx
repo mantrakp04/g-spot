@@ -11,7 +11,7 @@ import {
   WrenchIcon,
   XIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, memo } from "react";
+import { useCallback, useMemo, useRef, useState, memo } from "react";
 
 import {
   Attachments,
@@ -39,13 +39,11 @@ import {
   ToolInput,
   ToolOutput,
 } from "@/components/ai-elements/tool";
-import type { ChatStatus, DynamicToolUIPart, ToolUIPart, UIMessage, UIMessagePart } from "@/lib/chat-ui";
-import { logChatDebug, summarizeUiMessage } from "@/lib/chat-debug";
+import type { DynamicToolUIPart, ToolUIPart, UIMessage, UIMessagePart } from "@/lib/chat-ui";
 
 interface ChatMessageProps {
   message: UIMessage;
   isStreaming: boolean;
-  status: ChatStatus;
   onReload?: () => void;
   onEdit?: (newText: string) => void;
   onFork?: () => void;
@@ -68,22 +66,12 @@ function isToolPart(part: UIMessagePart): part is ToolUIPart | DynamicToolUIPart
 export const ChatMessage = memo(function ChatMessage({
   message,
   isStreaming,
-  status,
   onReload,
   onEdit,
   onFork,
   onResolveApproval,
 }: ChatMessageProps) {
-  useEffect(() => {
-    logChatDebug("message-render", {
-      message: summarizeUiMessage(message),
-      isStreaming,
-      status,
-    });
-  }, [isStreaming, message, status]);
-
-  const showAssistantActions =
-    message.role === "assistant" && status !== "streaming";
+  const showAssistantActions = message.role === "assistant" && !isStreaming;
   const [copied, setCopied] = useState(false);
   const [editing, setEditing] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -218,7 +206,10 @@ export const ChatMessage = memo(function ChatMessage({
             )}
           >
             {message.role === "assistant" && hasThought && (
-              <ChainOfThought defaultOpen={isStreaming}>
+              // Always default open so the swap from the streaming overlay
+              // to the finalized list item is visually invariant. ChainOfThought
+              // remains user-collapsible.
+              <ChainOfThought defaultOpen>
                 <ChainOfThoughtHeader>
                   {isStreaming && responseParts.length === 0
                     ? "Thinking..."
@@ -347,12 +338,7 @@ export const ChatMessage = memo(function ChatMessage({
                               : "complete"
                           }
                           description={
-                            <MessageResponse
-                              className="text-muted-foreground text-xs [&_p]:my-1 [&_pre]:my-1 [&_ul]:my-1 [&_ol]:my-1"
-                              isAnimating={
-                                isStreaming && i === thoughtParts.length - 1
-                              }
-                            >
+                            <MessageResponse className="text-muted-foreground text-xs [&_p]:my-1 [&_pre]:my-1 [&_ul]:my-1 [&_ol]:my-1">
                               {part.text}
                             </MessageResponse>
                           }
@@ -385,14 +371,10 @@ export const ChatMessage = memo(function ChatMessage({
 
               if (part.type === "text") {
                 return part.text ? (
-                  <MessageResponse
-                    key={key}
-                    isAnimating={
-                      isStreaming &&
-                      message.role === "assistant" &&
-                      i === responseParts.length - 1
-                    }
-                  >
+                  // Typewriter animation removed: it runs only on the streaming
+                  // overlay and stops mid-character when the overlay swaps for
+                  // the finalized list item, causing a visible jump.
+                  <MessageResponse key={key}>
                     {part.text}
                   </MessageResponse>
                 ) : null;
@@ -431,7 +413,7 @@ export const ChatMessage = memo(function ChatMessage({
         )}
 
         {/* Assistant message actions */}
-        {message.role === "assistant" && showAssistantActions && !isStreaming && (
+        {showAssistantActions && (
           <MessageActions className="mt-1 opacity-0 transition-opacity duration-200 group-hover/msg:opacity-100">
             <MessageAction tooltip="Copy" onClick={handleCopy}>
               {copied ? (

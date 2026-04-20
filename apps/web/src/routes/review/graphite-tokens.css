@@ -1,0 +1,90 @@
+/**
+ * Structural CSS for the review surface. Colors come from the shadcn theme
+ * (var(--background), var(--card), var(--muted), var(--border),
+ * var(--foreground), var(--muted-foreground), var(--primary),
+ * var(--destructive)); nothing below hardcodes a palette.
+ */
+
+.graphite-scope,
+.graphite-scope *,
+.graphite-scope *::before,
+.graphite-scope *::after {
+  box-sizing: border-box;
+}
+
+/* Top progress bar. */
+.graphite-loading-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: transparent;
+  overflow: hidden;
+  z-index: 60;
+  pointer-events: none;
+}
+.graphite-loading-bar::after {
+  content: "";
+  display: block;
+  width: 40%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, var(--primary), transparent);
+  animation: graphite-loading-bar 1.1s ease-in-out infinite;
+}
+@keyframes graphite-loading-bar {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}
+
+/* Diff line rows. Additions/deletions colors use green/red mixed with the
+ * theme's card so they work in both light and dark modes. */
+.graphite-diff-line {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.55;
+  min-height: 20px;
+}
+.graphite-diff-line > .num {
+  color: color-mix(in oklch, var(--muted-foreground) 80%, transparent);
+  text-align: right;
+  padding: 0 8px;
+  user-select: none;
+  background: color-mix(in oklch, var(--muted) 60%, transparent);
+  border-right: 1px solid var(--border);
+}
+.graphite-diff-line > .code {
+  padding: 0 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.graphite-diff-line[data-kind="added"] {
+  background: color-mix(in oklch, #22c55e 12%, transparent);
+}
+.graphite-diff-line[data-kind="added"] > .code {
+  color: #22c55e;
+}
+.graphite-diff-line[data-kind="removed"] {
+  background: color-mix(in oklch, #ef4444 12%, transparent);
+}
+.graphite-diff-line[data-kind="removed"] > .code {
+  color: #ef4444;
+}
+.graphite-diff-line[data-range="true"] {
+  background: color-mix(in oklch, var(--primary) 28%, transparent);
+  box-shadow: inset 2px 0 var(--primary);
+}
+.graphite-diff-line[data-kind="hunk"] > .code {
+  color: var(--muted-foreground);
+  background: color-mix(in oklch, var(--muted) 60%, transparent);
+}
+.graphite-diff-line.split {
+  grid-template-columns: 44px minmax(0, 1fr) 44px minmax(0, 1fr);
+}
+.graphite-diff-line.split > .side {
+  display: contents;
+}

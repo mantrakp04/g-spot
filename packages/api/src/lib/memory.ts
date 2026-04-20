@@ -115,7 +115,6 @@ const OBSERVATION_DECAY_RATES: Record<ObservationType, number> = {
   reflection: 0.001,
 };
 
-const DEDUP_COSINE_THRESHOLD = 0.85;
 const QUERY_ENTITY_MATCH_THRESHOLD = 0.70;
 
 const DEFAULT_BLOCKS = [
@@ -310,7 +309,7 @@ export function scratchpadUndo(label: string, steps = 1): void {
 }
 
 // ---------------------------------------------------------------------------
-// Vector search helpers (raw SQL via sqlite-vector)
+// Vector search helpers (sqlite-vec vec0 virtual tables)
 // ---------------------------------------------------------------------------
 
 function vectorSearchEntities(
@@ -318,15 +317,26 @@ function vectorSearchEntities(
   topK: number,
 ): { id: string; distance: number }[] {
   const k = (topK * 3) | 0;
-  const results = db()
+  const matches = db()
     .prepare(
-      `SELECT e.id, v.distance
-       FROM memory_entities AS e
-       JOIN vector_full_scan('memory_entities', 'embedding', ?, CAST(? AS INTEGER)) AS v ON e.rowid = v.rowid
-       WHERE e.valid_to IS NULL AND e.embedding IS NOT NULL`,
+      `SELECT id, distance FROM vec_entities
+       WHERE embedding MATCH ? AND k = ?
+       ORDER BY distance`,
     )
     .all(queryVec, k) as { id: string; distance: number }[];
-  return results;
+
+  if (matches.length === 0) return [];
+
+  const placeholders = matches.map(() => "?").join(",");
+  const alive = db()
+    .prepare(
+      `SELECT id FROM memory_entities
+       WHERE id IN (${placeholders}) AND valid_to IS NULL`,
+    )
+    .all(...matches.map((m) => m.id)) as { id: string }[];
+  const aliveSet = new Set(alive.map((r) => r.id));
+
+  return matches.filter((m) => aliveSet.has(m.id));
 }
 
 function vectorSearchObservations(
@@ -335,20 +345,43 @@ function vectorSearchObservations(
   timeRange?: { from: number; to: number },
 ): { id: string; distance: number; content: string; salience: number; confidence: number; observation_type: string; created_at: number }[] {
   const k = (topK * 3) | 0;
-  let sql = `
-    SELECT e.id, v.distance, e.content, e.salience, e.confidence, e.observation_type, e.created_at
-    FROM memory_observations AS e
-    JOIN vector_full_scan('memory_observations', 'embedding', ?, CAST(? AS INTEGER)) AS v ON e.rowid = v.rowid
-    WHERE e.valid_to IS NULL AND e.embedding IS NOT NULL
-      AND e.salience >= 0.05`;
-  const params: any[] = [queryVec, k];
+  const matches = db()
+    .prepare(
+      `SELECT id, distance FROM vec_observations
+       WHERE embedding MATCH ? AND k = ?
+       ORDER BY distance`,
+    )
+    .all(queryVec, k) as { id: string; distance: number }[];
+
+  if (matches.length === 0) return [];
+
+  const distanceById = new Map(matches.map((m) => [m.id, m.distance]));
+  const placeholders = matches.map(() => "?").join(",");
+
+  let sql = `SELECT id, content, salience, confidence, observation_type, created_at
+             FROM memory_observations
+             WHERE id IN (${placeholders})
+               AND valid_to IS NULL
+               AND salience >= 0.05`;
+  const args: any[] = matches.map((m) => m.id);
 
   if (timeRange) {
-    sql += " AND e.valid_from <= ? AND (e.valid_to IS NULL OR e.valid_to >= ?)";
-    params.push(timeRange.to, timeRange.from);
+    sql += " AND valid_from <= ? AND (valid_to IS NULL OR valid_to >= ?)";
+    args.push(timeRange.to, timeRange.from);
   }
 
-  return db().prepare(sql).all(...params) as any[];
+  const rows = db().prepare(sql).all(...args) as {
+    id: string;
+    content: string;
+    salience: number;
+    confidence: number;
+    observation_type: string;
+    created_at: number;
+  }[];
+
+  return rows
+    .map((row) => ({ ...row, distance: distanceById.get(row.id)! }))
+    .sort((a, b) => a.distance - b.distance);
 }
 
 function vectorSearchTriplets(
@@ -356,14 +389,69 @@ function vectorSearchTriplets(
   topK: number,
 ): { id: string; distance: number; triplet_text: string; weight: number; confidence: number; created_at: number }[] {
   const k = (topK * 3) | 0;
-  return db()
+  const matches = db()
     .prepare(
-      `SELECT e.id, v.distance, e.triplet_text, e.weight, e.confidence, e.created_at
-       FROM memory_edges AS e
-       JOIN vector_full_scan('memory_edges', 'triplet_embedding', ?, CAST(? AS INTEGER)) AS v ON e.rowid = v.rowid
-       WHERE e.valid_to IS NULL AND e.triplet_embedding IS NOT NULL`,
+      `SELECT id, distance FROM vec_edges
+       WHERE embedding MATCH ? AND k = ?
+       ORDER BY distance`,
     )
-    .all(queryVec, k) as any[];
+    .all(queryVec, k) as { id: string; distance: number }[];
+
+  if (matches.length === 0) return [];
+
+  const distanceById = new Map(matches.map((m) => [m.id, m.distance]));
+  const placeholders = matches.map(() => "?").join(",");
+
+  const rows = db()
+    .prepare(
+      `SELECT id, triplet_text, weight, confidence, created_at
+       FROM memory_edges
+       WHERE id IN (${placeholders}) AND valid_to IS NULL`,
+    )
+    .all(...matches.map((m) => m.id)) as {
+    id: string;
+    triplet_text: string;
+    weight: number;
+    confidence: number;
+    created_at: number;
+  }[];
+
+  return rows
+    .map((row) => ({ ...row, distance: distanceById.get(row.id)! }))
+    .sort((a, b) => a.distance - b.distance);
+}
+
+export function upsertVectorEntity(id: string, buf: Buffer): void {
+  db().prepare("DELETE FROM vec_entities WHERE id = ?").run(id);
+  db()
+    .prepare("INSERT INTO vec_entities (id, embedding) VALUES (?, ?)")
+    .run(id, buf);
+}
+
+export function upsertVectorObservation(id: string, buf: Buffer): void {
+  db().prepare("DELETE FROM vec_observations WHERE id = ?").run(id);
+  db()
+    .prepare("INSERT INTO vec_observations (id, embedding) VALUES (?, ?)")
+    .run(id, buf);
+}
+
+export function upsertVectorEdge(id: string, buf: Buffer): void {
+  db().prepare("DELETE FROM vec_edges WHERE id = ?").run(id);
+  db()
+    .prepare("INSERT INTO vec_edges (id, embedding) VALUES (?, ?)")
+    .run(id, buf);
+}
+
+function deleteVectorEntity(id: string): void {
+  db().prepare("DELETE FROM vec_entities WHERE id = ?").run(id);
+}
+
+function deleteVectorObservation(id: string): void {
+  db().prepare("DELETE FROM vec_observations WHERE id = ?").run(id);
+}
+
+function deleteVectorEdge(id: string): void {
+  db().prepare("DELETE FROM vec_edges WHERE id = ?").run(id);
 }
 
 // ---------------------------------------------------------------------------
@@ -444,36 +532,31 @@ export async function ingest(
       .get(entHash) as { id: string; description: string; aliases: string; version: number } | undefined;
 
     if (existing) {
-      const vecMatches = vectorSearchEntities(entBuf, 5);
-      const isSimilar = vecMatches.some(
-        (m) => m.id === existing.id && (1 - m.distance) >= DEDUP_COSINE_THRESHOLD,
+      const oldAliases: string[] = JSON.parse(existing.aliases);
+      const newAliases = Array.from(
+        new Set([...oldAliases, ...(ent.aliases ?? [])]),
       );
+      const mergedDesc =
+        ent.description.length > existing.description.length
+          ? ent.description
+          : existing.description;
 
-      if (isSimilar || existing) {
-        const oldAliases: string[] = JSON.parse(existing.aliases);
-        const newAliases = Array.from(
-          new Set([...oldAliases, ...(ent.aliases ?? [])]),
-        );
-        const mergedDesc =
-          ent.description.length > existing.description.length
-            ? ent.description
-            : existing.description;
+      db()
+        .prepare(
+          `UPDATE memory_entities
+           SET description = ?, aliases = ?, version = version + 1,
+               salience = MIN(1.0, salience + 0.1), last_accessed_at = ?, updated_at = ?
+           WHERE id = ?`,
+        )
+        .run(mergedDesc, JSON.stringify(newAliases), ts, ts, existing.id);
 
-        db()
-          .prepare(
-            `UPDATE memory_entities
-             SET description = ?, aliases = ?, embedding = ?, version = version + 1,
-                 salience = MIN(1.0, salience + 0.1), last_accessed_at = ?, updated_at = ?
-             WHERE id = ?`,
-          )
-          .run(mergedDesc, JSON.stringify(newAliases), entBuf, ts, ts, existing.id);
+      upsertVectorEntity(existing.id, entBuf);
 
-        entityNameToId.set(ent.name.toLowerCase(), existing.id);
-        entityIds.push(existing.id);
+      entityNameToId.set(ent.name.toLowerCase(), existing.id);
+      entityIds.push(existing.id);
 
-        audit(existing.id, "entity", "MERGE", existing.description, mergedDesc, "Entity merged during ingest");
-        continue;
-      }
+      audit(existing.id, "entity", "MERGE", existing.description, mergedDesc, "Entity merged during ingest");
+      continue;
     }
 
     const id = nanoid();
@@ -482,14 +565,16 @@ export async function ingest(
     db()
       .prepare(
         `INSERT INTO memory_entities
-         (id, name, entity_type, description, aliases, hash, valid_from, version,
-          salience, decay_rate, last_accessed_at, embedding, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1.0, ?, ?, ?, ?, ?)`,
+         (id, name, entity_type, description, aliases, hash, valid_from,
+          version, salience, decay_rate, last_accessed_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1.0, ?, ?, ?, ?)`,
       )
       .run(
         id, ent.name.toLowerCase(), ent.entityType, ent.description,
-        JSON.stringify(ent.aliases ?? []), entHash, ts, decayRate, ts, entBuf, ts, ts,
+        JSON.stringify(ent.aliases ?? []), entHash, ts, decayRate, ts, ts, ts,
       );
+
+    upsertVectorEntity(id, entBuf);
 
     entityNameToId.set(ent.name.toLowerCase(), id);
     entityIds.push(id);
@@ -526,6 +611,7 @@ export async function ingest(
       db()
         .prepare("UPDATE memory_observations SET valid_to = ?, updated_at = ? WHERE id = ?")
         .run(ts, ts, resolution.existingId);
+      deleteVectorObservation(resolution.existingId);
       audit(resolution.existingId, "observation", "DELETE", null, null, resolution.reason);
       continue;
     }
@@ -534,6 +620,7 @@ export async function ingest(
       db()
         .prepare("UPDATE memory_observations SET valid_to = ?, updated_at = ? WHERE id = ?")
         .run(ts, ts, resolution.existingId);
+      deleteVectorObservation(resolution.existingId);
       audit(resolution.existingId, "observation", "UPDATE", null, null, resolution.reason);
     }
 
@@ -548,13 +635,15 @@ export async function ingest(
       .prepare(
         `INSERT INTO memory_observations
          (id, content, observation_type, confidence, source_message_id, entity_ids, hash,
-          valid_from, version, salience, decay_rate, last_accessed_at, embedding, created_at, updated_at)
-         VALUES (?, ?, ?, 0.8, ?, ?, ?, ?, 1, 1.0, ?, ?, ?, ?, ?)`,
+          valid_from, version, salience, decay_rate, last_accessed_at, created_at, updated_at)
+         VALUES (?, ?, ?, 0.8, ?, ?, ?, ?, 1, 1.0, ?, ?, ?, ?)`,
       )
       .run(
         id, obs.content, obs.observationType, sourceMessageId ?? null,
-        JSON.stringify(entityIdsForObs), obsHash, ts, decayRate, ts, toF32Buffer(obsVec), ts, ts,
+        JSON.stringify(entityIdsForObs), obsHash, ts, decayRate, ts, ts, ts,
       );
+
+    upsertVectorObservation(id, toF32Buffer(obsVec));
 
     observationIds.push(id);
     audit(id, "observation", resolution.action, null, obs.content, resolution.reason);
@@ -584,9 +673,10 @@ export async function ingest(
     if (existing) {
       db()
         .prepare(
-          "UPDATE memory_edges SET weight = MIN(1.0, weight + 0.1), triplet_embedding = ?, updated_at = ? WHERE id = ?",
+          "UPDATE memory_edges SET weight = MIN(1.0, weight + 0.1), updated_at = ? WHERE id = ?",
         )
-        .run(toF32Buffer(tripletVec), ts, existing.id);
+        .run(ts, existing.id);
+      upsertVectorEdge(existing.id, toF32Buffer(tripletVec));
       edgeIds.push(existing.id);
       continue;
     }
@@ -596,13 +686,15 @@ export async function ingest(
       .prepare(
         `INSERT INTO memory_edges
          (id, source_id, target_id, source_type, target_type, relationship_type, description,
-          weight, confidence, triplet_text, valid_from, triplet_embedding, created_at, updated_at)
-         VALUES (?, ?, ?, 'entity', 'entity', ?, ?, 1.0, 0.8, ?, ?, ?, ?, ?)`,
+          weight, confidence, triplet_text, valid_from, created_at, updated_at)
+         VALUES (?, ?, ?, 'entity', 'entity', ?, ?, 1.0, 0.8, ?, ?, ?, ?)`,
       )
       .run(
         id, sourceId, targetId, edge.relationshipType, edge.description,
-        tripletText, ts, toF32Buffer(tripletVec), ts, ts,
+        tripletText, ts, ts, ts,
       );
+
+    upsertVectorEdge(id, toF32Buffer(tripletVec));
 
     edgeIds.push(id);
     audit(id, "edge", "ADD", null, tripletText, "New edge extracted");
@@ -875,6 +967,7 @@ export async function resolveContradiction(
       db()
         .prepare("UPDATE memory_observations SET valid_to = ?, updated_at = ? WHERE id = ?")
         .run(ts, ts, decision.existingId);
+      deleteVectorObservation(decision.existingId);
       audit(decision.existingId, "observation", "CONTRADICT", null, null, `Superseded by: ${newFact}`);
 
       const id = nanoid();
@@ -883,10 +976,11 @@ export async function resolveContradiction(
         .prepare(
           `INSERT INTO memory_observations
            (id, content, observation_type, confidence, entity_ids, hash,
-            valid_from, version, salience, decay_rate, last_accessed_at, embedding, created_at, updated_at)
-           VALUES (?, ?, 'fact', 0.9, ?, ?, ?, 1, 1.0, 0.005, ?, ?, ?, ?)`,
+            valid_from, version, salience, decay_rate, last_accessed_at, created_at, updated_at)
+           VALUES (?, ?, 'fact', 0.9, ?, ?, ?, 1, 1.0, 0.005, ?, ?, ?)`,
         )
-        .run(id, newFact, JSON.stringify([entityId]), md5(newFact), ts, ts, toF32Buffer(vec), ts, ts);
+        .run(id, newFact, JSON.stringify([entityId]), md5(newFact), ts, ts, ts, ts);
+      upsertVectorObservation(id, toF32Buffer(vec));
       newIds.push(id);
       audit(id, "observation", "ADD", null, newFact, "Created from contradiction resolution");
     }
@@ -896,10 +990,11 @@ export async function resolveContradiction(
       db()
         .prepare(
           `UPDATE memory_observations
-           SET content = ?, embedding = ?, version = version + 1, updated_at = ?
+           SET content = ?, version = version + 1, updated_at = ?
            WHERE id = ?`,
         )
-        .run(decision.mergedText, toF32Buffer(vec), ts, decision.existingId);
+        .run(decision.mergedText, ts, decision.existingId);
+      upsertVectorObservation(decision.existingId, toF32Buffer(vec));
       newIds.push(decision.existingId);
       audit(decision.existingId, "observation", "CONTRADICT", null, decision.mergedText, "Merged during contradiction resolution");
     }
@@ -942,6 +1037,7 @@ export async function decayTick(): Promise<DecayStats> {
       db()
         .prepare("UPDATE memory_entities SET valid_to = ?, updated_at = ? WHERE id = ?")
         .run(ts, ts, ent.id);
+      deleteVectorEntity(ent.id);
       pruned++;
       audit(ent.id, "entity", "DECAY", null, null, `Pruned: salience=${newSalience.toFixed(4)}, age=${days.toFixed(0)}d`);
     }
@@ -976,6 +1072,7 @@ export async function decayTick(): Promise<DecayStats> {
       db()
         .prepare("UPDATE memory_observations SET valid_to = ?, updated_at = ? WHERE id = ?")
         .run(ts, ts, obs.id);
+      deleteVectorObservation(obs.id);
       pruned++;
       audit(obs.id, "observation", "DECAY", null, null, `Pruned: salience=${newSalience.toFixed(4)}, age=${days.toFixed(0)}d`);
     }
@@ -990,6 +1087,7 @@ export async function decayTick(): Promise<DecayStats> {
       db()
         .prepare("UPDATE memory_edges SET valid_to = ?, updated_at = ? WHERE id = ?")
         .run(ts, ts, edge.id);
+      deleteVectorEdge(edge.id);
       edgesPruned++;
     } else {
       db()

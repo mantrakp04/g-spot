@@ -1,0 +1,29 @@
+{
+  "name": "landing",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "serve": "vite preview",
+    "start": "vite",
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@g-spot/ui": "workspace:*",
+    "lucide-react": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "@g-spot/config": "workspace:*",
+    "@tailwindcss/vite": "^4.2.2",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "^6.0.1",
+    "tailwindcss": "catalog:",
+    "typescript": "^6",
+    "vite": "^8.0.3"
+  }
+}

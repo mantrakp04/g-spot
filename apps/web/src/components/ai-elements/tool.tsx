@@ -61,7 +61,7 @@ const statusIcons: Record<ToolPart["state"], ReactNode> = {
   "input-streaming": <CircleIcon className="size-4" />,
   "output-available": <CheckCircleIcon className="size-4 text-green-600" />,
   "output-denied": <XCircleIcon className="size-4 text-orange-600" />,
-  "output-error": <XCircleIcon className="size-4 text-red-600" />,
+  "output-error": <XCircleIcon className="size-4 text-destructive" />,
 };
 
 export const getStatusBadge = (status: ToolPart["state"]) => (

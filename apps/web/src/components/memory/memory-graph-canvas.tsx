@@ -312,12 +312,15 @@ export function MemoryGraphCanvas({
     setInitialized(true);
   }, [entities, observations, graphEdges]);
 
-  // Screen to world coords
+  // Screen to world coords. `sx`/`sy` are canvas-local (already offset by rect).
   const screenToWorld = useCallback((sx: number, sy: number) => {
     const cam = cameraRef.current;
+    const canvas = canvasRef.current;
+    const w = canvas?.clientWidth ?? 0;
+    const h = canvas?.clientHeight ?? 0;
     return {
-      x: (sx - window.innerWidth / 2) / cam.zoom - cam.x,
-      y: (sy - window.innerHeight / 2) / cam.zoom - cam.y,
+      x: (sx - w / 2) / cam.zoom - cam.x,
+      y: (sy - h / 2) / cam.zoom - cam.y,
     };
   }, []);
 
@@ -360,7 +363,7 @@ export function MemoryGraphCanvas({
         return; // consume the event
       }
 
-      const { x: wx, y: wy } = screenToWorld(sx + rect.left, sy + rect.top);
+      const { x: wx, y: wy } = screenToWorld(sx, sy);
       const hit = hitTest(wx, wy);
 
       if (hit) {
@@ -401,8 +404,8 @@ export function MemoryGraphCanvas({
           );
           if (node) {
             const { x: wx, y: wy } = screenToWorld(
-              e.clientX - rect.left + rect.left,
-              e.clientY - rect.top + rect.top,
+              e.clientX - rect.left,
+              e.clientY - rect.top,
             );
             node.x = wx;
             node.y = wy;
@@ -416,7 +419,7 @@ export function MemoryGraphCanvas({
       // Hover detection
       const sx = e.clientX - rect.left;
       const sy = e.clientY - rect.top;
-      const { x: wx, y: wy } = screenToWorld(sx + rect.left, sy + rect.top);
+      const { x: wx, y: wy } = screenToWorld(sx, sy);
       const hit = hitTest(wx, wy);
       const newHoverId = hit?.id ?? null;
       if (newHoverId !== hoveredRef.current) {
@@ -495,14 +498,16 @@ export function MemoryGraphCanvas({
       const halfW = w / 2;
       const halfH = h / 2;
 
-      // Clear
-      ctx.fillStyle = "#08080e";
+      const theme = readThemeColors(canvas);
+
+      // Clear with theme background
+      ctx.fillStyle = theme.background;
       ctx.fillRect(0, 0, w, h);
 
-      // Radial gradient background
+      // Soft radial accent tint (uses card color, fades to transparent)
       const bgGrad = ctx.createRadialGradient(halfW, halfH, 0, halfW, halfH, Math.max(w, h) * 0.7);
-      bgGrad.addColorStop(0, "rgba(20, 20, 40, 0.5)");
-      bgGrad.addColorStop(1, "rgba(8, 8, 14, 0)");
+      bgGrad.addColorStop(0, mix(theme.card, 50));
+      bgGrad.addColorStop(1, mix(theme.card, 0));
       ctx.fillStyle = bgGrad;
       ctx.fillRect(0, 0, w, h);
 
@@ -520,7 +525,7 @@ export function MemoryGraphCanvas({
       const startX = Math.floor(viewLeft / gridSize) * gridSize;
       const startY = Math.floor(viewTop / gridSize) * gridSize;
 
-      ctx.fillStyle = "rgba(255, 255, 255, 0.03)";
+      ctx.fillStyle = mix(theme.foreground, 4);
       for (let gx = startX; gx <= viewRight; gx += gridSize) {
         for (let gy = startY; gy <= viewBottom; gy += gridSize) {
           ctx.beginPath();
@@ -573,14 +578,14 @@ export function MemoryGraphCanvas({
           ctx.strokeStyle = grad;
           ctx.lineWidth = 1.5;
         } else {
-          ctx.strokeStyle = `rgba(100, 116, 139, ${alpha})`;
+          ctx.strokeStyle = mix(theme.mutedForeground, alpha * 100);
           ctx.lineWidth = 0.8;
         }
         ctx.stroke();
 
         // Edge label (only on hover/selected, nearby edges)
         if (isHighlighted && e.label) {
-          ctx.fillStyle = `rgba(148, 163, 184, ${alpha + 0.3})`;
+          ctx.fillStyle = mix(theme.mutedForeground, (alpha + 0.3) * 100);
           ctx.font = "9px Inter, sans-serif";
           ctx.textAlign = "center";
           ctx.fillText(e.label, cpX, cpY - 4);
@@ -651,7 +656,7 @@ export function MemoryGraphCanvas({
         // Label
         if (!dimmed || isHovered) {
           const labelAlpha = dimmed ? 0.4 : 0.7 + n.salience * 0.3;
-          ctx.fillStyle = `rgba(226, 232, 240, ${labelAlpha})`;
+          ctx.fillStyle = mix(theme.foreground, labelAlpha * 100);
           ctx.textAlign = "center";
 
           if (n.kind === "entity") {
@@ -690,6 +695,7 @@ export function MemoryGraphCanvas({
         w,
         h,
         selectedRef.current != null,
+        theme,
       );
 
       frameRef.current = requestAnimationFrame(render);
@@ -740,6 +746,7 @@ function drawMinimap(
   canvasW: number,
   canvasH: number,
   detailPanelOpen: boolean,
+  theme: ThemeColors,
 ) {
   if (nodes.length === 0) return;
 
@@ -783,9 +790,9 @@ function drawMinimap(
   // --- Background with glass effect ---
   ctx.save();
   roundedRect(ctx, mx, my, mw, mh, MINIMAP_RADIUS);
-  ctx.fillStyle = "rgba(12, 12, 20, 0.65)";
+  ctx.fillStyle = mix(theme.card, 65);
   ctx.fill();
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.06)";
+  ctx.strokeStyle = theme.border;
   ctx.lineWidth = 1;
   ctx.stroke();
 
@@ -796,7 +803,7 @@ function drawMinimap(
   // --- Draw edges ---
   const nodeMap = new Map(nodes.map((n) => [n.id, n]));
   ctx.lineWidth = 0.5;
-  ctx.strokeStyle = "rgba(100, 116, 139, 0.2)";
+  ctx.strokeStyle = mix(theme.mutedForeground, 20);
   ctx.beginPath();
   for (const e of edges) {
     const a = nodeMap.get(e.source);
@@ -843,9 +850,9 @@ function drawMinimap(
   const clampB = Math.min(my + mh - 1, vpBottom);
 
   if (clampR > clampL && clampB > clampT) {
-    ctx.fillStyle = "rgba(255, 255, 255, 0.04)";
+    ctx.fillStyle = mix(theme.foreground, 4);
     ctx.fillRect(clampL, clampT, clampR - clampL, clampB - clampT);
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.25)";
+    ctx.strokeStyle = mix(theme.foreground, 25);
     ctx.lineWidth = 1;
     ctx.strokeRect(clampL, clampT, clampR - clampL, clampB - clampT);
   }
@@ -900,6 +907,38 @@ function minimapHitToWorld(
   const wx = (sx - offsetX) / scale + minX;
   const wy = (sy - offsetY) / scale + minY;
   return { wx, wy };
+}
+
+// ---------------------------------------------------------------------------
+// Theme
+// ---------------------------------------------------------------------------
+type ThemeColors = {
+  background: string;
+  foreground: string;
+  mutedForeground: string;
+  border: string;
+  card: string;
+};
+
+function readThemeColors(el: HTMLElement): ThemeColors {
+  const s = getComputedStyle(el);
+  const read = (v: string, fallback: string) => {
+    const raw = s.getPropertyValue(v).trim();
+    return raw ? raw : fallback;
+  };
+  return {
+    background: read("--background", "#08080e"),
+    foreground: read("--foreground", "#e2e8f0"),
+    mutedForeground: read("--muted-foreground", "#94a3b8"),
+    border: read("--border", "rgba(255,255,255,0.06)"),
+    card: read("--card", "#0c0c14"),
+  };
+}
+
+/** Blend a theme color with transparent by `pct` (0-100). Uses CSS color-mix. */
+function mix(color: string, pct: number): string {
+  const clamped = Math.max(0, Math.min(100, pct));
+  return `color-mix(in oklch, ${color} ${clamped}%, transparent)`;
 }
 
 // ---------------------------------------------------------------------------

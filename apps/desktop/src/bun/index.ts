@@ -1,4 +1,5 @@
 import { BrowserWindow, Updater } from "electrobun/bun";
+import "server";
 
 const DEV_SERVER_PORT = 3001;
 const DEV_SERVER_URL = `http://localhost:${DEV_SERVER_PORT}`;

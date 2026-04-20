@@ -18,6 +18,9 @@ import {
   ensureDefaultBlocks,
   scratchpadRead,
   scratchpadRewrite,
+  upsertVectorEdge,
+  upsertVectorEntity,
+  upsertVectorObservation,
   type EntityType,
   type ObservationType,
 } from "./memory";
@@ -79,7 +82,7 @@ function audit(
 }
 
 // ---------------------------------------------------------------------------
-// Vector search helpers (mirrors memory.ts)
+// Vector search helpers (sqlite-vec vec0 virtual tables)
 // ---------------------------------------------------------------------------
 
 function vectorSearchEntities(
@@ -87,14 +90,26 @@ function vectorSearchEntities(
   topK: number,
 ): { id: string; distance: number }[] {
   const k = (topK * 3) | 0;
-  return db()
+  const matches = db()
     .prepare(
-      `SELECT e.id, v.distance
-       FROM memory_entities AS e
-       JOIN vector_full_scan('memory_entities', 'embedding', ?, CAST(? AS INTEGER)) AS v ON e.rowid = v.rowid
-       WHERE e.e.valid_to IS NULL AND e.embedding IS NOT NULL`,
+      `SELECT id, distance FROM vec_entities
+       WHERE embedding MATCH ? AND k = ?
+       ORDER BY distance`,
     )
     .all(queryVec, k) as { id: string; distance: number }[];
+
+  if (matches.length === 0) return [];
+
+  const placeholders = matches.map(() => "?").join(",");
+  const alive = db()
+    .prepare(
+      `SELECT id FROM memory_entities
+       WHERE id IN (${placeholders}) AND valid_to IS NULL`,
+    )
+    .all(...matches.map((m) => m.id)) as { id: string }[];
+  const aliveSet = new Set(alive.map((r) => r.id));
+
+  return matches.filter((m) => aliveSet.has(m.id));
 }
 
 function vectorSearchObservations(
@@ -102,15 +117,30 @@ function vectorSearchObservations(
   topK: number,
 ): { id: string; distance: number; content: string }[] {
   const k = (topK * 3) | 0;
-  return db()
+  const matches = db()
     .prepare(
-      `SELECT e.id, v.distance, e.content
-       FROM memory_observations AS e
-       JOIN vector_full_scan('memory_observations', 'embedding', ?, CAST(? AS INTEGER)) AS v ON e.rowid = v.rowid
-       WHERE e.e.valid_to IS NULL AND e.embedding IS NOT NULL
-         AND e.salience >= 0.05`,
+      `SELECT id, distance FROM vec_observations
+       WHERE embedding MATCH ? AND k = ?
+       ORDER BY distance`,
     )
-    .all(queryVec, k) as { id: string; distance: number; content: string }[];
+    .all(queryVec, k) as { id: string; distance: number }[];
+
+  if (matches.length === 0) return [];
+
+  const distanceById = new Map(matches.map((m) => [m.id, m.distance]));
+  const placeholders = matches.map(() => "?").join(",");
+  const rows = db()
+    .prepare(
+      `SELECT id, content FROM memory_observations
+       WHERE id IN (${placeholders})
+         AND valid_to IS NULL
+         AND salience >= 0.05`,
+    )
+    .all(...matches.map((m) => m.id)) as { id: string; content: string }[];
+
+  return rows
+    .map((row) => ({ ...row, distance: distanceById.get(row.id)! }))
+    .sort((a, b) => a.distance - b.distance);
 }
 
 // ---------------------------------------------------------------------------
@@ -488,18 +518,19 @@ export function createMemoryTools(): ToolDefinition[] {
         db()
           .prepare(
             `UPDATE memory_entities
-             SET description = ?, aliases = ?, embedding = ?, version = version + 1,
+             SET description = ?, aliases = ?, version = version + 1,
                  salience = MIN(1.0, salience + 0.1), last_accessed_at = ?, updated_at = ?
              WHERE id = ?`,
           )
           .run(
             mergedDesc,
             JSON.stringify(newAliases),
-            entBuf,
             ts,
             ts,
             existing.id,
           );
+
+        upsertVectorEntity(existing.id, entBuf);
 
         audit(
           existing.id,
@@ -556,18 +587,19 @@ export function createMemoryTools(): ToolDefinition[] {
           db()
             .prepare(
               `UPDATE memory_entities
-               SET description = ?, aliases = ?, embedding = ?, version = version + 1,
+               SET description = ?, aliases = ?, version = version + 1,
                    salience = MIN(1.0, salience + 0.1), last_accessed_at = ?, updated_at = ?
                WHERE id = ?`,
             )
             .run(
               mergedDesc,
               JSON.stringify(newAliases),
-              entBuf,
               ts,
               ts,
               similarEntity.id,
             );
+
+          upsertVectorEntity(similarEntity.id, entBuf);
 
           audit(
             similarEntity.id,
@@ -597,9 +629,9 @@ export function createMemoryTools(): ToolDefinition[] {
       db()
         .prepare(
           `INSERT INTO memory_entities
-           (id, name, entity_type, description, aliases, hash, valid_from, version,
-            salience, decay_rate, last_accessed_at, embedding, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1.0, ?, ?, ?, ?, ?)`,
+           (id, name, entity_type, description, aliases, hash, valid_from,
+            version, salience, decay_rate, last_accessed_at, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1.0, ?, ?, ?, ?)`,
         )
         .run(
           id,
@@ -611,10 +643,11 @@ export function createMemoryTools(): ToolDefinition[] {
           ts,
           decayRate,
           ts,
-          entBuf,
           ts,
           ts,
         );
+
+      upsertVectorEntity(id, entBuf);
 
       audit(
         id,
@@ -732,8 +765,8 @@ export function createMemoryTools(): ToolDefinition[] {
         .prepare(
           `INSERT INTO memory_observations
            (id, content, observation_type, confidence, source_message_id, entity_ids, hash,
-            valid_from, version, salience, decay_rate, last_accessed_at, embedding, created_at, updated_at)
-           VALUES (?, ?, ?, ?, 0.8, NULL, ?, ?, ?, 1, 1.0, ?, ?, ?, ?, ?)`,
+            valid_from, version, salience, decay_rate, last_accessed_at, created_at, updated_at)
+           VALUES (?, ?, ?, 0.8, NULL, ?, ?, ?, 1, 1.0, ?, ?, ?, ?)`,
         )
         .run(
           id,
@@ -744,10 +777,11 @@ export function createMemoryTools(): ToolDefinition[] {
           ts,
           decayRate,
           ts,
-          obsBuf,
           ts,
           ts,
         );
+
+      upsertVectorObservation(id, obsBuf);
 
       audit(
         id,
@@ -857,9 +891,10 @@ export function createMemoryTools(): ToolDefinition[] {
         // Reinforce
         db()
           .prepare(
-            "UPDATE memory_edges SET weight = MIN(1.0, weight + 0.1), triplet_embedding = ?, updated_at = ? WHERE id = ?",
+            "UPDATE memory_edges SET weight = MIN(1.0, weight + 0.1), updated_at = ? WHERE id = ?",
           )
-          .run(tripletBuf, ts, existing.id);
+          .run(ts, existing.id);
+        upsertVectorEdge(existing.id, tripletBuf);
 
         return {
           content: [
@@ -878,8 +913,8 @@ export function createMemoryTools(): ToolDefinition[] {
         .prepare(
           `INSERT INTO memory_edges
            (id, source_id, target_id, source_type, target_type, relationship_type, description,
-            weight, confidence, triplet_text, valid_from, triplet_embedding, created_at, updated_at)
-           VALUES (?, ?, ?, 'entity', 'entity', ?, ?, 1.0, 0.8, ?, ?, ?, ?, ?)`,
+            weight, confidence, triplet_text, valid_from, created_at, updated_at)
+           VALUES (?, ?, ?, 'entity', 'entity', ?, ?, 1.0, 0.8, ?, ?, ?, ?)`,
         )
         .run(
           id,
@@ -889,10 +924,11 @@ export function createMemoryTools(): ToolDefinition[] {
           params.description,
           tripletText,
           ts,
-          tripletBuf,
           ts,
           ts,
         );
+
+      upsertVectorEdge(id, tripletBuf);
 
       audit(
         id,
@@ -992,8 +1028,8 @@ export function createMemoryTools(): ToolDefinition[] {
         .prepare(
           `INSERT INTO memory_observations
            (id, content, observation_type, confidence, source_message_id, entity_ids, hash,
-            valid_from, version, salience, decay_rate, last_accessed_at, embedding, created_at, updated_at)
-           VALUES (?, ?, ?, ?, 0.9, NULL, ?, ?, ?, 1, 1.0, ?, ?, ?, ?, ?)`,
+            valid_from, version, salience, decay_rate, last_accessed_at, created_at, updated_at)
+           VALUES (?, ?, ?, 0.9, NULL, ?, ?, ?, 1, 1.0, ?, ?, ?, ?)`,
         )
         .run(
           id,
@@ -1004,10 +1040,11 @@ export function createMemoryTools(): ToolDefinition[] {
           ts,
           existing.decay_rate,
           ts,
-          obsBuf,
           ts,
           ts,
         );
+
+      upsertVectorObservation(id, obsBuf);
 
       audit(id, "observation", "ADD", null, params.newContent, `Updated from [${existing.id}]: ${params.reason}`);
 
@@ -1068,6 +1105,8 @@ export function createMemoryTools(): ToolDefinition[] {
           "UPDATE memory_observations SET valid_to = ?, updated_at = ? WHERE id = ?",
         )
         .run(ts, ts, existing.id);
+
+      db().prepare("DELETE FROM vec_observations WHERE id = ?").run(existing.id);
 
       audit(
         existing.id,

@@ -132,6 +132,7 @@ CREATE TABLE `gmail_sync_state` (
 	`mode` text,
 	`total_threads` integer DEFAULT 0 NOT NULL,
 	`fetched_threads` integer DEFAULT 0 NOT NULL,
+	`processable_threads` integer DEFAULT 0 NOT NULL,
 	`processed_threads` integer DEFAULT 0 NOT NULL,
 	`failed_threads` integer DEFAULT 0 NOT NULL,
 	`started_at` text,
@@ -212,7 +213,6 @@ CREATE TABLE `memory_edges` (
 	`triplet_text` text NOT NULL,
 	`valid_from` integer NOT NULL,
 	`valid_to` integer,
-	`triplet_embedding` blob,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL
 );
@@ -235,7 +235,6 @@ CREATE TABLE `memory_entities` (
 	`salience` real DEFAULT 1 NOT NULL,
 	`decay_rate` real DEFAULT 0.005 NOT NULL,
 	`last_accessed_at` integer NOT NULL,
-	`embedding` blob,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL
 );
@@ -258,7 +257,6 @@ CREATE TABLE `memory_observations` (
 	`salience` real DEFAULT 1 NOT NULL,
 	`decay_rate` real DEFAULT 0.005 NOT NULL,
 	`last_accessed_at` integer NOT NULL,
-	`embedding` blob,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL
 );

@@ -369,6 +369,25 @@ export async function getUnprocessedInboxGmailThreadIds(
   return rows.map((r) => r.gmailThreadId);
 }
 
+/**
+ * Returns all fetched thread IDs that have the INBOX label (processed or not).
+ * Used to count the "processable" universe during sync resume.
+ */
+export async function getFetchedInboxGmailThreadIds(
+  accountId: string,
+): Promise<Set<string>> {
+  const rows = await db
+    .select({ gmailThreadId: gmailThreads.gmailThreadId })
+    .from(gmailThreads)
+    .where(
+      and(
+        eq(gmailThreads.accountId, accountId),
+        labelExistsSql("INBOX"),
+      ),
+    );
+  return new Set(rows.map((r) => r.gmailThreadId));
+}
+
 // ---------------------------------------------------------------------------
 // Messages
 // ---------------------------------------------------------------------------
@@ -597,6 +616,7 @@ export async function upsertSyncState(
     mode: string;
     totalThreads: number;
     fetchedThreads: number;
+    processableThreads: number;
     processedThreads: number;
     failedThreads: number;
     startedAt: string;
@@ -625,7 +645,11 @@ export async function upsertSyncState(
 
 export async function incrementSyncProgress(
   accountId: string,
-  field: "fetchedThreads" | "processedThreads" | "failedThreads",
+  field:
+    | "fetchedThreads"
+    | "processableThreads"
+    | "processedThreads"
+    | "failedThreads",
   amount = 1,
 ): Promise<void> {
   const col = gmailSyncState[field];

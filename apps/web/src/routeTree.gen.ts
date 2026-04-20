@@ -9,9 +9,11 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as ReviewRouteImport } from './routes/review'
 import { Route as ProjectsRouteImport } from './routes/projects'
 import { Route as ChatRouteImport } from './routes/chat'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ReviewIndexRouteImport } from './routes/review/index'
 import { Route as ProjectsIndexRouteImport } from './routes/projects/index'
 import { Route as ChatIndexRouteImport } from './routes/chat/index'
 import { Route as SettingsMemoryRouteImport } from './routes/settings/memory'
@@ -24,7 +26,13 @@ import { Route as ChatChatIdRouteImport } from './routes/chat/$chatId'
 import { Route as ProjectsProjectIdIndexRouteImport } from './routes/projects/$projectId/index'
 import { Route as ProjectsProjectIdSettingsRouteImport } from './routes/projects/$projectId/settings'
 import { Route as ProjectsProjectIdChatChatIdRouteImport } from './routes/projects/$projectId/chat/$chatId'
+import { Route as ReviewKindOwnerRepoNumberRouteImport } from './routes/review/$kind.$owner.$repo.$number'
 
+const ReviewRoute = ReviewRouteImport.update({
+  id: '/review',
+  path: '/review',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProjectsRoute = ProjectsRouteImport.update({
   id: '/projects',
   path: '/projects',
@@ -39,6 +47,11 @@ const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const ReviewIndexRoute = ReviewIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => ReviewRoute,
 } as any)
 const ProjectsIndexRoute = ProjectsIndexRouteImport.update({
   id: '/',
@@ -102,11 +115,18 @@ const ProjectsProjectIdChatChatIdRoute =
     path: '/chat/$chatId',
     getParentRoute: () => ProjectsProjectIdRoute,
   } as any)
+const ReviewKindOwnerRepoNumberRoute =
+  ReviewKindOwnerRepoNumberRouteImport.update({
+    id: '/$kind/$owner/$repo/$number',
+    path: '/$kind/$owner/$repo/$number',
+    getParentRoute: () => ReviewRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/chat': typeof ChatRouteWithChildren
   '/projects': typeof ProjectsRouteWithChildren
+  '/review': typeof ReviewRouteWithChildren
   '/chat/$chatId': typeof ChatChatIdRoute
   '/chat/settings': typeof ChatSettingsRoute
   '/handler/$': typeof HandlerSplatRoute
@@ -116,9 +136,11 @@ export interface FileRoutesByFullPath {
   '/settings/memory': typeof SettingsMemoryRoute
   '/chat/': typeof ChatIndexRoute
   '/projects/': typeof ProjectsIndexRoute
+  '/review/': typeof ReviewIndexRoute
   '/projects/$projectId/settings': typeof ProjectsProjectIdSettingsRoute
   '/projects/$projectId/': typeof ProjectsProjectIdIndexRoute
   '/projects/$projectId/chat/$chatId': typeof ProjectsProjectIdChatChatIdRoute
+  '/review/$kind/$owner/$repo/$number': typeof ReviewKindOwnerRepoNumberRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -130,15 +152,18 @@ export interface FileRoutesByTo {
   '/settings/memory': typeof SettingsMemoryRoute
   '/chat': typeof ChatIndexRoute
   '/projects': typeof ProjectsIndexRoute
+  '/review': typeof ReviewIndexRoute
   '/projects/$projectId/settings': typeof ProjectsProjectIdSettingsRoute
   '/projects/$projectId': typeof ProjectsProjectIdIndexRoute
   '/projects/$projectId/chat/$chatId': typeof ProjectsProjectIdChatChatIdRoute
+  '/review/$kind/$owner/$repo/$number': typeof ReviewKindOwnerRepoNumberRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/chat': typeof ChatRouteWithChildren
   '/projects': typeof ProjectsRouteWithChildren
+  '/review': typeof ReviewRouteWithChildren
   '/chat/$chatId': typeof ChatChatIdRoute
   '/chat/settings': typeof ChatSettingsRoute
   '/handler/$': typeof HandlerSplatRoute
@@ -148,9 +173,11 @@ export interface FileRoutesById {
   '/settings/memory': typeof SettingsMemoryRoute
   '/chat/': typeof ChatIndexRoute
   '/projects/': typeof ProjectsIndexRoute
+  '/review/': typeof ReviewIndexRoute
   '/projects/$projectId/settings': typeof ProjectsProjectIdSettingsRoute
   '/projects/$projectId/': typeof ProjectsProjectIdIndexRoute
   '/projects/$projectId/chat/$chatId': typeof ProjectsProjectIdChatChatIdRoute
+  '/review/$kind/$owner/$repo/$number': typeof ReviewKindOwnerRepoNumberRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -158,6 +185,7 @@ export interface FileRouteTypes {
     | '/'
     | '/chat'
     | '/projects'
+    | '/review'
     | '/chat/$chatId'
     | '/chat/settings'
     | '/handler/$'
@@ -167,9 +195,11 @@ export interface FileRouteTypes {
     | '/settings/memory'
     | '/chat/'
     | '/projects/'
+    | '/review/'
     | '/projects/$projectId/settings'
     | '/projects/$projectId/'
     | '/projects/$projectId/chat/$chatId'
+    | '/review/$kind/$owner/$repo/$number'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -181,14 +211,17 @@ export interface FileRouteTypes {
     | '/settings/memory'
     | '/chat'
     | '/projects'
+    | '/review'
     | '/projects/$projectId/settings'
     | '/projects/$projectId'
     | '/projects/$projectId/chat/$chatId'
+    | '/review/$kind/$owner/$repo/$number'
   id:
     | '__root__'
     | '/'
     | '/chat'
     | '/projects'
+    | '/review'
     | '/chat/$chatId'
     | '/chat/settings'
     | '/handler/$'
@@ -198,15 +231,18 @@ export interface FileRouteTypes {
     | '/settings/memory'
     | '/chat/'
     | '/projects/'
+    | '/review/'
     | '/projects/$projectId/settings'
     | '/projects/$projectId/'
     | '/projects/$projectId/chat/$chatId'
+    | '/review/$kind/$owner/$repo/$number'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ChatRoute: typeof ChatRouteWithChildren
   ProjectsRoute: typeof ProjectsRouteWithChildren
+  ReviewRoute: typeof ReviewRouteWithChildren
   HandlerSplatRoute: typeof HandlerSplatRoute
   SettingsConnectionsRoute: typeof SettingsConnectionsRoute
   SettingsMemoryRoute: typeof SettingsMemoryRoute
@@ -214,6 +250,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/review': {
+      id: '/review'
+      path: '/review'
+      fullPath: '/review'
+      preLoaderRoute: typeof ReviewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/projects': {
       id: '/projects'
       path: '/projects'
@@ -234,6 +277,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/review/': {
+      id: '/review/'
+      path: '/'
+      fullPath: '/review/'
+      preLoaderRoute: typeof ReviewIndexRouteImport
+      parentRoute: typeof ReviewRoute
     }
     '/projects/': {
       id: '/projects/'
@@ -319,6 +369,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectsProjectIdChatChatIdRouteImport
       parentRoute: typeof ProjectsProjectIdRoute
     }
+    '/review/$kind/$owner/$repo/$number': {
+      id: '/review/$kind/$owner/$repo/$number'
+      path: '/$kind/$owner/$repo/$number'
+      fullPath: '/review/$kind/$owner/$repo/$number'
+      preLoaderRoute: typeof ReviewKindOwnerRepoNumberRouteImport
+      parentRoute: typeof ReviewRoute
+    }
   }
 }
 
@@ -367,10 +424,24 @@ const ProjectsRouteWithChildren = ProjectsRoute._addFileChildren(
   ProjectsRouteChildren,
 )
 
+interface ReviewRouteChildren {
+  ReviewIndexRoute: typeof ReviewIndexRoute
+  ReviewKindOwnerRepoNumberRoute: typeof ReviewKindOwnerRepoNumberRoute
+}
+
+const ReviewRouteChildren: ReviewRouteChildren = {
+  ReviewIndexRoute: ReviewIndexRoute,
+  ReviewKindOwnerRepoNumberRoute: ReviewKindOwnerRepoNumberRoute,
+}
+
+const ReviewRouteWithChildren =
+  ReviewRoute._addFileChildren(ReviewRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ChatRoute: ChatRouteWithChildren,
   ProjectsRoute: ProjectsRouteWithChildren,
+  ReviewRoute: ReviewRouteWithChildren,
   HandlerSplatRoute: HandlerSplatRoute,
   SettingsConnectionsRoute: SettingsConnectionsRoute,
   SettingsMemoryRoute: SettingsMemoryRoute,

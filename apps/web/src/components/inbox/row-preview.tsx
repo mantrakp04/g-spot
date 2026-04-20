@@ -355,7 +355,7 @@ function prRollupMeta(status: GitHubPullRequest["statusCheckRollup"]) {
       return { icon: <Check className="size-3 text-emerald-500" />, label: "Checks passed", color: "text-emerald-500" };
     case "FAILURE":
     case "ERROR":
-      return { icon: <XCircle className="size-3 text-red-500" />, label: "Checks failed", color: "text-red-500" };
+      return { icon: <XCircle className="size-3 text-destructive" />, label: "Checks failed", color: "text-destructive" };
     case "PENDING":
       return { icon: <Clock className="size-3 text-yellow-500" />, label: "Checks running", color: "text-yellow-500" };
     default:
@@ -368,7 +368,7 @@ function prReviewMeta(decision: GitHubPullRequest["reviewDecision"]) {
     case "APPROVED":
       return { icon: <Check className="size-3 text-emerald-500" />, label: "Approved", color: "text-emerald-500" };
     case "CHANGES_REQUESTED":
-      return { icon: <CircleX className="size-3 text-red-500" />, label: "Changes requested", color: "text-red-500" };
+      return { icon: <CircleX className="size-3 text-destructive" />, label: "Changes requested", color: "text-destructive" };
     case "REVIEW_REQUIRED":
       return { icon: <GitPullRequest className="size-3 text-muted-foreground" />, label: "Review required", color: "text-muted-foreground" };
     default:
@@ -413,7 +413,7 @@ export function GitHubPRPreview({ pr }: { pr: GitHubPullRequest }) {
         {pr.additions != null && pr.deletions != null && (
           <div className="font-mono text-xs">
             <span className="text-emerald-500">+{pr.additions}</span>{" "}
-            <span className="text-red-500">-{pr.deletions}</span>
+            <span className="text-destructive">-{pr.deletions}</span>
           </div>
         )}
 

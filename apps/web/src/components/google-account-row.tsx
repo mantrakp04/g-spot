@@ -229,6 +229,7 @@ export function GoogleAccountRow({
         <SyncProgressBar
           total={syncData.totalThreads}
           fetched={syncData.fetchedThreads}
+          processableTotal={syncData.processableThreads}
           processed={syncData.processedThreads}
           fetchFailed={fetchFailed}
           processFailed={processFailed}
@@ -296,12 +297,14 @@ export function GoogleAccountRow({
 function SyncProgressBar({
   total,
   fetched,
+  processableTotal,
   processed,
   fetchFailed,
   processFailed,
 }: {
   total: number;
   fetched: number;
+  processableTotal: number;
   processed: number;
   fetchFailed: number;
   processFailed: number;
@@ -318,7 +321,7 @@ function SyncProgressBar({
       />
       <PhaseBar
         label="Process"
-        total={total}
+        total={processableTotal}
         done={processed}
         failed={processFailed}
         doneClass="bg-emerald-500/70"

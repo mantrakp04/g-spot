@@ -14,6 +14,7 @@ import { env } from "@g-spot/env/server";
 import {
   deleteMissingThreadMessages,
   getFetchedGmailThreadIds,
+  getFetchedInboxGmailThreadIds,
   getGmailAccountById,
   getRunningSyncStates,
   getSyncState,
@@ -70,6 +71,7 @@ export interface SyncProgress {
   mode: SyncMode | null;
   totalThreads: number;
   fetchedThreads: number;
+  processableThreads: number;
   processedThreads: number;
   failedThreads: number;
   startedAt: string | null;
@@ -91,7 +93,11 @@ interface ProcessItem {
 
 type ProgressSnapshot = Pick<
   SyncProgress,
-  "totalThreads" | "fetchedThreads" | "processedThreads" | "failedThreads"
+  | "totalThreads"
+  | "fetchedThreads"
+  | "processableThreads"
+  | "processedThreads"
+  | "failedThreads"
 >;
 
 type SyncScope = ProgressSnapshot & {
@@ -117,6 +123,7 @@ type SyncStartPlanState = Pick<
   "failedThreads"
   | "fetchedThreads"
   | "mode"
+  | "processableThreads"
   | "processedThreads"
   | "status"
   | "totalThreads"
@@ -139,6 +146,7 @@ function getBootstrapProgress(
   return {
     totalThreads: syncState.totalThreads,
     fetchedThreads: syncState.fetchedThreads,
+    processableThreads: syncState.processableThreads,
     processedThreads: syncState.processedThreads,
     failedThreads: syncState.failedThreads,
   };
@@ -175,6 +183,7 @@ function getFailureRetryBootstrapProgress(
   return {
     totalThreads: syncState.failedThreads,
     fetchedThreads: 0,
+    processableThreads: 0,
     processedThreads: 0,
     failedThreads: syncState.failedThreads,
   };
@@ -254,6 +263,7 @@ async function resolveSyncExecutionPlan(
         failedThreads: syncState.failedThreads,
         fetchedThreads: syncState.fetchedThreads,
         mode: syncState.mode,
+        processableThreads: syncState.processableThreads,
         processedThreads: syncState.processedThreads,
         status: syncState.status,
         totalThreads: syncState.totalThreads,
@@ -265,9 +275,11 @@ async function resolveSyncExecutionPlan(
 export function getScopedSyncResumeState(
   threadIds: string[],
   alreadyFetched: ReadonlySet<string>,
+  alreadyFetchedInbox: ReadonlySet<string>,
   unprocessed: string[],
 ): {
   fetchedInScope: Set<string>;
+  processableThreads: number;
   processedThreads: number;
   toFetch: string[];
   totalThreads: number;
@@ -277,13 +289,18 @@ export function getScopedSyncResumeState(
   const fetchedInScope = new Set(
     threadIds.filter((id) => alreadyFetched.has(id)),
   );
+  const inboxFetchedInScopeSize = threadIds.reduce(
+    (acc, id) => (alreadyFetchedInbox.has(id) ? acc + 1 : acc),
+    0,
+  );
   const unprocessedInScope = unprocessed.filter((id) => threadIdSet.has(id));
 
   return {
     fetchedInScope,
+    processableThreads: inboxFetchedInScopeSize,
     processedThreads: Math.max(
       0,
-      fetchedInScope.size - unprocessedInScope.length,
+      inboxFetchedInScopeSize - unprocessedInScope.length,
     ),
     toFetch: threadIds.filter((id) => !fetchedInScope.has(id)),
     totalThreads: threadIds.length,
@@ -406,6 +423,7 @@ export class GmailSyncOrchestrator {
       mode: null,
       totalThreads: 0,
       fetchedThreads: 0,
+      processableThreads: 0,
       processedThreads: 0,
       failedThreads: 0,
       startedAt: null,
@@ -529,6 +547,8 @@ export class GmailSyncOrchestrator {
     this.progress.error = null;
     this.progress.totalThreads = plan.bootstrapProgress?.totalThreads ?? 0;
     this.progress.fetchedThreads = plan.bootstrapProgress?.fetchedThreads ?? 0;
+    this.progress.processableThreads =
+      plan.bootstrapProgress?.processableThreads ?? 0;
     this.progress.processedThreads =
       plan.bootstrapProgress?.processedThreads ?? 0;
     this.progress.failedThreads = plan.bootstrapProgress?.failedThreads ?? 0;
@@ -634,9 +654,13 @@ export class GmailSyncOrchestrator {
     failedThreads: number,
   ): Promise<SyncScope> {
     const alreadyFetched = await getFetchedGmailThreadIds(this.accountId);
+    const alreadyFetchedInbox = await getFetchedInboxGmailThreadIds(
+      this.accountId,
+    );
     const unprocessed = await getUnprocessedInboxGmailThreadIds(this.accountId);
     const {
       fetchedInScope,
+      processableThreads,
       processedThreads,
       toFetch,
       totalThreads,
@@ -644,12 +668,14 @@ export class GmailSyncOrchestrator {
     } = getScopedSyncResumeState(
       threadIds,
       alreadyFetched,
+      alreadyFetchedInbox,
       unprocessed,
     );
 
     return {
       failedThreads,
       fetchedThreads: fetchedInScope.size,
+      processableThreads,
       processedThreads,
       toFetch,
       totalThreads,
@@ -660,6 +686,7 @@ export class GmailSyncOrchestrator {
   private async setRunningScope(scope: ProgressSnapshot): Promise<void> {
     this.progress.totalThreads = scope.totalThreads;
     this.progress.fetchedThreads = scope.fetchedThreads;
+    this.progress.processableThreads = scope.processableThreads;
     this.progress.processedThreads = scope.processedThreads;
     this.progress.failedThreads = scope.failedThreads;
 
@@ -693,6 +720,7 @@ export class GmailSyncOrchestrator {
       status: this.progress.status,
       totalThreads: this.progress.totalThreads,
       fetchedThreads: this.progress.fetchedThreads,
+      processableThreads: this.progress.processableThreads,
       processedThreads: this.progress.processedThreads,
       failedThreads: this.progress.failedThreads,
       lastError: this.progress.error,
@@ -769,7 +797,11 @@ export class GmailSyncOrchestrator {
   }
 
   private bumpProgress(
-    field: "fetchedThreads" | "processedThreads" | "failedThreads",
+    field:
+      | "fetchedThreads"
+      | "processableThreads"
+      | "processedThreads"
+      | "failedThreads",
     amount = 1,
   ): void {
     this.progress[field] = Math.max(0, this.progress[field] + amount);
@@ -836,6 +868,8 @@ export class GmailSyncOrchestrator {
     );
 
     if (!shouldExtract) return;
+
+    this.bumpProgress("processableThreads");
 
     // Enqueue for memory processing
     this.processQueue.addItem({

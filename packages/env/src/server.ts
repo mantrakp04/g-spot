@@ -37,7 +37,6 @@ export const env = createEnv({
       .string()
       .min(1)
       .default("onnx-community/embeddinggemma-300m-ONNX"),
-    VECTOR_EXTENSION_PATH: z.string().min(1).optional(),
   },
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,

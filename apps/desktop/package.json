@@ -12,7 +12,8 @@
     "check-types": "tsc --noEmit"
   },
   "dependencies": {
-    "electrobun": "^1.16.0"
+    "electrobun": "^1.16.0",
+    "server": "workspace:*"
   },
   "devDependencies": {
     "@types/bun": "catalog:",

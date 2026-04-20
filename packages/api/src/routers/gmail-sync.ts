@@ -84,6 +84,7 @@ export const gmailSyncRouter = router({
         mode: dbState.mode,
         totalThreads: dbState.totalThreads,
         fetchedThreads: dbState.fetchedThreads,
+        processableThreads: dbState.processableThreads,
         processedThreads: dbState.processedThreads,
         failedThreads: dbState.failedThreads,
         startedAt: dbState.startedAt,

@@ -25,8 +25,8 @@
     "@libsql/client": "catalog:",
     "dotenv": "catalog:",
     "drizzle-orm": "^0.45.2",
-    "libsql": "catalog:",
     "nanoid": "^5.1.7",
+    "sqlite-vec": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {

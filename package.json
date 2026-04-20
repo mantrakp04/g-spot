@@ -25,7 +25,9 @@
       "@types/react": "^19.2.10",
       "@types/react-dom": "^19.2.3",
       "tailwindcss": "^4.1.18",
-      "unique-names-generator": "^4.7.1"
+      "unique-names-generator": "^4.7.1",
+      "sqlite-vec": "^0.1.9",
+      "jotai": "^2.10.3"
     }
   },
   "overrides": {

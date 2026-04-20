@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "bf84727e-0527-47bb-a1af-053183882e29",
+  "id": "4896e111-839f-4f0d-840c-5698eaa836ff",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "chat_messages": {
@@ -936,6 +936,14 @@
           "autoincrement": false,
           "default": 0
         },
+        "processable_threads": {
+          "name": "processable_threads",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
         "processed_threads": {
           "name": "processed_threads",
           "type": "integer",
@@ -1487,13 +1495,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "triplet_embedding": {
-          "name": "triplet_embedding",
-          "type": "blob",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -1640,13 +1641,6 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
-        },
-        "embedding": {
-          "name": "embedding",
-          "type": "blob",
-          "primaryKey": false,
-          "notNull": false,
           "autoincrement": false
         },
         "created_at": {
@@ -1796,13 +1790,6 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
-        },
-        "embedding": {
-          "name": "embedding",
-          "type": "blob",
-          "primaryKey": false,
-          "notNull": false,
           "autoincrement": false
         },
         "created_at": {

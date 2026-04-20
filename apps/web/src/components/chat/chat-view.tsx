@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { nanoid } from "nanoid";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
@@ -68,7 +69,18 @@ import {
   useUpdateProjectAgentConfigMutation,
 } from "@/hooks/use-projects";
 
-import { ChatMessage } from "./chat-message";
+import { ChatMessageList } from "./chat-message-list";
+import { StreamingMessage } from "./streaming-message";
+import { ChatQueuedMessages } from "./chat-queued-messages";
+import {
+  drainFollowUpQueue,
+  enqueueChatMessage,
+  type QueuedPart,
+} from "@/lib/chat-queue";
+import {
+  clearStreamingMessage,
+  setStreamingMessage,
+} from "@/lib/streaming-message-store";
 
 const STARTER_PROMPTS = [
   "Brainstorm ideas for a weekend project I could ship in a day",
@@ -401,8 +413,14 @@ function ChatViewInner({
     [dbMessages],
   );
   const [messages, setMessages] = useState<ChatUiMessage[]>(initialMessages);
-  const streamingAssistantIdRef = useRef<string | null>(null);
-  const streamingAssistantCountRef = useRef(0);
+  /**
+   * Buffer of the in-flight assistant message's raw parts during a turn.
+   * Accumulated across `message_start` → `message_update` and flushed into
+   * `messages` on `message_end`. The per-frame view is published to
+   * <StreamingMessage /> via the streaming-message store, so token updates
+   * don't re-render <ChatMessageList />.
+   */
+  const streamingBufferRef = useRef<ChatUiMessage | null>(null);
 
   /**
    * Translate a single streamed chat event from the server into UI message
@@ -489,18 +507,13 @@ function ChatViewInner({
         return;
       }
 
-      if (event.type === "message_start") {
-        streamingAssistantCountRef.current += 1;
-        streamingAssistantIdRef.current = `${chatId ?? "draft"}-stream-${streamingAssistantCountRef.current}`;
-      }
-
-      const assistantMessageId =
-        streamingAssistantIdRef.current ??
-        `${chatId ?? "draft"}-stream-${streamingAssistantCountRef.current || 1}`;
+      const streamingId =
+        streamingBufferRef.current?.id ??
+        `${chatId ?? "draft"}-stream-${Date.now()}`;
 
       const assistantMessage = piMessageToUiMessage(
         streamMessage,
-        assistantMessageId,
+        streamingId,
         { streaming: event.type !== "message_end" },
       );
 
@@ -508,34 +521,36 @@ function ChatViewInner({
         return;
       }
 
-      logChatDebug(
-        event.type === "message_end"
-          ? "assistant-message-produced"
-          : "assistant-message-streaming",
-        {
+      if (event.type === "message_end") {
+        logChatDebug("assistant-message-produced", {
           chatId,
-          eventType: event.type,
           assistantMessage: summarizeUiMessage(assistantMessage),
-        },
-      );
+        });
 
-      setMessages((current) => {
-        const existingIndex = current.findIndex(
-          (message) => message.id === assistantMessageId,
-        );
+        streamingBufferRef.current = null;
 
-        if (existingIndex === -1) {
-          return [...current, assistantMessage];
-        }
+        // Flush the list commit synchronously so the finalized bubble paints
+        // before we tear the streaming overlay down. Without flushSync, the
+        // overlay clear races the setMessages batch and users see a one-
+        // frame gap between "streaming" and "finalized".
+        flushSync(() => {
+          setMessages((current) => [...current, assistantMessage]);
+        });
+        if (chatId) clearStreamingMessage(chatId);
+        return;
+      }
 
-        const next = [...current];
-        next[existingIndex] = assistantMessage;
-        return next;
+      // Streaming update: buffer + publish to the streaming overlay, but do
+      // NOT touch `messages`. This is the hot path — one RAF-batched notify
+      // per frame, no ChatMessageList re-render.
+      logChatDebug("assistant-message-streaming", {
+        chatId,
+        eventType: event.type,
+        assistantMessage: summarizeUiMessage(assistantMessage),
       });
 
-      if (event.type === "message_end") {
-        streamingAssistantIdRef.current = null;
-      }
+      streamingBufferRef.current = assistantMessage;
+      if (chatId) setStreamingMessage(chatId, assistantMessage);
     },
     [chatId],
   );
@@ -548,7 +563,6 @@ function ChatViewInner({
     status,
     isActive: isStreamActive,
     startStream: hookStartStream,
-    attachToExistingStream,
     stopEverywhere,
   } = usePiChatStream({
     chatId,
@@ -556,13 +570,13 @@ function ChatViewInner({
     getHeaders: getChatHeaders,
     onEvent: handleStreamEvent,
     onError: (err) => {
-      streamingAssistantIdRef.current = null;
-      streamingAssistantCountRef.current = 0;
+      streamingBufferRef.current = null;
+      if (chatId) clearStreamingMessage(chatId);
       toast.error(err.message);
     },
     onStreamComplete: (id) => {
-      streamingAssistantIdRef.current = null;
-      streamingAssistantCountRef.current = 0;
+      streamingBufferRef.current = null;
+      clearStreamingMessage(id);
       void queryClient.invalidateQueries({
         queryKey: chatKeys.messages(id),
       });
@@ -579,6 +593,9 @@ function ChatViewInner({
     },
   });
 
+  const isStreamActiveRef = useRef(isStreamActive);
+  isStreamActiveRef.current = isStreamActive;
+
   const invalidateGitBranches = useCallback(() => {
     if (!projectId) return;
     void queryClient.invalidateQueries({
@@ -587,10 +604,11 @@ function ChatViewInner({
   }, [projectId, queryClient]);
 
   useEffect(() => {
-    if (isStreamActive) {
-      // While a stream is active (POST or reconnect), the stream is the
-      // source of truth for the tail of the conversation. Re-running DB
-      // hydration here would clobber the in-progress assistant bubble.
+    // Hydrate only when a fresh DB fetch actually landed (`initialMessages`
+    // identity changed). Depending on `isStreamActive` too would re-run on
+    // every start/stop flip and clobber optimistic/in-flight state — e.g.
+    // the user's own message on stop, before it has been persisted.
+    if (isStreamActiveRef.current) {
       return;
     }
     setMessages(initialMessages);
@@ -599,7 +617,8 @@ function ChatViewInner({
       dbMessageCount: dbMessages.length,
       initialMessages: initialMessages.map(summarizeUiMessage),
     });
-  }, [initialMessages, isStreamActive]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialMessages]);
 
   useEffect(() => {
     logChatDebug("messages-state", {
@@ -611,19 +630,33 @@ function ChatViewInner({
   }, [chatId, messages, status]);
 
   const stop = useCallback(() => {
-    streamingAssistantIdRef.current = null;
-    streamingAssistantCountRef.current = 0;
+    streamingBufferRef.current = null;
+    if (chatId) clearStreamingMessage(chatId);
     logChatDebug("stream-stop", { chatId });
     void stopEverywhere();
-  }, [chatId, stopEverywhere]);
+
+    // `stopEverywhere` doesn't fire `onStreamComplete`, so invalidate the
+    // chat queries here. Any assistant turns committed mid-run hold
+    // synthetic `-stream-` ids; refetching pulls the real persisted ids so
+    // follow-up actions (regenerate / edit / fork) can map messages back
+    // to DB rows.
+    if (chatId) {
+      void queryClient.invalidateQueries({
+        queryKey: chatKeys.messages(chatId),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: chatKeys.detail(chatId),
+      });
+    }
+  }, [chatId, queryClient, stopEverywhere]);
 
   /**
    * Start a fresh chat run, optimistically appending the user message.
    */
   const startStream = useCallback(
     async (userMessage: ChatUiMessage) => {
-      streamingAssistantIdRef.current = null;
-      streamingAssistantCountRef.current = 0;
+      streamingBufferRef.current = null;
+      if (chatId) clearStreamingMessage(chatId);
 
       setMessages((current) =>
         current.some((message) => message.id === userMessage.id)
@@ -633,8 +666,52 @@ function ChatViewInner({
 
       await hookStartStream(userMessage);
     },
-    [hookStartStream],
+    [chatId, hookStartStream],
   );
+
+  /**
+   * Drain the follow-up queue once the stream goes idle. Fires whenever the
+   * status transitions back to "ready" (end-of-turn, error, user-initiated
+   * stop). Mode `"all"` concatenates every queued message into one prompt;
+   * `"one-at-a-time"` fires them sequentially via subsequent status
+   * transitions.
+   */
+  useEffect(() => {
+    if (!chatId) return;
+    if (status !== "ready") return;
+
+    const drained = drainFollowUpQueue(chatId, agentConfig.followUpMode);
+    if (drained.length === 0) return;
+
+    const parts: UIMessagePart[] = [];
+    for (const item of drained) {
+      for (const part of item.parts) {
+        parts.push(part);
+      }
+      // Separate concatenated queued messages with a blank line so the
+      // model sees them as distinct instructions.
+      if (agentConfig.followUpMode === "all" && parts.length > 0) {
+        parts.push({ type: "text", text: "\n\n" });
+      }
+    }
+
+    if (parts.length === 0) return;
+
+    const userMsg: ChatUiMessage = {
+      id: nanoid(),
+      role: "user",
+      parts,
+      createdAt: new Date().toISOString(),
+    };
+
+    logChatDebug("queue-drain", {
+      chatId,
+      mode: agentConfig.followUpMode,
+      drainedCount: drained.length,
+    });
+
+    void startStream(userMsg);
+  }, [agentConfig.followUpMode, chatId, startStream, status]);
 
   // Whenever a chat is mounted (or the URL switches to a new chat id),
   // tell the server to clear any "finished-unread" dot for that chat.
@@ -674,33 +751,6 @@ function ChatViewInner({
       createdAt: new Date().toISOString(),
     });
   }, [chatId, invalidateGitBranches, startStream]);
-
-  // Reconnect probe: on mount (or chatId change), check whether the server
-  // still has an active run for this chat and reattach to its buffered
-  // socket stream. The probe early-returns inside the hook if a new run has
-  // already started in the same render cycle, so this is race-safe.
-  useEffect(() => {
-    if (!chatId) {
-      return;
-    }
-
-    let cancelled = false;
-    void (async () => {
-      try {
-        const attached = await attachToExistingStream();
-        if (cancelled) {
-          return;
-        }
-        logChatDebug("reconnect-probe", { chatId, attached });
-      } catch (err) {
-        logChatDebug("reconnect-probe-error", { chatId, error: err });
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [chatId, attachToExistingStream]);
 
   const handleSubmit = useCallback(
     async (message: PromptInputMessage) => {
@@ -754,6 +804,25 @@ function ChatViewInner({
       if (!chatId) {
         return;
       }
+
+      // Busy → enqueue as a follow-up. The drain effect picks it up when the
+      // current stream completes. No optimistic append, no stream start — the
+      // user sees it in <ChatQueuedMessages /> below the input.
+      if (isStreamActive) {
+        const queuedParts: QueuedPart[] = parts.filter(
+          (part): part is QueuedPart =>
+            part.type === "text" || part.type === "file",
+        );
+        if (queuedParts.length === 0) return;
+        enqueueChatMessage(chatId, "followup", queuedParts);
+        logChatDebug("queue-enqueued", {
+          chatId,
+          kind: "followup",
+          partsCount: queuedParts.length,
+        });
+        return;
+      }
+
       invalidateGitBranches();
       await startStream(userMsg);
     },
@@ -763,6 +832,7 @@ function ChatViewInner({
       createChat,
       invalidateGitBranches,
       isDraft,
+      isStreamActive,
       navigate,
       projectId,
       startStream,
@@ -1162,8 +1232,6 @@ function ChatViewInner({
     ],
   );
 
-  const isStreaming = status === "streaming" || status === "submitted";
-
   /**
    * Send an approve / deny decision for a pending tool call. The optimistic
    * local update happens immediately so the UI doesn't wait on the
@@ -1205,61 +1273,49 @@ function ChatViewInner({
   );
 
   /**
-   * Multi-turn agent responses produce one PiSdkMessage per turn (thinking +
-   * tool calls, then thinking + more tool calls, then the final text). Render
-   * them as a single continuous bubble so users see one assistant response,
-   * not five fragmented ones. We still keep the underlying `messages` array
-   * intact so action handlers (regenerate/fork/edit) can map back to the real
-   * persisted messages by index.
+   * Handlers bundle passed to the memoized <ChatMessageList />. The bundle
+   * identity MUST stay stable across renders so the list memo holds. The
+   * action callbacks (handleEdit, handleRegenerate, handleFork,
+   * handleResolveApproval) themselves change whenever `messages` changes
+   * (tool-result fold-in, etc.), so we route through a ref and keep the
+   * bundle itself frozen at mount.
    */
-  const displayMessages = useMemo(() => {
-    type DisplayMessage = {
-      message: ChatUiMessage;
-      firstIndex: number;
-      lastIndex: number;
-    };
-
-    const result: DisplayMessage[] = [];
-    let i = 0;
-
-    while (i < messages.length) {
-      const msg = messages[i]!;
-
-      if (msg.role !== "assistant") {
-        result.push({ message: msg, firstIndex: i, lastIndex: i });
-        i++;
-        continue;
-      }
-
-      const firstIndex = i;
-      let lastIndex = i;
-      const mergedParts: UIMessagePart[] = [...msg.parts];
-      i++;
-
-      while (i < messages.length && messages[i]!.role === "assistant") {
-        mergedParts.push({ type: "step-start" });
-        mergedParts.push(...messages[i]!.parts);
-        lastIndex = i;
-        i++;
-      }
-
-      result.push({
-        message:
-          firstIndex === lastIndex
-            ? msg
-            : {
-                id: msg.id,
-                role: "assistant",
-                parts: mergedParts,
-                createdAt: msg.createdAt,
-              },
-        firstIndex,
-        lastIndex,
-      });
-    }
-
-    return result;
-  }, [messages]);
+  const latestHandlersRef = useRef({
+    handleEdit,
+    handleFork,
+    handleRegenerate,
+    handleResolveApproval,
+  });
+  latestHandlersRef.current = {
+    handleEdit,
+    handleFork,
+    handleRegenerate,
+    handleResolveApproval,
+  };
+  const listHandlers = useMemo(
+    () => ({
+      onRegenerate: (messageId: string) => {
+        void latestHandlersRef.current.handleRegenerate(messageId);
+      },
+      onEdit: (index: number, newText: string) => {
+        void latestHandlersRef.current.handleEdit(index, newText);
+      },
+      onFork: (index: number) => {
+        void latestHandlersRef.current.handleFork(index);
+      },
+      onResolveApproval: (
+        toolCallId: string,
+        approved: boolean,
+        reason?: string,
+      ) =>
+        latestHandlersRef.current.handleResolveApproval(
+          toolCallId,
+          approved,
+          reason,
+        ),
+    }),
+    [],
+  );
 
   return (
     <div className="relative flex h-full min-h-0 flex-col bg-background">
@@ -1346,32 +1402,8 @@ function ChatViewInner({
             </div>
           )}
 
-          {displayMessages.map(({ message: msg, firstIndex, lastIndex }) => (
-            <ChatMessage
-              key={msg.id}
-              message={msg}
-              isStreaming={isStreaming && lastIndex === messages.length - 1}
-              status={status}
-              onReload={
-                msg.role === "assistant"
-                  ? () => {
-                      void handleRegenerate(msg.id);
-                    }
-                  : undefined
-              }
-              onEdit={
-                msg.role === "user"
-                  ? (newText: string) => {
-                      void handleEdit(firstIndex, newText);
-                    }
-                  : undefined
-              }
-              onFork={() => {
-                void handleFork(lastIndex);
-              }}
-              onResolveApproval={handleResolveApproval}
-            />
-          ))}
+          <ChatMessageList messages={messages} handlers={listHandlers} />
+          {chatId ? <StreamingMessage chatId={chatId} /> : null}
         </ConversationContent>
 
         <ConversationScrollButton />
@@ -1379,6 +1411,9 @@ function ChatViewInner({
 
       {messages.length > 0 ? (
         <div className="bg-background">
+          <div className="mx-auto w-full max-w-2xl px-3 pt-2">
+            <ChatQueuedMessages chatId={chatId} />
+          </div>
           <div className="mx-auto w-full max-w-2xl px-3 py-2">
             <PromptInputProvider>
               <ChatPromptInputArea

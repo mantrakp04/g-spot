@@ -3,6 +3,7 @@ import { useEffect, useMemo, type HTMLAttributes, type ReactElement } from "reac
 import type { ColumnConfig, FilterCondition } from "@g-spot/types/filters";
 import { getDefaultColumns, normalizeColumns } from "@g-spot/types/filters";
 import { useUser } from "@stackframe/react";
+import { useNavigate } from "@tanstack/react-router";
 
 import type { GitHubIssue, GitHubPullRequest } from "@/lib/github/types";
 import { useGitHubItems } from "@/hooks/use-github-items";
@@ -40,6 +41,7 @@ export function GitHubTable({
   columns: columnsProp,
 }: GitHubTableProps) {
   const user = useUser();
+  const navigate = useNavigate();
   const accounts = user?.useConnectedAccounts();
   const githubAccount = accountId
     ? accounts?.find((a) => a.providerAccountId === accountId) ?? null
@@ -133,7 +135,15 @@ export function GitHubTable({
         getRowId={(pr) => pr.id}
         onRowClick={(pr) => {
           markAsRead(pr.id);
-          window.open(pr.url, "_blank", "noopener");
+          void navigate({
+            to: "/review/$kind/$owner/$repo/$number",
+            params: {
+              kind: "pr",
+              owner: pr.repository.owner,
+              repo: pr.repository.name,
+              number: String(pr.number),
+            },
+          });
         }}
         rowWrapper={(pr, element) => (
           <RowPreviewPopover preview={<GitHubPRPreview pr={pr} />}>
@@ -152,7 +162,15 @@ export function GitHubTable({
       getRowId={(issue) => issue.id}
       onRowClick={(issue) => {
         markAsRead(issue.id);
-        window.open(issue.url, "_blank", "noopener");
+        void navigate({
+          to: "/review/$kind/$owner/$repo/$number",
+          params: {
+            kind: "issue",
+            owner: issue.repository.owner,
+            repo: issue.repository.name,
+            number: String(issue.number),
+          },
+        });
       }}
       rowWrapper={(issue, element) => (
         <RowPreviewPopover preview={<GitHubIssuePreview issue={issue} />}>

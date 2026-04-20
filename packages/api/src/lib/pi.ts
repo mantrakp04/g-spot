@@ -25,7 +25,7 @@ import type {
   ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
 import type { ThinkingLevel } from "@mariozechner/pi-agent-core";
-import type { AssistantMessage, Message, Model } from "@mariozechner/pi-ai";
+import type { AssistantMessage, Message } from "@mariozechner/pi-ai";
 import type { Transport } from "@mariozechner/pi-ai";
 import { getOAuthProviders } from "@mariozechner/pi-ai/oauth";
 import {
@@ -255,52 +255,39 @@ export function createPiPublicModelRegistry() {
   };
 }
 
-function getFallbackModel(
-  modelRegistry: ModelRegistry,
-  preferredProvider: string,
-): Model<any> | null {
-  const availableModels = modelRegistry.getAvailable();
-  if (availableModels.length > 0) {
-    return (
-      availableModels.find((model: Model<any>) => model.provider === preferredProvider) ??
-      availableModels[0] ??
-      null
+export class PiModelUnavailableError extends Error {
+  constructor(
+    public readonly provider: string,
+    public readonly modelId: string,
+    public readonly reason: "not-found" | "no-auth",
+  ) {
+    super(
+      reason === "not-found"
+        ? `Model ${provider}/${modelId} is not registered.`
+        : `Model ${provider}/${modelId} has no configured auth. Connect the provider first.`,
     );
+    this.name = "PiModelUnavailableError";
   }
-
-  const allModels = modelRegistry.getAll();
-  if (allModels.length === 0) {
-    return null;
-  }
-
-  return (
-    allModels.find((model: Model<any>) => model.provider === preferredProvider) ??
-    allModels[0] ??
-    null
-  );
 }
 
 export function resolvePiModel(
   modelRegistry: ModelRegistry,
   config: PiAgentConfig,
-): { model: PiSdkModel; config: PiAgentConfig } | null {
+): { model: PiSdkModel; config: PiAgentConfig } {
   const exactModel = modelRegistry.find(config.provider, config.modelId);
-  const fallbackModel = getFallbackModel(modelRegistry, config.provider);
-  const model =
-    exactModel && modelRegistry.hasConfiguredAuth(exactModel)
-      ? exactModel
-      : fallbackModel;
-
-  if (!model) {
-    return null;
+  if (!exactModel) {
+    throw new PiModelUnavailableError(config.provider, config.modelId, "not-found");
+  }
+  if (!modelRegistry.hasConfiguredAuth(exactModel)) {
+    throw new PiModelUnavailableError(config.provider, config.modelId, "no-auth");
   }
 
   return {
-    model,
+    model: exactModel,
     config: {
       ...config,
-      provider: model.provider,
-      modelId: model.id,
+      provider: exactModel.provider,
+      modelId: exactModel.id,
     },
   };
 }
@@ -407,11 +394,6 @@ export async function createPiAgentSession(args: {
 }) {
   const { authStorage, modelRegistry } = await createPiModelRegistry();
   const resolved = resolvePiModel(modelRegistry, args.config);
-  if (!resolved) {
-    throw new Error(
-      "No Pi models are available. Connect an OAuth provider or add an API key first.",
-    );
-  }
 
   const toolNames = args.activeToolNames ?? resolved.config.activeToolNames;
   const tools = toolNames.map((toolName) => BUILTIN_TOOL_REGISTRY[toolName]);

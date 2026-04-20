@@ -1,0 +1,3 @@
+[submodule "apps/vscode"]
+	path = apps/vscode
+	url = https://github.com/mantrakp04/vscode.git

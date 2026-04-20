@@ -18,6 +18,7 @@ describe("resolveSyncStartPlan", () => {
         failedThreads: 1,
         fetchedThreads: 4,
         mode: "full",
+        processableThreads: 4,
         processedThreads: 3,
         status: "paused",
         totalThreads: 12,
@@ -31,6 +32,7 @@ describe("resolveSyncStartPlan", () => {
       bootstrapProgress: {
         totalThreads: 12,
         fetchedThreads: 4,
+        processableThreads: 4,
         processedThreads: 3,
         failedThreads: 1,
       },
@@ -76,6 +78,7 @@ describe("resolveSyncStartPlan", () => {
         failedThreads: 3,
         fetchedThreads: 12,
         mode: "full",
+        processableThreads: 12,
         processedThreads: 9,
         status: "completed",
         totalThreads: 12,
@@ -89,6 +92,7 @@ describe("resolveSyncStartPlan", () => {
       bootstrapProgress: {
         totalThreads: 3,
         fetchedThreads: 0,
+        processableThreads: 0,
         processedThreads: 0,
         failedThreads: 3,
       },
@@ -97,28 +101,46 @@ describe("resolveSyncStartPlan", () => {
 });
 
 describe("getScopedSyncResumeState", () => {
-  it("only counts fetched threads inside the current sync scope", () => {
+  it("only counts fetched inbox threads inside the current sync scope", () => {
     const state = getScopedSyncResumeState(
       ["thread-2", "thread-3", "thread-4"],
       new Set(["thread-1", "thread-2", "thread-3"]),
+      new Set(["thread-2", "thread-3"]),
       ["thread-3", "thread-9"],
     );
 
     expect(state.totalThreads).toBe(3);
     expect(state.fetchedInScope.size).toBe(2);
+    expect(state.processableThreads).toBe(2);
     expect(state.processedThreads).toBe(1);
     expect(state.unprocessedInScope).toEqual(["thread-3"]);
     expect(state.toFetch).toEqual(["thread-4"]);
+  });
+
+  it("treats non-inbox fetched threads as outside the process universe", () => {
+    const state = getScopedSyncResumeState(
+      ["thread-1", "thread-2", "thread-3"],
+      new Set(["thread-1", "thread-2", "thread-3"]),
+      new Set(["thread-2"]),
+      [],
+    );
+
+    expect(state.fetchedInScope.size).toBe(3);
+    expect(state.processableThreads).toBe(1);
+    expect(state.processedThreads).toBe(1);
+    expect(state.toFetch).toEqual([]);
   });
 
   it("does not let out-of-scope unprocessed threads drive processed negative", () => {
     const state = getScopedSyncResumeState(
       ["thread-7"],
       new Set(),
+      new Set(),
       ["thread-2", "thread-3"],
     );
 
     expect(state.fetchedInScope.size).toBe(0);
+    expect(state.processableThreads).toBe(0);
     expect(state.processedThreads).toBe(0);
     expect(state.unprocessedInScope).toEqual([]);
     expect(state.toFetch).toEqual(["thread-7"]);

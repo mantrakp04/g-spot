@@ -188,6 +188,7 @@ export const gmailSyncState = sqliteTable(
     mode: text("mode"), // full|incremental
     totalThreads: integer("total_threads").notNull().default(0),
     fetchedThreads: integer("fetched_threads").notNull().default(0),
+    processableThreads: integer("processable_threads").notNull().default(0),
     processedThreads: integer("processed_threads").notNull().default(0),
     failedThreads: integer("failed_threads").notNull().default(0),
     startedAt: text("started_at"),

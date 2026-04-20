@@ -49,7 +49,8 @@ const ALL_OPERATORS = [
 type FilterConditionRowProps = {
   condition: FilterCondition;
   source: "github_pr" | "github_issue" | "gmail";
-  index: number;
+  prefix?: "And" | null;
+  onPrefixClick?: () => void;
   onChange: (updated: FilterCondition) => void;
   onSearchChange?: (query: string) => void;
   onRemove: () => void;
@@ -60,7 +61,8 @@ type FilterConditionRowProps = {
 export function FilterConditionRow({
   condition,
   source,
-  index,
+  prefix = null,
+  onPrefixClick,
   onChange,
   onSearchChange,
   onRemove,
@@ -81,33 +83,33 @@ export function FilterConditionRow({
     : ALL_OPERATORS;
 
   return (
-    <div className="group/row relative">
-      {/* AND/OR logic pill — shown between rows */}
-      {index > 0 && (
-        <div className="flex items-center gap-3 py-1">
-          <div className="h-px flex-1 bg-border/40" />
+    <div className="group/row flex items-stretch gap-2">
+      {/* Left rail — group-internal connector (And) */}
+      <div className="flex w-10 shrink-0 items-center justify-start pt-px">
+        {prefix ? (
           <button
             type="button"
+            onClick={onPrefixClick}
+            disabled={!onPrefixClick}
             className={cn(
-              "rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-widest transition-all",
-              "border border-border/60 text-muted-foreground",
-              "hover:border-foreground/30 hover:text-foreground",
+              "text-[13px] font-normal text-muted-foreground/70 transition-colors",
+              onPrefixClick && "hover:text-foreground",
             )}
-            onClick={() =>
-              onChange({
-                ...condition,
-                logic: condition.logic === "or" ? "and" : "or",
-              })
-            }
+            title={onPrefixClick ? "Click to split into a new OR group" : undefined}
           >
-            {condition.logic === "or" ? "or" : "and"}
+            {prefix}
           </button>
-          <div className="h-px flex-1 bg-border/40" />
-        </div>
-      )}
+        ) : null}
+      </div>
 
-      {/* Condition controls — single tight row */}
-      <div className="flex items-center gap-1.5">
+      {/* Condition pill — unified filled container */}
+      <div
+        className={cn(
+          "flex min-w-0 flex-1 items-center gap-0.5 rounded-lg bg-muted/40 pr-1",
+          "ring-1 ring-inset ring-border/50 transition-colors",
+          "focus-within:ring-border hover:bg-muted/55",
+        )}
+      >
         {/* Field */}
         <Select
           value={condition.field}
@@ -115,7 +117,7 @@ export function FilterConditionRow({
             field && onChange({ ...condition, field, value: "" })
           }
         >
-          <SelectTrigger className="h-7 w-auto min-w-[100px] shrink-0 gap-1 border-none bg-muted/50 px-2 text-xs shadow-none hover:bg-muted">
+          <SelectTrigger className="h-9 w-auto shrink-0 gap-1 border-none bg-transparent px-3 text-xs font-medium shadow-none hover:bg-background/50 data-[state=open]:bg-background/60">
             <SelectValue placeholder="Field" />
           </SelectTrigger>
           <SelectContent>
@@ -141,7 +143,7 @@ export function FilterConditionRow({
             operator && onChange({ ...condition, operator })
           }
         >
-          <SelectTrigger className="h-7 w-auto min-w-[60px] shrink-0 gap-1 border-none bg-transparent px-2 text-xs text-muted-foreground shadow-none hover:bg-muted/50 hover:text-foreground">
+          <SelectTrigger className="h-9 w-auto shrink-0 gap-1 border-none bg-transparent px-1.5 text-xs text-muted-foreground shadow-none hover:bg-background/50 hover:text-foreground data-[state=open]:bg-background/60">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -166,13 +168,14 @@ export function FilterConditionRow({
           />
         </div>
 
-        {/* Remove — visible on hover */}
+        {/* Remove */}
         <Button
           type="button"
           variant="ghost"
           size="icon-xs"
-          className="shrink-0 text-muted-foreground/0 transition-colors group-hover/row:text-muted-foreground group-hover/row:hover:text-foreground"
+          className="shrink-0 text-muted-foreground/60 opacity-0 transition-all hover:text-foreground group-hover/row:opacity-100 focus-visible:opacity-100"
           onClick={onRemove}
+          aria-label="Remove condition"
         >
           <X className="size-3.5" />
         </Button>

@@ -3,37 +3,95 @@
 import { Button } from "@g-spot/ui/components/button";
 import { cn } from "@g-spot/ui/lib/utils";
 import { ArrowDownIcon, DownloadIcon } from "lucide-react";
-import type { ComponentProps } from "react";
-import { useCallback } from "react";
-import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
+import {
+  Children,
+  type ComponentProps,
+  createContext,
+  isValidElement,
+  useCallback,
+  useContext,
+  useMemo,
+} from "react";
 
+import { useAutoScroll } from "@/hooks/use-auto-scroll";
 import type { UIMessage } from "@/lib/chat-ui";
 
-export type ConversationProps = ComponentProps<typeof StickToBottom>;
+type ConversationCtx = {
+  scrollRef: React.RefObject<HTMLDivElement | null>;
+  contentRef: React.RefObject<HTMLDivElement | null>;
+  scrollToBottom: () => void;
+  isAtBottom: boolean;
+};
 
-export const Conversation = ({ className, ...props }: ConversationProps) => (
-  <StickToBottom
-    className={cn("relative flex-1 overflow-y-hidden", className)}
-    initial="smooth"
-    resize="smooth"
-    role="log"
-    {...props}
-  />
-);
+const ConversationContext = createContext<ConversationCtx | null>(null);
 
-export type ConversationContentProps = ComponentProps<
-  typeof StickToBottom.Content
->;
+function useConversationContext() {
+  const ctx = useContext(ConversationContext);
+  if (!ctx) {
+    throw new Error(
+      "Conversation sub-components must be rendered inside <Conversation>",
+    );
+  }
+  return ctx;
+}
+
+export type ConversationProps = ComponentProps<"div">;
+
+export const Conversation = ({
+  className,
+  children,
+  ...props
+}: ConversationProps) => {
+  const { scrollRef, contentRef, scrollToBottom, isAtBottom } = useAutoScroll();
+  const ctx = useMemo(
+    () => ({ scrollRef, contentRef, scrollToBottom, isAtBottom }),
+    [scrollRef, contentRef, scrollToBottom, isAtBottom],
+  );
+
+  // The scroll button has `absolute bottom-4` to sit pinned over the chat.
+  // If rendered inside the scroll container its `bottom` resolves against
+  // the scroll content (sticking it to ~the top of the first assistant
+  // message). Partition children so the button renders as a sibling of the
+  // scroll container and gets positioned against the viewport-sized wrapper.
+  const childArray = Children.toArray(children);
+  const buttons = childArray.filter(
+    (child) => isValidElement(child) && child.type === ConversationScrollButton,
+  );
+  const rest = childArray.filter(
+    (child) => !(isValidElement(child) && child.type === ConversationScrollButton),
+  );
+
+  return (
+    <ConversationContext.Provider value={ctx}>
+      <div className={cn("relative", className)} {...props}>
+        <div
+          ref={scrollRef}
+          role="log"
+          className="absolute inset-0 overflow-y-auto scroll-smooth"
+        >
+          {rest}
+        </div>
+        {buttons}
+      </div>
+    </ConversationContext.Provider>
+  );
+};
+
+export type ConversationContentProps = ComponentProps<"div">;
 
 export const ConversationContent = ({
   className,
   ...props
-}: ConversationContentProps) => (
-  <StickToBottom.Content
-    className={cn("flex flex-col gap-8 p-4", className)}
-    {...props}
-  />
-);
+}: ConversationContentProps) => {
+  const { contentRef } = useConversationContext();
+  return (
+    <div
+      ref={contentRef}
+      className={cn("flex flex-col gap-8 p-4", className)}
+      {...props}
+    />
+  );
+};
 
 export type ConversationEmptyStateProps = ComponentProps<"div"> & {
   title?: string;
@@ -76,28 +134,24 @@ export const ConversationScrollButton = ({
   className,
   ...props
 }: ConversationScrollButtonProps) => {
-  const { isAtBottom, scrollToBottom } = useStickToBottomContext();
+  const { isAtBottom, scrollToBottom } = useConversationContext();
 
-  const handleScrollToBottom = useCallback(() => {
-    scrollToBottom();
-  }, [scrollToBottom]);
+  if (isAtBottom) return null;
 
   return (
-    !isAtBottom && (
-      <Button
-        className={cn(
-          "absolute bottom-4 left-[50%] translate-x-[-50%] rounded-full dark:bg-background dark:hover:bg-muted",
-          className
-        )}
-        onClick={handleScrollToBottom}
-        size="icon"
-        type="button"
-        variant="outline"
-        {...props}
-      >
-        <ArrowDownIcon className="size-4" />
-      </Button>
-    )
+    <Button
+      className={cn(
+        "absolute bottom-4 left-[50%] translate-x-[-50%] rounded-full dark:bg-background dark:hover:bg-muted",
+        className,
+      )}
+      onClick={scrollToBottom}
+      size="icon"
+      type="button"
+      variant="outline"
+      {...props}
+    >
+      <ArrowDownIcon className="size-4" />
+    </Button>
   );
 };
 

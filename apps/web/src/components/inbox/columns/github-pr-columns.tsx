@@ -42,7 +42,7 @@ function checkStatusColor(check: GitHubStatusCheck) {
     case "NEUTRAL":
       return "text-muted-foreground";
     default:
-      return "text-red-500";
+      return "text-destructive";
   }
 }
 
@@ -97,9 +97,9 @@ function rollupMeta(status: GitHubPullRequest["statusCheckRollup"]) {
     case "SUCCESS":
       return { label: "All checks passed", color: "text-emerald-500", bg: "bg-emerald-500/10" } as const;
     case "FAILURE":
-      return { label: "Some checks failed", color: "text-red-500", bg: "bg-red-500/10" } as const;
+      return { label: "Some checks failed", color: "text-destructive", bg: "bg-destructive/10" } as const;
     case "ERROR":
-      return { label: "Checks errored", color: "text-red-500", bg: "bg-red-500/10" } as const;
+      return { label: "Checks errored", color: "text-destructive", bg: "bg-destructive/10" } as const;
     case "PENDING":
       return { label: "Checks running", color: "text-yellow-500", bg: "bg-yellow-500/10" } as const;
     default:
@@ -113,7 +113,7 @@ function rollupIcon(status: GitHubPullRequest["statusCheckRollup"]) {
       return <Check className="size-3.5 text-emerald-500" />;
     case "FAILURE":
     case "ERROR":
-      return <XCircle className="size-3.5 text-red-500" />;
+      return <XCircle className="size-3.5 text-destructive" />;
     case "PENDING":
       return <Clock className="size-3.5 text-yellow-500" />;
     default:
@@ -128,7 +128,7 @@ function reviewMeta(decision: GitHubPullRequest["reviewDecision"]) {
     case "APPROVED":
       return { label: "Approved", color: "text-emerald-500", bg: "bg-emerald-500/10" } as const;
     case "CHANGES_REQUESTED":
-      return { label: "Changes requested", color: "text-red-500", bg: "bg-red-500/10" } as const;
+      return { label: "Changes requested", color: "text-destructive", bg: "bg-destructive/10" } as const;
     case "REVIEW_REQUIRED":
       return { label: "Review required", color: "text-muted-foreground", bg: "bg-muted" } as const;
     default:
@@ -141,7 +141,7 @@ function reviewDecisionIcon(decision: GitHubPullRequest["reviewDecision"]) {
     case "APPROVED":
       return <Check className="size-3.5 text-emerald-500" />;
     case "CHANGES_REQUESTED":
-      return <CircleX className="size-3.5 text-red-500" />;
+      return <CircleX className="size-3.5 text-destructive" />;
     case "REVIEW_REQUIRED":
       return <GitPullRequest className="size-3.5 text-muted-foreground" />;
     default:
@@ -154,7 +154,7 @@ function reviewerIcon(state: string) {
     case "APPROVED":
       return <Check className="size-3.5 shrink-0 text-emerald-500" />;
     case "CHANGES_REQUESTED":
-      return <CircleX className="size-3.5 shrink-0 text-red-500" />;
+      return <CircleX className="size-3.5 shrink-0 text-destructive" />;
     case "DISMISSED":
       return <Minus className="size-3.5 shrink-0 text-muted-foreground" />;
     case "REQUESTED":
@@ -500,7 +500,7 @@ export function buildPrColumns({
         return (
           <span className="whitespace-nowrap font-mono text-xs">
             <span className="text-emerald-500">+{pr.additions}</span>{" "}
-            <span className="text-red-500">-{pr.deletions}</span>
+            <span className="text-destructive">-{pr.deletions}</span>
           </span>
         );
       },

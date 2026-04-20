@@ -52,6 +52,9 @@ const ALL_TYPES = [
   "tool",
 ] as const;
 
+const OVERLAY_CHROME =
+  "border border-border bg-card/70 shadow-lg backdrop-blur-xl supports-[backdrop-filter]:bg-card/60";
+
 function StatsOverlay({
   entities,
   observations,
@@ -66,25 +69,31 @@ function StatsOverlay({
       initial={{ y: -10, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
       transition={{ delay: 0.2 }}
-      className="memory-stats-bar absolute top-4 left-4 z-20 flex items-center gap-3 rounded-lg px-3 py-2"
+      className={`absolute top-4 left-4 z-20 flex items-center gap-3 rounded-md px-3 py-2 ${OVERLAY_CHROME}`}
     >
       <div className="flex items-center gap-1.5">
-        <CircleDot className="size-3 text-cyan-400/60" />
-        <span className="font-mono text-[11px] tabular-nums text-white/50">
+        <CircleDot
+          className="size-3"
+          style={{ color: TYPE_COLORS.person }}
+        />
+        <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
           {entities}
         </span>
       </div>
-      <div className="h-3 w-px bg-white/8" />
+      <div className="h-3 w-px bg-border" />
       <div className="flex items-center gap-1.5">
-        <Layers className="size-3 text-violet-400/60" />
-        <span className="font-mono text-[11px] tabular-nums text-white/50">
+        <Layers
+          className="size-3"
+          style={{ color: TYPE_COLORS.concept }}
+        />
+        <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
           {observations}
         </span>
       </div>
-      <div className="h-3 w-px bg-white/8" />
+      <div className="h-3 w-px bg-border" />
       <div className="flex items-center gap-1.5">
-        <GitBranch className="size-3 text-slate-400/60" />
-        <span className="font-mono text-[11px] tabular-nums text-white/50">
+        <GitBranch className="size-3 text-muted-foreground" />
+        <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
           {edges}
         </span>
       </div>
@@ -112,12 +121,12 @@ function Legend({
       initial={{ y: 10, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
       transition={{ delay: 0.3 }}
-      className="memory-legend absolute bottom-4 left-4 z-20 flex flex-wrap items-center gap-1.5 rounded-lg px-3 py-2"
+      className={`absolute bottom-4 left-4 z-20 flex flex-wrap items-center gap-1.5 rounded-md px-3 py-2 ${OVERLAY_CHROME}`}
     >
       {ALL_TYPES.map((type) => {
         const presentInData = activeTypes.has(type);
         const hidden = hiddenTypes.has(type);
-        const color = TYPE_COLORS[type] ?? "#94a3b8";
+        const color = TYPE_COLORS[type] ?? "currentColor";
 
         return (
           <button
@@ -126,25 +135,23 @@ function Legend({
             disabled={!presentInData}
             onClick={() => onToggleType(type)}
             className={
-              "flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-0.5 transition-all duration-200" +
+              "flex cursor-pointer items-center gap-1.5 rounded-sm px-1.5 py-0.5 transition-all duration-200" +
               (presentInData
-                ? " hover:bg-white/5"
+                ? " hover:bg-accent/50"
                 : " cursor-default opacity-30")
             }
             style={{ opacity: !presentInData ? 0.3 : hidden ? 0.45 : 1 }}
           >
             <div
-              className="size-2 rounded-full transition-colors duration-200"
-              style={{
-                backgroundColor: hidden ? "rgba(148,163,184,0.2)" : color,
-              }}
+              className="size-2 rounded-full bg-muted transition-colors duration-200"
+              style={hidden ? undefined : { backgroundColor: color }}
             />
             <span
               className={
                 "text-[10px] transition-all duration-200" +
                 (hidden
-                  ? " text-white/15 line-through"
-                  : " text-white/35")
+                  ? " text-muted-foreground/50 line-through"
+                  : " text-muted-foreground")
               }
             >
               {type}
@@ -154,13 +161,13 @@ function Legend({
       })}
 
       {/* Divider */}
-      <div className="mx-1 h-3 w-px bg-white/10" />
+      <div className="mx-1 h-3 w-px bg-border" />
 
       {/* Show/hide all toggle */}
       <button
         type="button"
         onClick={allVisible ? onHideAll : onShowAll}
-        className="flex cursor-pointer items-center justify-center rounded-md p-1 text-white/30 transition-colors duration-200 hover:bg-white/5 hover:text-white/50"
+        className="flex cursor-pointer items-center justify-center rounded-sm p-1 text-muted-foreground transition-colors duration-200 hover:bg-accent/50 hover:text-foreground"
       >
         {allVisible ? (
           <Eye className="size-3.5" />
@@ -180,13 +187,13 @@ function EmptyState() {
         animate={{ scale: 1, opacity: 1 }}
         className="text-center"
       >
-        <div className="mx-auto mb-4 flex size-16 items-center justify-center rounded-2xl border border-white/5 bg-white/[0.02]">
-          <Brain className="size-7 text-white/15" />
+        <div className="mx-auto mb-4 flex size-16 items-center justify-center rounded-lg border border-border bg-card">
+          <Brain className="size-7 text-muted-foreground" />
         </div>
-        <h3 className="mb-1 text-sm font-medium text-white/40">
+        <h3 className="mb-1 text-sm font-medium text-foreground">
           No memories yet
         </h3>
-        <p className="max-w-[240px] text-[12px] leading-relaxed text-white/20">
+        <p className="max-w-[240px] text-[12px] leading-relaxed text-muted-foreground">
           Memories will appear here as the agent processes conversations and
           extracts knowledge.
         </p>
@@ -336,11 +343,11 @@ export function MemoryPage() {
 
   if (graphQuery.isLoading) {
     return (
-      <div className="relative h-full bg-[#08080e]">
+      <div className="relative h-full bg-background">
         <div className="absolute inset-0 flex items-center justify-center">
           <div className="space-y-3 text-center">
-            <Skeleton className="mx-auto size-12 rounded-xl bg-white/5" />
-            <Skeleton className="mx-auto h-3 w-24 bg-white/5" />
+            <Skeleton className="mx-auto size-12 rounded-md" />
+            <Skeleton className="mx-auto h-3 w-24" />
           </div>
         </div>
       </div>
@@ -348,16 +355,21 @@ export function MemoryPage() {
   }
 
   return (
-    <div className="relative h-full overflow-hidden bg-[#08080e]">
+    <div className="relative h-full overflow-hidden bg-background">
       {/* Back button */}
       <motion.div
         initial={{ x: -10, opacity: 0 }}
         animate={{ x: 0, opacity: 1 }}
         className="absolute top-4 left-1/2 z-20 -translate-x-1/2"
       >
-        <div className="memory-title-bar flex items-center gap-3 rounded-lg px-4 py-2">
-          <Brain className="size-4 text-cyan-400/50" />
-          <span className="text-[13px] font-medium tracking-tight text-white/60">
+        <div
+          className={`flex items-center gap-3 rounded-md px-4 py-2 ${OVERLAY_CHROME}`}
+        >
+          <Brain
+            className="size-4"
+            style={{ color: TYPE_COLORS.person }}
+          />
+          <span className="text-[13px] font-medium tracking-tight text-foreground">
             Memory Graph
           </span>
         </div>
@@ -386,7 +398,7 @@ export function MemoryPage() {
         <EmptyState />
       ) : filteredIsEmpty ? (
         <div className="absolute inset-0 flex items-center justify-center">
-          <p className="text-[13px] text-white/30">
+          <p className="text-[13px] text-muted-foreground">
             All node types are hidden
           </p>
         </div>

@@ -1,6 +1,8 @@
 import { useState, type ReactNode } from "react";
 import { ChevronDown, ChevronRight, Plus } from "lucide-react";
 
+import { Button } from "@g-spot/ui/components/button";
+
 export function SidebarSection({
   label,
   action,
@@ -16,18 +18,20 @@ export function SidebarSection({
   return (
     <section className="border-b border-border/50 py-3 last:border-b-0">
       <div className="flex items-center justify-between">
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="sm"
           onClick={() => setOpen((s) => !s)}
-          className="flex items-center gap-1.5 text-[13px] font-medium text-foreground"
+          className="-ml-1 px-1 text-[13px] font-medium text-foreground"
         >
           {open ? (
-            <ChevronDown className="size-3.5 text-muted-foreground/70" />
+            <ChevronDown className="text-muted-foreground/70" />
           ) : (
-            <ChevronRight className="size-3.5 text-muted-foreground/70" />
+            <ChevronRight className="text-muted-foreground/70" />
           )}
           {label}
-        </button>
+        </Button>
         {action}
       </div>
       {open ? <div className="mt-2">{children}</div> : null}
@@ -37,14 +41,15 @@ export function SidebarSection({
 
 export function SidebarAddButton({ onClick }: { onClick?: () => void }) {
   return (
-    <button
+    <Button
       type="button"
+      variant="ghost"
+      size="icon-sm"
       onClick={onClick}
-      className="flex size-5 items-center justify-center rounded-sm text-muted-foreground/70 hover:bg-muted hover:text-foreground"
       aria-label="Add"
     >
-      <Plus className="size-3.5" />
-    </button>
+      <Plus />
+    </Button>
   );
 }
 

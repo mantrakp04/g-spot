@@ -1,10 +1,13 @@
 import { createContext, memo, useContext, useState } from "react";
 import { Streamdown } from "streamdown";
+import { mermaid } from "@streamdown/mermaid";
 import { Check, Loader2 } from "lucide-react";
 import type { OAuthConnection } from "@stackframe/react";
 
+import { Button } from "@g-spot/ui/components/button";
 import { cn } from "@g-spot/ui/lib/utils";
 import { useApplySuggestionMutation } from "@/hooks/use-github-detail";
+import { Wrappable } from "./wrappable";
 
 export type SuggestionAnchor = {
   path: string;
@@ -37,8 +40,10 @@ function SuggestionBlock({ code }: { code: string }) {
       <div className="flex items-center justify-between border-b border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
         Suggested change
         {canApply ? (
-          <button
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
             disabled={mutate.isPending || applied}
             onClick={() => {
               if (!anchor) return;
@@ -59,15 +64,15 @@ function SuggestionBlock({ code }: { code: string }) {
                 },
               );
             }}
-            className="inline-flex h-6 items-center gap-1 rounded-sm border border-emerald-500/40 bg-emerald-500/10 px-2 text-[11px] font-medium text-emerald-700 hover:bg-emerald-500/20 disabled:opacity-60 dark:text-emerald-300"
+            className="border-emerald-500/40 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300"
           >
             {mutate.isPending ? (
-              <Loader2 className="size-3 animate-spin" />
+              <Loader2 className="animate-spin" />
             ) : applied ? (
-              <Check className="size-3" />
+              <Check />
             ) : null}
             {applied ? "Applied" : "Apply suggestion"}
-          </button>
+          </Button>
         ) : null}
       </div>
       <pre className="m-0 overflow-x-auto bg-transparent px-3 py-2 font-mono text-[12px] leading-relaxed">
@@ -109,9 +114,15 @@ const components = {
         return <SuggestionBlock code={text} />;
       }
     }
-    return <pre {...props} />;
+    return (
+      <Wrappable>
+        <pre {...props} />
+      </Wrappable>
+    );
   },
 } as const;
+
+const plugins = { mermaid } as const;
 
 /**
  * GitHub-flavored markdown renderer for PR/issue bodies and comments.
@@ -121,6 +132,7 @@ export const Markdown = memo(
   ({ children, className }: { children: string; className?: string }) => (
     <Streamdown
       components={components}
+      plugins={plugins}
       className={cn(
         "prose prose-invert max-w-none text-[14px] leading-relaxed",
         "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",

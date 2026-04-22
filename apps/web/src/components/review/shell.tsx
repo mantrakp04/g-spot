@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
+import { useHotkey } from "@tanstack/react-hotkeys";
+import { PanelRightClose, PanelRightOpen } from "lucide-react";
+
+import { Button } from "@g-spot/ui/components/button";
 import { cn } from "@g-spot/ui/lib/utils";
 
 import { KeyboardOverlay } from "./keyboard-overlay";
@@ -28,22 +32,13 @@ export function ReviewShell({
   const fullHeaderRef = useRef<HTMLDivElement | null>(null);
   const [condensed, setCondensed] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLElement) {
-        const tag = e.target.tagName;
-        if (tag === "INPUT" || tag === "TEXTAREA" || e.target.isContentEditable)
-          return;
-      }
-      if (e.key === "?" || (e.shiftKey && e.key === "/")) {
-        e.preventDefault();
-        setHelpOpen((s) => !s);
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, []);
+  useHotkey(
+    { key: "?" },
+    () => setHelpOpen((s) => !s),
+    { meta: { name: "Toggle keyboard help" } },
+  );
 
   useEffect(() => {
     const root = scrollRef.current;
@@ -82,6 +77,17 @@ export function ReviewShell({
           {condensedHeader}
         </div>
         {actions ? <div className="shrink-0">{actions}</div> : null}
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          onClick={() => setSidebarOpen((s) => !s)}
+          aria-label={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
+          aria-expanded={sidebarOpen}
+          className="hidden shrink-0 lg:inline-flex"
+        >
+          {sidebarOpen ? <PanelRightClose /> : <PanelRightOpen />}
+        </Button>
       </div>
       <div
         ref={scrollRef}
@@ -92,9 +98,11 @@ export function ReviewShell({
             <div ref={fullHeaderRef}>{fullHeader}</div>
             {main}
           </div>
-          <aside className="order-last w-full shrink-0 pb-6 lg:sticky lg:top-0 lg:order-none lg:h-fit lg:w-[300px] lg:py-6">
-            {rightSidebar}
-          </aside>
+          {sidebarOpen ? (
+            <aside className="order-last w-full shrink-0 pb-6 lg:sticky lg:top-0 lg:order-none lg:h-fit lg:w-[300px] lg:py-6">
+              {rightSidebar}
+            </aside>
+          ) : null}
         </div>
       </div>
     </div>

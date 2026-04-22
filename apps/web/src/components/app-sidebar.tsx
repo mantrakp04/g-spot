@@ -418,7 +418,7 @@ export function AppSidebar({ onToggleCollapse }: AppSidebarProps) {
 
       {/* Footer */}
       <div className="border-t border-sidebar-border p-2">
-        <div className="mb-2">
+        <div>
           <SidebarSetupChecklist
             enabled={Boolean(user)}
             accountsLoaded={accountsLoaded}

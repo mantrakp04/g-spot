@@ -1,5 +1,5 @@
-import { useEffect } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { useHotkeys } from "@tanstack/react-hotkeys";
 
 import type { StackNode } from "@/hooks/use-github-detail";
 
@@ -17,38 +17,43 @@ function parseUrl(url: string) {
 export function StackViz({ nodes }: { nodes: StackNode[] }) {
   const navigate = useNavigate();
   const currentIdx = nodes.findIndex((n) => n.isCurrent);
-  useEffect(() => {
-    if (nodes.length <= 1) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLElement) {
-        const tag = e.target.tagName;
-        if (tag === "INPUT" || tag === "TEXTAREA" || e.target.isContentEditable)
-          return;
-      }
-      if (e.key !== "[" && e.key !== "]") return;
-      if (currentIdx < 0) return;
-      const nextIdx =
-        e.key === "]"
-          ? Math.min(nodes.length - 1, currentIdx + 1)
-          : Math.max(0, currentIdx - 1);
-      const next = nodes[nextIdx];
-      if (!next || next.isCurrent) return;
-      const parsed = parseUrl(next.url);
-      if (!parsed) return;
-      e.preventDefault();
-      void navigate({
-        to: "/review/$kind/$owner/$repo/$number",
-        params: {
-          kind: "pr",
-          owner: parsed.owner,
-          repo: parsed.repo,
-          number: parsed.number,
-        },
-      });
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [nodes, currentIdx, navigate]);
+
+  const jumpStack = (direction: -1 | 1) => {
+    if (currentIdx < 0) return;
+    const nextIdx =
+      direction === 1
+        ? Math.min(nodes.length - 1, currentIdx + 1)
+        : Math.max(0, currentIdx - 1);
+    const next = nodes[nextIdx];
+    if (!next || next.isCurrent) return;
+    const parsed = parseUrl(next.url);
+    if (!parsed) return;
+    void navigate({
+      to: "/review/$kind/$owner/$repo/$number",
+      params: {
+        kind: "pr",
+        owner: parsed.owner,
+        repo: parsed.repo,
+        number: parsed.number,
+      },
+    });
+  };
+
+  useHotkeys(
+    [
+      {
+        hotkey: "[",
+        callback: () => jumpStack(-1),
+        options: { meta: { name: "Previous PR in stack" } },
+      },
+      {
+        hotkey: "]",
+        callback: () => jumpStack(1),
+        options: { meta: { name: "Next PR in stack" } },
+      },
+    ],
+    { enabled: nodes.length > 1 },
+  );
 
   if (nodes.length <= 1) return null;
   return (
@@ -74,7 +79,7 @@ export function StackViz({ nodes }: { nodes: StackNode[] }) {
               <span className="line-clamp-1">{node.title}</span>
             </>
           );
-          const cls = `flex-1 rounded-sm px-1.5 py-1 text-[12px] leading-tight hover:bg-muted ${
+          const cls = `flex-1 rounded-md px-1.5 py-1 text-[12px] leading-tight hover:bg-muted ${
             node.isCurrent
               ? "bg-muted/50 font-medium text-foreground"
               : "text-muted-foreground"
@@ -135,7 +140,7 @@ function StackDot({
         style={{ background: "var(--border)" }}
       />
       <div
-        className="shrink-0 rounded-full"
+        className="shrink-0 rounded-md"
         style={{
           width: isCurrent ? 10 : 7,
           height: isCurrent ? 10 : 7,

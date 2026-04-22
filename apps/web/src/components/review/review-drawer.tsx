@@ -5,6 +5,7 @@ import { Octokit } from "octokit";
 import { AlertCircle, MessageSquare, CheckCircle2, XCircle } from "lucide-react";
 
 import { Button } from "@g-spot/ui/components/button";
+import { Kbd, KbdGroup } from "@g-spot/ui/components/kbd";
 import { RadioGroup, RadioGroupItem } from "@g-spot/ui/components/radio-group";
 import { Textarea } from "@g-spot/ui/components/textarea";
 import { cn } from "@g-spot/ui/lib/utils";
@@ -193,15 +194,16 @@ export function ReviewForm({
 
       <Button
         type="button"
+        size="lg"
         disabled={!canSubmit}
         onClick={() => submit.mutate()}
-        className="w-full gap-2 bg-primary text-primary-foreground hover:bg-primary/90"
+        className="w-full"
       >
         {submit.isPending ? "Submitting..." : "Submit review"}
-        <span className="inline-flex items-center gap-0.5 text-[11px] opacity-70">
-          <kbd className="font-sans">⌘</kbd>
-          <kbd className="font-sans">↵</kbd>
-        </span>
+        <KbdGroup className="opacity-70">
+          <Kbd>⌘</Kbd>
+          <Kbd>↵</Kbd>
+        </KbdGroup>
       </Button>
     </div>
   );

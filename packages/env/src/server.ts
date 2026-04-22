@@ -39,7 +39,7 @@ export const env = createEnv({
           : "ws://dev-proxy.g-spot.dev"
     ),
     MEMORY_WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(20).default(8),
-    GMAIL_RATE_LIMIT_RPS: z.coerce.number().int().min(1).max(100).default(50),
+    GMAIL_RATE_LIMIT_RPS: z.coerce.number().int().min(1).max(100).default(20),
     SKILLS_API_URL: z.string().url().default("https://skills.sh"),
     EMBEDDING_MODEL: z
       .string()

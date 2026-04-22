@@ -13,6 +13,7 @@ import {
 } from "@/hooks/use-github-detail";
 
 import { Markdown, SuggestionContext, type SuggestionAnchor } from "./markdown";
+import { Wrappable } from "./wrappable";
 
 function relativeTime(iso: string) {
   const diff = Date.now() - new Date(iso).getTime();
@@ -34,8 +35,19 @@ function CommentCard({
   anchor: SuggestionAnchor | null;
 }) {
   return (
-    <div className="rounded-md border border-border/50 bg-card">
-      <div className="flex items-center justify-between gap-2 border-b border-border/50 px-3 py-1.5 text-[12px]">
+    <div
+      className="rounded-md border"
+      style={{
+        background: "var(--diffs-bg, var(--card))",
+        borderColor: "var(--diffs-bg-separator, var(--border))",
+      }}
+    >
+      <div
+        className="flex items-center justify-between gap-2 border-b px-3 py-1.5 text-[12px]"
+        style={{
+          borderColor: "var(--diffs-bg-separator, var(--border))",
+        }}
+      >
         <div className="flex items-center gap-2">
           {comment.user?.avatarUrl ? (
             <img
@@ -44,7 +56,10 @@ function CommentCard({
               className="size-5 rounded-full object-cover"
             />
           ) : (
-            <div className="size-5 rounded-full bg-muted" />
+            <div
+              className="size-5 rounded-full"
+              style={{ background: "var(--diffs-bg-buffer, var(--muted))" }}
+            />
           )}
           <span className="font-medium text-foreground">
             {comment.user?.login ?? "ghost"}
@@ -56,11 +71,11 @@ function CommentCard({
         </span>
       </div>
       {comment.body ? (
-        <div className="px-3 py-2">
+        <Wrappable className="px-3 py-2">
           <SuggestionContext.Provider value={anchor}>
             <Markdown>{comment.body}</Markdown>
           </SuggestionContext.Provider>
-        </div>
+        </Wrappable>
       ) : null}
     </div>
   );
@@ -131,7 +146,15 @@ export function InlineThread({
   };
 
   return (
-    <div className="space-y-2 border-y border-border/50 bg-muted px-3 py-3">
+    <div
+      className="space-y-2 border-y px-3 py-3"
+      style={{
+        background: "var(--diffs-bg-buffer, var(--muted))",
+        color: "var(--diffs-fg, var(--foreground))",
+        borderColor: "var(--diffs-bg-separator, var(--border))",
+        fontFamily: "var(--diffs-font-family, inherit)",
+      }}
+    >
       {root.isResolved ? (
         <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/70">
           <Check className="size-3 text-primary" />
@@ -141,18 +164,16 @@ export function InlineThread({
       <CommentCard comment={root} anchor={anchor} />
       {replies.length > 0 ? (
         <>
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="xs"
             onClick={() => setExpanded((s) => !s)}
-            className="flex items-center gap-1 text-[11px] text-muted-foreground/70 hover:text-foreground"
+            className="text-muted-foreground/70"
           >
-            {expanded ? (
-              <ChevronDown className="size-3" />
-            ) : (
-              <ChevronRight className="size-3" />
-            )}
+            {expanded ? <ChevronDown /> : <ChevronRight />}
             {replies.length} {replies.length === 1 ? "reply" : "replies"}
-          </button>
+          </Button>
           {expanded ? (
             <div className="space-y-2 pl-4">
               {replies.map((r) => (
@@ -165,32 +186,35 @@ export function InlineThread({
 
       {canMutate ? (
         <div className="flex items-center justify-between gap-2 pt-1">
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="xs"
             onClick={() => setReplyOpen((s) => !s)}
-            className="text-[11px] font-medium text-muted-foreground/80 hover:text-foreground"
+            className="text-muted-foreground/80"
           >
             {replyOpen ? "Close reply" : "Reply"}
-          </button>
+          </Button>
           {root.threadId ? (
-            <button
+            <Button
               type="button"
+              variant="outline"
+              size="xs"
               onClick={handleResolve}
               disabled={resolveThread.isPending}
-              className="inline-flex items-center gap-1 rounded-sm border border-border bg-card px-2 py-1 text-[11px] font-medium text-foreground hover:bg-muted disabled:opacity-50"
             >
               {root.isResolved ? (
                 <>
-                  <Undo2 className="size-3" />
+                  <Undo2 />
                   Unresolve
                 </>
               ) : (
                 <>
-                  <Check className="size-3" />
+                  <Check />
                   Resolve
                 </>
               )}
-            </button>
+            </Button>
           ) : null}
         </div>
       ) : null}
@@ -217,8 +241,7 @@ export function InlineThread({
             <Button
               type="button"
               variant="ghost"
-              size="sm"
-              className="h-7 rounded-sm px-2.5 text-[12px]"
+              size="default"
               onClick={() => setReplyOpen(false)}
               disabled={reply.isPending}
             >
@@ -226,8 +249,7 @@ export function InlineThread({
             </Button>
             <Button
               type="button"
-              size="sm"
-              className="h-7 rounded-sm px-2.5 text-[12px]"
+              size="default"
               onClick={handleReply}
               disabled={!replyBody.trim() || reply.isPending}
             >

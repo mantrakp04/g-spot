@@ -9,6 +9,7 @@ import {
 } from "@g-spot/ui/components/drawer";
 import { Skeleton } from "@g-spot/ui/components/skeleton";
 import { useUser } from "@stackframe/react";
+import { useHotkeys } from "@tanstack/react-hotkeys";
 import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { Inbox } from "lucide-react";
@@ -320,6 +321,22 @@ function InboxPage() {
       handleSelectThread(nextThread, selectedThread.accountId, selectedThread.threads);
     },
     [selectedThread, currentIndex, handleSelectThread],
+  );
+
+  useHotkeys(
+    [
+      {
+        hotkey: "J",
+        callback: () => handleNavigateThread(1),
+        options: { meta: { name: "Next thread" } },
+      },
+      {
+        hotkey: "K",
+        callback: () => handleNavigateThread(-1),
+        options: { meta: { name: "Previous thread" } },
+      },
+    ],
+    { enabled: selectedThread != null },
   );
 
   const { data: threadDetail, isLoading: isDetailLoading } = useGmailThread(

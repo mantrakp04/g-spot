@@ -3,7 +3,8 @@ import { StackClientApp } from "@stackframe/react";
 
 const githubOAuthScopes = [
   "repo",
-  "read:org",
+  "workflow",
+  "write:org",
   "user:email",
 ] as const;
 

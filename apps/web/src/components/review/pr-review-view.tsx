@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { OAuthConnection } from "@stackframe/react";
+import { Button } from "@g-spot/ui/components/button";
+import { Kbd } from "@g-spot/ui/components/kbd";
 import { Skeleton } from "@g-spot/ui/components/skeleton";
 import {
   HoverCard,
@@ -8,6 +10,7 @@ import {
 } from "@g-spot/ui/components/hover-card";
 import { AlertTriangle, ArrowDown, ArrowUp, FileText, MessageSquare, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { cn } from "@g-spot/ui/lib/utils";
+import { useHotkeys } from "@tanstack/react-hotkeys";
 
 import type { ReviewTarget } from "@/hooks/use-github-detail";
 import {
@@ -20,7 +23,8 @@ import {
   useGitHubPRTimeline,
 } from "@/hooks/use-github-detail";
 import { CommitSelector, type CommitRange } from "./commit-selector";
-import { DiffSettingsMenu } from "./diff-settings";
+import { useSetAllFiles } from "./diff-collapse-state";
+import { DiffCustomizerMenu } from "./diff-customizer";
 
 import { usePendingComments } from "@/hooks/use-pending-comments";
 import { useLocalStorageState } from "@/lib/use-local-storage-state";
@@ -47,6 +51,7 @@ import { ReviewShell } from "./shell";
 import { Timeline, TimelineSkeleton } from "./timeline";
 
 const FILE_EXPAND_LIMIT = 50;
+const EMPTY_COMMENTS: never[] = [];
 
 function FileRailHandle({
   files,
@@ -76,7 +81,7 @@ function FileRailHandle({
                   data-attention={attention}
                   title={f.filename}
                   className={cn(
-                    "h-[3px] w-[5px] shrink-0 rounded-[1px] transition-colors",
+                    "h-[3px] w-[5px] shrink-0 rounded-md transition-colors",
                     active
                       ? "bg-primary"
                       : attention
@@ -117,7 +122,9 @@ function FloatingPill({
 }) {
   return (
     <div
-      aria-hidden={!visible}
+      // `inert` on the wrapper blocks focus without aria-hiding focused
+      // descendants, which was triggering the browser focus/aria warning.
+      inert={!visible || undefined}
       className={cn(
         "transition-all duration-300 ease-out",
         absolute && "absolute inset-0 flex justify-center",
@@ -190,6 +197,11 @@ export function PRReviewView({
   }, [files.data]);
   const fileRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const [activeFile, setActiveFile] = useState<string | null>(null);
+
+  const setAllFiles = useSetAllFiles();
+  useEffect(() => {
+    setAllFiles(fileList.map((f) => f.filename));
+  }, [fileList, setAllFiles]);
   const filesSectionRef = useRef<HTMLDivElement | null>(null);
   const [floatingState, setFloatingState] = useState<"skip" | "top">("skip");
 
@@ -237,28 +249,48 @@ export function PRReviewView({
     setActiveFile(filename);
   }, []);
 
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLElement) {
-        const tag = e.target.tagName;
-        if (tag === "INPUT" || tag === "TEXTAREA" || e.target.isContentEditable) return;
-      }
-      if (e.key !== "j" && e.key !== "k") return;
-      if (fileList.length === 0) return;
-      const idx = fileList.findIndex((f) => f.filename === activeFile);
-      const nextIdx =
-        e.key === "j"
-          ? Math.min(fileList.length - 1, idx + 1)
-          : Math.max(0, idx - 1);
-      const next = fileList[nextIdx];
-      if (next) {
-        e.preventDefault();
-        scrollToFile(next.filename);
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [fileList, activeFile, scrollToFile]);
+  // composedPath reaches into shadow DOM. Pierre's file tree and diff viewer
+  // render their inputs inside shadow roots, so the window-level target is
+  // the shadow host — the library's default ignoreInputs can't see through.
+  const isInShadowInput = (e: KeyboardEvent) => {
+    for (const node of e.composedPath()) {
+      if (!(node instanceof HTMLElement)) continue;
+      const tag = node.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || node.isContentEditable)
+        return true;
+    }
+    return false;
+  };
+
+  const jumpFile = (direction: -1 | 1) => {
+    if (fileList.length === 0) return;
+    const idx = fileList.findIndex((f) => f.filename === activeFile);
+    const nextIdx =
+      direction === 1
+        ? Math.min(fileList.length - 1, idx + 1)
+        : Math.max(0, idx - 1);
+    const next = fileList[nextIdx];
+    if (next) scrollToFile(next.filename);
+  };
+
+  useHotkeys([
+    {
+      hotkey: "J",
+      callback: (e) => {
+        if (isInShadowInput(e)) return;
+        jumpFile(1);
+      },
+      options: { meta: { name: "Next file" } },
+    },
+    {
+      hotkey: "K",
+      callback: (e) => {
+        if (isInShadowInput(e)) return;
+        jumpFile(-1);
+      },
+      options: { meta: { name: "Previous file" } },
+    },
+  ]);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -350,7 +382,7 @@ export function PRReviewView({
       <section>
         <SectionHeading>Description</SectionHeading>
         {detail.isLoading || !pr ? (
-          <Skeleton className="h-32 w-full rounded-lg" />
+          <Skeleton className="h-32 w-full rounded-md" />
         ) : (
           <DescriptionCard markdown={pr.body} />
         )}
@@ -372,19 +404,16 @@ export function PRReviewView({
       <section ref={filesSectionRef}>
         <div className="sticky top-0 z-10 -mx-4 flex items-center justify-between border-b border-border/50 bg-background px-4 py-2 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
           <div className="flex items-center gap-2">
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="icon-sm"
               onClick={() => setTreeOpen((s) => !s)}
-              className="flex size-6 items-center justify-center rounded-sm text-muted-foreground/70 hover:bg-muted hover:text-foreground"
               aria-label={treeOpen ? "Hide file tree" : "Show file tree"}
               title={treeOpen ? "Hide file tree" : "Show file tree"}
             >
-              {treeOpen ? (
-                <PanelLeftClose className="size-4" />
-              ) : (
-                <PanelLeftOpen className="size-4" />
-              )}
-            </button>
+              {treeOpen ? <PanelLeftClose /> : <PanelLeftOpen />}
+            </Button>
             <h2 className="flex items-center gap-2 text-[13px] font-medium text-foreground">
               Files
               <span className="text-[13px] font-normal text-muted-foreground/70">
@@ -403,25 +432,19 @@ export function PRReviewView({
               />
             ) : null}
             <DiffModeToggle mode={diffMode} onChange={setDiffMode} />
-            <DiffSettingsMenu />
-            <button
+            <DiffCustomizerMenu />
+            <Button
               type="button"
+              variant="outline"
+              size="default"
               onClick={() => setCommentsOpen(true)}
-              className="inline-flex h-7 items-center gap-1.5 rounded-sm border border-border/50 bg-card px-2 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
               title="View comments"
             >
-              <MessageSquare className="size-3.5" />
+              <MessageSquare />
               {commentCount}
-            </button>
-            <span className="text-[11px] text-muted-foreground/70">
-              Press{" "}
-              <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px]">
-                j
-              </kbd>{" "}
-              /{" "}
-              <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px]">
-                k
-              </kbd>
+            </Button>
+            <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground/70">
+              Press <Kbd>j</Kbd>/<Kbd>k</Kbd>
             </span>
           </div>
         </div>
@@ -429,7 +452,7 @@ export function PRReviewView({
         {files.isLoading ? (
           <DiffSkeleton />
         ) : fileList.length === 0 ? (
-          <div className="flex items-center gap-2 rounded-lg border border-dashed border-border/50 p-4 text-[13px] text-muted-foreground/70">
+          <div className="flex items-center gap-2 rounded-md border border-dashed border-border/50 p-4 text-[13px] text-muted-foreground/70">
             <FileText className="size-4" />
             No file changes.
           </div>
@@ -443,7 +466,7 @@ export function PRReviewView({
             )}
           >
             {treeOpen ? (
-              <div className="self-start sticky top-[44px] max-h-[calc(100vh-92px)] overflow-y-auto">
+              <div className="sticky top-[44px] h-[calc(100vh-92px)] self-start">
                 <FileTreePanel
                   files={fileList}
                   activeFile={activeFile}
@@ -458,7 +481,7 @@ export function PRReviewView({
                 onSelect={scrollToFile}
               />
             )}
-            <div className="min-w-0 space-y-3 p-3">
+            <div className="min-w-0 space-y-3 py-3 pl-3">
               {fileList.length > FILE_EXPAND_LIMIT ? (
                 <div className="flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12px] text-muted-foreground">
                   <AlertTriangle className="size-3.5 shrink-0 text-amber-500" />
@@ -466,7 +489,7 @@ export function PRReviewView({
                   only the first {FILE_EXPAND_LIMIT} files are expanded.
                 </div>
               ) : null}
-              {fileList.map((f, i) => (
+              {fileList.map((f) => (
                 <div
                   key={f.filename}
                   data-filename={f.filename}
@@ -479,11 +502,11 @@ export function PRReviewView({
                     file={f}
                     isActive={activeFile === f.filename}
                     mode={diffMode}
-                    comments={reviewComments.data?.[f.filename] ?? []}
-                    defaultExpanded={i < FILE_EXPAND_LIMIT}
+                    comments={reviewComments.data?.[f.filename] ?? EMPTY_COMMENTS}
                     target={target}
                     account={account}
-                    headSha={pr?.head.sha ?? ""}
+                    baseSha={pr?.base.sha}
+                    headSha={pr?.head.sha}
                     headRef={pr?.head.ref}
                     pendingKey={{
                       owner: target.owner,
@@ -510,24 +533,28 @@ export function PRReviewView({
 
       <div className="fixed bottom-6 left-1/2 z-20 -translate-x-1/2">
         <FloatingPill visible={floatingState === "skip"}>
-          <button
+          <Button
             type="button"
+            variant="outline"
+            size="lg"
             onClick={scrollToFiles}
-            className="inline-flex h-9 items-center gap-2 rounded-full border border-border/60 bg-card/95 px-4 text-[12px] font-medium text-foreground shadow-lg backdrop-blur hover:bg-muted"
+            className="bg-card/95 shadow-lg backdrop-blur"
           >
             Skip to code
-            <ArrowDown className="size-3.5" />
-          </button>
+            <ArrowDown />
+          </Button>
         </FloatingPill>
         <FloatingPill visible={floatingState === "top"} absolute>
-          <button
+          <Button
             type="button"
+            variant="outline"
+            size="icon-lg"
             onClick={scrollToTop}
             aria-label="Back to top"
-            className="inline-flex size-9 items-center justify-center rounded-full border border-border/60 bg-card/95 text-foreground shadow-lg backdrop-blur hover:bg-muted"
+            className="bg-card/95 shadow-lg backdrop-blur"
           >
-            <ArrowUp className="size-4" />
-          </button>
+            <ArrowUp />
+          </Button>
         </FloatingPill>
       </div>
     </div>
@@ -568,7 +595,7 @@ function SidebarSkeleton() {
   return (
     <div className="space-y-3">
       {[0, 1, 2, 3].map((i) => (
-        <Skeleton key={i} className="h-16 w-full rounded-lg" />
+        <Skeleton key={i} className="h-16 w-full rounded-md" />
       ))}
     </div>
   );

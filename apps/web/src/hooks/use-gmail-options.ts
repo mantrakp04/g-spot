@@ -5,12 +5,12 @@ import type { FilterCondition } from "@g-spot/types/filters";
 import { getConnectedAccountAccessToken } from "@/lib/connected-account";
 import {
   fetchGmailFilterSuggestions as fetchDirectGmailFilterSuggestions,
-  fetchGmailLabels,
   fetchGoogleProfile as fetchGoogleProfileByAccessToken,
 } from "@/lib/gmail/account";
 import { gmailKeys, googleKeys } from "@/lib/query-keys";
 import { persistedStaleWhileRevalidateQueryOptions } from "@/utils/query-defaults";
 import { GOOGLE_OAUTH_SCOPES } from "@/stack/client";
+import { trpcClient } from "@/utils/trpc";
 
 export type GmailLabelCatalogEntry = {
   id: string;
@@ -41,15 +41,6 @@ type GmailSuggestionField =
   | "category"
   | "in";
 
-async function fetchGmailLabelCatalog(
-  account: OAuthConnection,
-): Promise<GmailLabelCatalogEntry[]> {
-  const accessToken = await getConnectedAccountAccessToken(account, [
-    GOOGLE_OAUTH_SCOPES[3],
-  ]);
-  return fetchGmailLabels(accessToken);
-}
-
 export async function fetchGoogleProfileForConnection(
   account: OAuthConnection,
 ) {
@@ -63,13 +54,10 @@ export async function fetchGoogleProfileForConnection(
 export function useGmailLabels(account: OAuthConnection | null) {
   return useQuery({
     queryKey: gmailKeys.labels(account?.providerAccountId),
-    queryFn: async () => {
-      const labels = await fetchGmailLabelCatalog(account!);
-      return labels.map((label) => ({
-        value: label.name,
-        label: label.label,
-      }));
-    },
+    queryFn: () =>
+      trpcClient.gmail.getLabels.query({
+        providerAccountId: account!.providerAccountId,
+      }),
     enabled: !!account,
     ...persistedStaleWhileRevalidateQueryOptions,
   });
@@ -78,7 +66,10 @@ export function useGmailLabels(account: OAuthConnection | null) {
 export function useGmailLabelCatalog(account: OAuthConnection | null) {
   return useQuery({
     queryKey: gmailKeys.labelsCatalog(account?.providerAccountId),
-    queryFn: () => fetchGmailLabelCatalog(account!),
+    queryFn: () =>
+      trpcClient.gmail.getLabelCatalog.query({
+        providerAccountId: account!.providerAccountId,
+      }),
     enabled: !!account,
     ...persistedStaleWhileRevalidateQueryOptions,
   });

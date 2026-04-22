@@ -14,9 +14,10 @@
   },
   "scripts": {
     "check-types": "tsc --noEmit",
-    "db:push": "drizzle-kit push",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:check": "RELAY_DRIZZLE_ONLY=1 drizzle-kit check",
+    "db:push": "RELAY_DRIZZLE_ONLY=1 drizzle-kit push",
+    "db:generate": "RELAY_DRIZZLE_ONLY=1 drizzle-kit generate",
+    "db:migrate": "RELAY_DRIZZLE_ONLY=1 drizzle-kit migrate"
   },
   "dependencies": {
     "@libsql/client": "catalog:",

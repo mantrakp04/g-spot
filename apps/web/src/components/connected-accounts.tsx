@@ -141,7 +141,7 @@ export function ConnectedAccounts() {
   async function removeAccount(
     provider: string,
     providerAccountId: string,
-    options?: { silentSuccess?: boolean },
+    options?: { silentSuccess?: boolean; email?: string | null },
   ) {
     setDisconnecting(providerAccountId);
     try {
@@ -150,13 +150,36 @@ export function ConnectedAccounts() {
         (oauthProvider) =>
           oauthProvider.type === provider || oauthProvider.id === provider,
       );
+
+      // The client-side `OAuthProvider` crud does not expose `accountId`, so
+      // we can't map `providerAccountId` to a specific Stack entry directly.
+      // When multiple accounts of the same provider are linked, match by
+      // `email` (Stack records it at link time, so it works even when the
+      // refresh token has expired).
+      const normalizedEmail = options?.email?.trim().toLowerCase() || null;
       const oauthProvider =
         matches.find((entry) => entry.accountId === providerAccountId)
+        ?? (normalizedEmail
+          ? matches.find(
+              (entry) => entry.email?.toLowerCase() === normalizedEmail,
+            )
+          : undefined)
         ?? (matches.length === 1 ? matches[0] : undefined);
 
       if (!oauthProvider) {
+        if (matches.length === 0) {
+          // Stack already has no entry for this provider — the ConnectedAccount
+          // row is stale. Refresh the cache so it falls off.
+          await user.listConnectedAccounts();
+          if (!options?.silentSuccess) {
+            toast.success("Account removed");
+          }
+          return;
+        }
         throw new Error(
-          `No OAuth provider entry for ${provider}:${providerAccountId}`,
+          `Multiple ${provider} accounts are linked and none matched ${
+            normalizedEmail ?? providerAccountId
+          }. Try reconnecting this account first, then remove it.`,
         );
       }
 
@@ -186,8 +209,14 @@ export function ConnectedAccounts() {
     }
   }
 
-  async function reconnectGoogleAccount(providerAccountId: string) {
-    await removeAccount("google", providerAccountId, { silentSuccess: true });
+  async function reconnectGoogleAccount(
+    providerAccountId: string,
+    email: string | null,
+  ) {
+    await removeAccount("google", providerAccountId, {
+      silentSuccess: true,
+      email,
+    });
 
     try {
       await connectOAuth("google", GOOGLE_OAUTH_SCOPES);
@@ -252,8 +281,12 @@ export function ConnectedAccounts() {
               <GoogleAccountRow
                 key={account.providerAccountId}
                 account={account}
-                onReconnect={() => reconnectGoogleAccount(account.providerAccountId)}
-                onRemove={() => removeAccount("google", account.providerAccountId)}
+                onReconnect={(email) =>
+                  reconnectGoogleAccount(account.providerAccountId, email)
+                }
+                onRemove={(email) =>
+                  removeAccount("google", account.providerAccountId, { email })
+                }
               />
             ))}
           </ul>
@@ -296,7 +329,8 @@ export function ConnectedAccounts() {
               </div>
               <div className="mt-1 flex flex-wrap gap-1">
                 <ScopeTag>repo</ScopeTag>
-                <ScopeTag>read:org</ScopeTag>
+                <ScopeTag>workflow</ScopeTag>
+                <ScopeTag>write:org</ScopeTag>
                 <ScopeTag>profile</ScopeTag>
               </div>
             </div>

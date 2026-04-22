@@ -1,4 +1,7 @@
-import { AlertTriangle, GitMerge } from "lucide-react";
+import { useState } from "react";
+import { AlertTriangle, ChevronDown, ChevronRight, GitMerge } from "lucide-react";
+
+import { Button } from "@g-spot/ui/components/button";
 
 import type { CheckItem } from "@/hooks/use-github-detail";
 
@@ -105,7 +108,7 @@ export function PRSidebar({
             {labels.map((l) => (
               <span
                 key={l.name}
-                className="rounded-full px-2 py-0.5 text-[11px]"
+                className="rounded-md px-2 py-0.5 text-[11px]"
                 style={{
                   background: `#${l.color}22`,
                   color: `#${l.color}`,
@@ -141,7 +144,7 @@ function StateCard({
   mergeable: boolean | null;
 }) {
   return (
-    <div className="mb-3 rounded-lg border border-border/50 bg-card p-3">
+    <div className="mb-3 rounded-md border border-border/50 bg-card p-3">
       <div className="flex items-center justify-between">
         <PRStateBadge state={state} isDraft={isDraft} merged={merged} />
         {state === "open" && !merged ? (
@@ -156,17 +159,30 @@ function StateCard({
 }
 
 function RequiredChecksCallout() {
+  const [open, setOpen] = useState(true);
   return (
-    <div
-      className="mb-3 rounded-lg border border-destructive/30 bg-destructive/10 p-3"
-    >
-      <div className="flex items-center gap-2 text-[13px] font-medium text-destructive">
-        <AlertTriangle className="size-4" />
+    <div className="mb-3 rounded-md border border-destructive/30 bg-destructive/10 p-3">
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={() => setOpen((s) => !s)}
+        aria-expanded={open}
+        className="h-auto w-full justify-start p-0 text-[13px] font-medium text-destructive hover:bg-transparent hover:text-destructive"
+      >
+        {open ? (
+          <ChevronDown className="text-destructive/70" />
+        ) : (
+          <ChevronRight className="text-destructive/70" />
+        )}
+        <AlertTriangle />
         Required checks failed
-      </div>
-      <div className="mt-1 text-[12px] text-muted-foreground">
-        1 or more required checks failed
-      </div>
+      </Button>
+      {open ? (
+        <div className="mt-1 pl-[calc(0.875rem+0.5rem)] text-[12px] text-muted-foreground">
+          1 or more required checks failed
+        </div>
+      ) : null}
     </div>
   );
 }

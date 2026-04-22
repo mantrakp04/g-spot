@@ -51,7 +51,7 @@ export function KeyboardOverlay({
               <div className="flex items-center gap-1.5 text-foreground">
                 {s.label}
                 {s.soon ? (
-                  <span className="rounded-sm border border-border/50 bg-muted px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-muted-foreground/70">
+                  <span className="rounded-md border border-border/50 bg-muted px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-muted-foreground/70">
                     soon
                   </span>
                 ) : null}

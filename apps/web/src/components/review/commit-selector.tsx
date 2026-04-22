@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { ChevronDown, Check, GitCommit } from "lucide-react";
 
+import { Button } from "@g-spot/ui/components/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -45,16 +46,17 @@ export function CommitSelector({
     <DropdownMenu>
       <DropdownMenuTrigger
         render={
-          <button
+          <Button
             type="button"
-            className="inline-flex h-7 items-center gap-1.5 rounded-sm border border-border/50 bg-card px-2 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
+            variant="outline"
+            size="default"
             aria-label="Commit range"
             title="Commit range"
           >
-            <GitCommit className="size-3.5" />
+            <GitCommit />
             <span className="max-w-[220px] truncate font-mono">{label}</span>
-            <ChevronDown className="size-3" />
-          </button>
+            <ChevronDown />
+          </Button>
         }
       />
       <DropdownMenuContent align="end" className="min-w-[320px] p-1">
@@ -110,7 +112,7 @@ export function CommitSelector({
 }
 
 function rowClass(active: boolean) {
-  return `flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-[12px] ${
+  return `flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] ${
     active
       ? "bg-muted text-foreground"
       : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -156,7 +158,7 @@ function CommitList({
             </span>
             <span className="flex-1 truncate">{msg}</span>
             {c.sha === pinned ? (
-              <span className="shrink-0 rounded-sm bg-background px-1 text-[10px] text-muted-foreground/70">
+              <span className="shrink-0 rounded-md bg-background px-1 text-[10px] text-muted-foreground/70">
                 {selected === pinned ? "" : "default"}
               </span>
             ) : null}

@@ -23,13 +23,25 @@ export function InlineComposer({
   };
 
   return (
-    <div className="space-y-2 border-y border-border/50 bg-muted px-3 py-3">
+    <div
+      className="space-y-2 border-y px-3 py-3"
+      style={{
+        background: "var(--diffs-bg-buffer, var(--muted))",
+        color: "var(--diffs-fg, var(--foreground))",
+        borderColor: "var(--diffs-bg-separator, var(--border))",
+        fontFamily: "var(--diffs-font-family, inherit)",
+      }}
+    >
       <Textarea
         autoFocus
         value={body}
         onChange={(e) => setBody(e.target.value)}
         placeholder="Leave a comment..."
-        className="min-h-[80px] resize-y bg-card text-[12px]"
+        className="min-h-[80px] resize-y text-[12px]"
+        style={{
+          background: "var(--diffs-bg, var(--card))",
+          color: "var(--diffs-fg, var(--foreground))",
+        }}
         onKeyDown={(e) => {
           if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
             e.preventDefault();
@@ -41,19 +53,12 @@ export function InlineComposer({
         }}
       />
       <div className="flex items-center justify-end gap-1.5">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-7 rounded-sm px-2.5 text-[12px]"
-          onClick={onCancel}
-        >
+        <Button type="button" variant="ghost" size="default" onClick={onCancel}>
           Cancel
         </Button>
         <Button
           type="button"
-          size="sm"
-          className="h-7 rounded-sm px-2.5 text-[12px]"
+          size="default"
           onClick={handleSubmit}
           disabled={!body.trim()}
         >

@@ -88,7 +88,7 @@ export function IssueReviewView({
   ) : (
     <div className="space-y-3">
       {[0, 1, 2].map((i) => (
-        <Skeleton key={i} className="h-16 w-full rounded-lg" />
+        <Skeleton key={i} className="h-16 w-full rounded-md" />
       ))}
     </div>
   );
@@ -98,7 +98,7 @@ export function IssueReviewView({
       <section>
         <SectionHeading>Description</SectionHeading>
         {detail.isLoading || !issue ? (
-          <Skeleton className="h-32 w-full rounded-lg" />
+          <Skeleton className="h-32 w-full rounded-md" />
         ) : (
           <DescriptionCard markdown={issue.body} />
         )}

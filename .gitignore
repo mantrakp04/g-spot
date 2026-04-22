@@ -61,3 +61,4 @@ apps/gmail-relay/relay.db
 apps/gmail-relay/relay.db-wal
 apps/gmail-relay/relay.db-shm
 extensions/
+.vercel

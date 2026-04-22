@@ -4,6 +4,7 @@ import { Button } from "@g-spot/ui/components/button";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup, type ResizablePanelHandle } from "@g-spot/ui/components/resizable";
 import { useUser } from "@stackframe/react";
 import { Toaster } from "@g-spot/ui/components/sonner";
+import { HotkeysProvider } from "@tanstack/react-hotkeys";
 import type { QueryClient } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { HeadContent, Outlet, createRootRouteWithContext } from "@tanstack/react-router";
@@ -97,6 +98,7 @@ function RootComponent() {
         defaultTheme="dark"
         enableSystem
       >
+        <HotkeysProvider>
         <SectionCountsProvider>
           <DraftsProvider>
             <PiCredentialFlowsProvider>
@@ -134,6 +136,7 @@ function RootComponent() {
           </DraftsProvider>
         </SectionCountsProvider>
         <Toaster richColors />
+        </HotkeysProvider>
       </ThemeProvider>
       <TanStackRouterDevtools position="bottom-right" />
       <ReactQueryDevtools position="bottom" buttonPosition="bottom-right" />

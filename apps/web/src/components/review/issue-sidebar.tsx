@@ -24,7 +24,7 @@ export function IssueSidebar({
 }) {
   return (
     <div>
-      <div className="mb-3 rounded-lg border border-border/50 bg-card p-3">
+      <div className="mb-3 rounded-md border border-border/50 bg-card p-3">
         <StateBadge kind="issue" state={state} stateReason={stateReason} />
       </div>
 
@@ -46,7 +46,7 @@ export function IssueSidebar({
             {labels.map((l) => (
               <span
                 key={l.name}
-                className="rounded-full px-2 py-0.5 text-[11px]"
+                className="rounded-md px-2 py-0.5 text-[11px]"
                 style={{
                   background: `#${l.color}22`,
                   color: `#${l.color}`,

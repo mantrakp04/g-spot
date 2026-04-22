@@ -62,23 +62,24 @@ function ActionButton({
   children,
   onClick,
   variant = "outline",
+  "aria-label": ariaLabel,
 }: {
   children: React.ReactNode;
   onClick?: () => void;
   variant?: "outline" | "primary" | "ghost";
+  "aria-label"?: string;
 }) {
-  const base =
-    "inline-flex h-7 items-center gap-1.5 rounded-sm px-2.5 text-[12px] font-medium transition-colors";
-  const styles =
-    variant === "primary"
-      ? "bg-primary text-primary-foreground hover:bg-primary/90"
-      : variant === "ghost"
-        ? "text-muted-foreground hover:bg-muted"
-        : "border border-border bg-card text-foreground hover:bg-muted";
+  const mapped = variant === "primary" ? "default" : variant;
   return (
-    <button type="button" className={`${base} ${styles}`} onClick={onClick}>
+    <Button
+      type="button"
+      variant={mapped}
+      size="default"
+      onClick={onClick}
+      aria-label={ariaLabel}
+    >
       {children}
-    </button>
+    </Button>
   );
 }
 
@@ -170,7 +171,7 @@ function DeployGroup({
             className="flex items-start gap-2"
           >
             <span
-              className={`mt-1 size-2 shrink-0 rounded-full ${stateDotClass(d.state)}`}
+              className={`mt-1 size-2 shrink-0 rounded-md ${stateDotClass(d.state)}`}
             />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5 text-[12px] font-medium text-foreground">
@@ -247,7 +248,7 @@ export function PRActionBar({
           <PopoverTrigger
             render={
               <ActionButton variant="primary">
-                <span className="inline-flex size-4 items-center justify-center rounded-full bg-white/20 text-[10px] font-semibold">
+                <span className="inline-flex size-4 items-center justify-center rounded-md bg-white/20 text-[10px] font-semibold">
                   {pendingReviewCount}
                 </span>
                 Finish review
@@ -265,7 +266,7 @@ export function PRActionBar({
         </Popover>
       ) : (
         <ActionButton variant="primary">
-          <span className="inline-flex size-4 items-center justify-center rounded-full bg-white/20 text-[10px] font-semibold">
+          <span className="inline-flex size-4 items-center justify-center rounded-md bg-white/20 text-[10px] font-semibold">
             {pendingReviewCount}
           </span>
           Finish review
@@ -275,13 +276,14 @@ export function PRActionBar({
       <DropdownMenu>
         <DropdownMenuTrigger
           render={
-            <button
+            <Button
               type="button"
-              className="inline-flex size-7 items-center justify-center rounded-sm border border-border bg-card text-muted-foreground hover:bg-muted"
+              variant="outline"
+              size="icon"
               aria-label="More actions"
             >
-              <MoreHorizontal className="size-3.5" />
-            </button>
+              <MoreHorizontal />
+            </Button>
           }
         />
         <DropdownMenuContent align="end" className="min-w-[240px]">
@@ -310,13 +312,10 @@ export function PRActionBar({
       <HoverCard>
         <HoverCardTrigger
           render={
-            <button
-              type="button"
-              className="inline-flex h-7 items-center gap-1 rounded-full border border-border bg-card px-2 text-[11px] font-medium text-muted-foreground hover:bg-muted"
-            >
-              <Users className="size-3" />
+            <Button type="button" variant="outline" size="default">
+              <Users />
               {reviewers.length}
-            </button>
+            </Button>
           }
         />
         <HoverCardContent align="end" className="w-[220px] p-2">
@@ -329,7 +328,7 @@ export function PRActionBar({
               {reviewers.map((r) => (
                 <li
                   key={r.login}
-                  className="flex items-center gap-2 rounded-sm px-1 py-1 text-[12px] text-foreground"
+                  className="flex items-center gap-2 rounded-md px-1 py-1 text-[12px] text-foreground"
                 >
                   <Avatar className="size-5">
                     <AvatarImage src={r.avatar_url} alt={r.login} />
@@ -343,14 +342,9 @@ export function PRActionBar({
         </HoverCardContent>
       </HoverCard>
 
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="h-7 gap-1 rounded-sm border-border bg-card px-2.5 text-[12px] text-foreground"
-      >
+      <Button type="button" variant="outline" size="default">
         Agent
-        <ChevronDown className="size-3" />
+        <ChevronDown />
       </Button>
     </div>
   );
@@ -405,7 +399,7 @@ function LabelEditor({
               >
                 <Checkbox checked={active} />
                 <span
-                  className="size-2 rounded-full"
+                  className="size-2 rounded-md"
                   style={{ background: `#${l.color}` }}
                 />
                 <span className="truncate text-[12px]">{l.name}</span>
@@ -594,13 +588,14 @@ export function IssueActionBar({
       <DropdownMenu>
         <DropdownMenuTrigger
           render={
-            <button
+            <Button
               type="button"
-              className="inline-flex size-7 items-center justify-center rounded-sm border border-border bg-card text-muted-foreground hover:bg-muted"
+              variant="outline"
+              size="icon"
               aria-label="More actions"
             >
-              <MoreHorizontal className="size-3.5" />
-            </button>
+              <MoreHorizontal />
+            </Button>
           }
         />
         <DropdownMenuContent align="end" className="min-w-[220px]">

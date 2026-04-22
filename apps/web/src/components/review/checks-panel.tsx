@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { CheckCircle2, Circle, CircleDashed, XCircle } from "lucide-react";
 
+import { Button } from "@g-spot/ui/components/button";
+
 import type { CheckItem } from "@/hooks/use-github-detail";
 
 function isPassing(c: CheckItem) {
@@ -34,21 +36,25 @@ export function ChecksPanel({ checks }: { checks: CheckItem[] }) {
           {rollup.passed} passed · {rollup.failed} failed · {rollup.pending} pending
         </span>
         {hiddenCount > 0 ? (
-          <button
+          <Button
             type="button"
+            variant="link"
+            size="sm"
             onClick={() => setShowAll(true)}
-            className="text-primary hover:underline"
+            className="h-auto p-0"
           >
             View all
-          </button>
+          </Button>
         ) : showAll && rollup.passed > 0 ? (
-          <button
+          <Button
             type="button"
+            variant="link"
+            size="sm"
             onClick={() => setShowAll(false)}
-            className="text-muted-foreground/70 hover:underline"
+            className="h-auto p-0 text-muted-foreground/70"
           >
             Hide passing
-          </button>
+          </Button>
         ) : null}
       </div>
       {visible.length > 0 ? (
@@ -59,7 +65,7 @@ export function ChecksPanel({ checks }: { checks: CheckItem[] }) {
                 href={c.detailsUrl ?? "#"}
                 target="_blank"
                 rel="noreferrer"
-                className="flex items-center gap-2 rounded-sm px-2 py-1 text-[12px] hover:bg-muted"
+                className="flex items-center gap-2 rounded-md px-2 py-1 text-[12px] hover:bg-muted"
               >
                 <CheckIcon status={c.status} conclusion={c.conclusion} />
                 <span className="flex-1 truncate">{c.name}</span>
@@ -68,7 +74,7 @@ export function ChecksPanel({ checks }: { checks: CheckItem[] }) {
           ))}
         </ul>
       ) : (
-        <div className="rounded-sm px-2 py-1 text-[12px] text-muted-foreground/70">
+        <div className="rounded-md px-2 py-1 text-[12px] text-muted-foreground/70">
           All checks passing.
         </div>
       )}

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { ArrowUpDown, MessageSquare } from "lucide-react";
 
+import { Button } from "@g-spot/ui/components/button";
 import {
   Sheet,
   SheetContent,
@@ -104,12 +105,9 @@ export function CommentsDrawer({
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
-                <button
-                  type="button"
-                  className="inline-flex h-7 items-center gap-1 rounded-sm border border-border/50 bg-card px-2 text-muted-foreground hover:bg-muted hover:text-foreground"
-                >
+                <Button type="button" variant="outline" size="default">
                   {reviewer === "all" ? "All reviewers" : reviewer}
-                </button>
+                </Button>
               }
             />
             <DropdownMenuContent align="start" className="min-w-[180px]">
@@ -127,16 +125,13 @@ export function CommentsDrawer({
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
-                <button
-                  type="button"
-                  className="inline-flex h-7 items-center gap-1 rounded-sm border border-border/50 bg-card px-2 text-muted-foreground hover:bg-muted hover:text-foreground"
-                >
+                <Button type="button" variant="outline" size="default">
                   {status === "open"
                     ? "Open"
                     : status === "resolved"
                       ? "Resolved"
                       : "All"}
-                </button>
+                </Button>
               }
             />
             <DropdownMenuContent align="start" className="min-w-[140px]">
@@ -155,13 +150,15 @@ export function CommentsDrawer({
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
-                <button
+                <Button
                   type="button"
-                  className="ml-auto inline-flex size-7 items-center justify-center rounded-sm border border-border/50 bg-card text-muted-foreground hover:bg-muted hover:text-foreground"
+                  variant="outline"
+                  size="icon"
+                  className="ml-auto"
                   aria-label="Sort comments"
                 >
-                  <ArrowUpDown className="size-3.5" />
-                </button>
+                  <ArrowUpDown />
+                </Button>
               }
             />
             <DropdownMenuContent align="end" className="min-w-[160px]">
@@ -183,16 +180,18 @@ export function CommentsDrawer({
             <span>
               {hiddenCount} {hiddenCount === 1 ? "thread" : "threads"} hidden
             </span>
-            <button
+            <Button
               type="button"
+              variant="link"
+              size="sm"
               onClick={() => {
                 setReviewer("all");
                 setStatus("all");
               }}
-              className="text-primary hover:underline"
+              className="h-auto p-0"
             >
               Clear filters
-            </button>
+            </Button>
           </div>
         ) : null}
 
@@ -225,7 +224,7 @@ export function CommentsDrawer({
                       </span>
                       <span
                         className={cn(
-                          "size-1.5 shrink-0 rounded-full",
+                          "size-1.5 shrink-0 rounded-md",
                           root.isResolved
                             ? "bg-muted-foreground/40"
                             : "bg-primary",

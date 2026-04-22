@@ -22,8 +22,8 @@ export function GoogleAccountRow({
   onRemove,
 }: {
   account: OAuthConnection;
-  onReconnect: () => Promise<void>;
-  onRemove: () => Promise<void>;
+  onReconnect: (email: string | null) => Promise<void>;
+  onRemove: (email: string | null) => Promise<void>;
 }) {
   const [removing, setRemoving] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
@@ -93,7 +93,7 @@ export function GoogleAccountRow({
   async function handleRemove() {
     setRemoving(true);
     try {
-      await onRemove();
+      await onRemove(q.data?.email ?? null);
     } finally {
       setRemoving(false);
     }
@@ -102,7 +102,7 @@ export function GoogleAccountRow({
   async function handleReconnect() {
     setReconnecting(true);
     try {
-      await onReconnect();
+      await onReconnect(q.data?.email ?? null);
     } finally {
       setReconnecting(false);
     }

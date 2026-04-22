@@ -27,7 +27,7 @@ export function PRFullHeader(props: PRHeaderProps) {
       <div className="mb-1 flex items-center gap-2">
         <Link
           to="/"
-          className="flex size-6 items-center justify-center rounded-sm text-muted-foreground/70 hover:bg-muted hover:text-foreground"
+          className="flex size-6 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-muted hover:text-foreground"
           aria-label="Back to inbox"
         >
           <ArrowLeft className="size-4" />
@@ -69,11 +69,11 @@ export function PRFullHeader(props: PRHeaderProps) {
           </span>
         ) : null}
         <span className="inline-flex items-center gap-1.5">
-          <code className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-[12px] text-foreground">
+          <code className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[12px] text-foreground">
             {props.headBranch}
           </code>
           <span className="text-muted-foreground/70">→</span>
-          <code className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-[12px] text-foreground">
+          <code className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[12px] text-foreground">
             {props.baseBranch}
           </code>
         </span>
@@ -90,7 +90,7 @@ export function PRFullHeader(props: PRHeaderProps) {
       </div>
 
       {props.stack.length > 1 ? (
-        <div className="mt-5 rounded-lg border border-border/50 bg-card p-4">
+        <div className="mt-5 rounded-md border border-border/50 bg-card p-4">
           <StackViz nodes={props.stack} />
         </div>
       ) : null}
@@ -135,7 +135,7 @@ export function IssueFullHeader({
       <div className="mb-1 flex items-center gap-2">
         <Link
           to="/"
-          className="flex size-6 items-center justify-center rounded-sm text-muted-foreground/70 hover:bg-muted hover:text-foreground"
+          className="flex size-6 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-muted hover:text-foreground"
           aria-label="Back to inbox"
         >
           <ArrowLeft className="size-4" />
@@ -185,7 +185,7 @@ export function IssueCondensedHeader({
 }) {
   return (
     <div className="flex min-w-0 items-center gap-2 text-[13px]">
-      <span className="size-4 rounded-full bg-emerald-500" />
+      <span className="size-4 rounded-md bg-emerald-500" />
       <span className="text-muted-foreground/70">#{number}</span>
       <span className="truncate font-medium">{title}</span>
     </div>

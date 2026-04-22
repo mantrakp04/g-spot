@@ -30,7 +30,7 @@ export function StateBadge({
   const { label, color, icon: Icon } = CONFIG[key];
   return (
     <span
-      className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-medium"
+      className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[12px] font-medium"
       style={{ background: `${color}22`, color }}
     >
       <Icon className="size-3.5" />
@@ -55,7 +55,7 @@ export function PRStateBadge({
   const { label, color, icon: Icon } = CONFIG[key];
   return (
     <span
-      className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-medium"
+      className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[12px] font-medium"
       style={{ background: `${color}22`, color }}
     >
       <Icon className="size-3.5" />

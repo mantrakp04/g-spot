@@ -222,42 +222,6 @@ export function useGitHubFileContents(
   });
 }
 
-export function useMarkFileViewed(
-  target: ReviewTarget,
-  account: OAuthConnection | null,
-) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({
-      fileSha,
-      viewed,
-    }: {
-      fileSha: string;
-      viewed: boolean;
-    }) => {
-      const kit = await octokit(requireAccount(account));
-      const method = viewed ? "PUT" : "DELETE";
-      await kit.request(
-        `${method} /repos/{owner}/{repo}/pulls/{pull_number}/files/{file_sha}/viewed`,
-        {
-          owner: target.owner,
-          repo: target.repo,
-          pull_number: target.number,
-          file_sha: fileSha,
-        },
-      );
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({
-        queryKey: githubDetailKeys.prFiles(
-          target,
-          account?.providerAccountId,
-        ),
-      });
-    },
-  });
-}
-
 export type ReactionContent =
   | "+1"
   | "-1"

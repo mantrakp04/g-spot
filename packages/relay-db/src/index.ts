@@ -10,8 +10,10 @@ let relayDb: ReturnType<typeof drizzle> | null = null;
 
 function getOrCreateClient() {
   if (!relayClient) {
+    const authToken = env.LIBSQL_AUTH_TOKEN ?? env.TURSO_AUTH_TOKEN;
     relayClient = createClient({
       url: env.DATABASE_URL,
+      ...(authToken ? { authToken } : {}),
     });
   }
 

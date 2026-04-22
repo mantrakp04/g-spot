@@ -13,6 +13,7 @@ import {
   useReactionMutation,
 } from "@/hooks/use-github-detail";
 
+import { Button } from "@g-spot/ui/components/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -56,7 +57,7 @@ export function Timeline({
 }) {
   if (events.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed border-border/50 p-4 text-center text-[13px] text-muted-foreground/70">
+      <div className="rounded-md border border-dashed border-border/50 p-4 text-center text-[13px] text-muted-foreground/70">
         No activity yet.
       </div>
     );
@@ -105,7 +106,7 @@ function TimelineItem({
           <Icon className="size-3.5 text-muted-foreground/70" />
         )}
       </div>
-      <div className="min-w-0 flex-1 rounded-lg border border-border/50 bg-card">
+      <div className="min-w-0 flex-1 rounded-md border border-border/50 bg-card">
         <div className="flex items-center justify-between gap-2 border-b border-border/50 px-4 py-2 text-[12px]">
           <div className="flex items-center gap-2">
             <span className="font-medium text-foreground">
@@ -164,45 +165,50 @@ function ReactionsRow({
         const count = reactions[c] ?? 0;
         const isActive = active.has(c);
         return (
-          <button
+          <Button
             key={c}
             type="button"
+            variant="outline"
+            size="sm"
             onClick={() => toggle(c)}
-            className={`inline-flex h-6 items-center gap-1 rounded-full border px-2 text-[11px] transition-colors ${
+            className={
               isActive
                 ? "border-primary/40 bg-primary/10 text-foreground"
-                : "border-border bg-card text-muted-foreground hover:bg-muted"
-            }`}
+                : undefined
+            }
           >
             <span>{REACTION_EMOJI[c]}</span>
             <span>{count}</span>
-          </button>
+          </Button>
         );
       })}
       <DropdownMenu>
         <DropdownMenuTrigger
           render={
-            <button
+            <Button
               type="button"
-              className="inline-flex size-6 items-center justify-center rounded-full border border-border bg-card text-muted-foreground hover:bg-muted"
+              variant="outline"
+              size="icon-sm"
               aria-label="Add reaction"
             >
-              <SmilePlus className="size-3" />
-            </button>
+              <SmilePlus />
+            </Button>
           }
         />
         <DropdownMenuContent align="start" className="min-w-0 p-1">
           <div className="flex gap-0.5">
             {REACTION_CONTENTS.map((c) => (
-              <button
+              <Button
                 key={c}
                 type="button"
+                variant="ghost"
+                size="icon"
                 onClick={() => toggle(c)}
-                className="flex size-7 items-center justify-center rounded-sm text-[15px] hover:bg-muted"
+                className="text-[15px]"
                 title={c}
               >
                 {REACTION_EMOJI[c]}
-              </button>
+              </Button>
             ))}
           </div>
         </DropdownMenuContent>
@@ -218,8 +224,8 @@ export function TimelineSkeleton() {
         <div key={i} className="flex gap-3">
           <Skeleton className="size-7 shrink-0 rounded-full" />
           <div className="flex-1 space-y-2">
-            <Skeleton className="h-8 w-full rounded-lg" />
-            <Skeleton className="h-16 w-full rounded-lg" />
+            <Skeleton className="h-8 w-full rounded-md" />
+            <Skeleton className="h-16 w-full rounded-md" />
           </div>
         </div>
       ))}

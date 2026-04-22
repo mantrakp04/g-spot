@@ -7,7 +7,6 @@ import {
   GitForkIcon,
   PencilIcon,
   RefreshCwIcon,
-  ShieldAlertIcon,
   WrenchIcon,
   XIcon,
 } from "lucide-react";
@@ -240,11 +239,6 @@ export const ChatMessage = memo(function ChatMessage({
                         (part.type.startsWith("tool-")
                           ? part.type.slice("tool-".length)
                           : "tool");
-                      const toolCallId = part.toolCallId;
-                      const isAwaitingApproval =
-                        part.state === "approval-requested" &&
-                        !!toolCallId &&
-                        !!onResolveApproval;
                       const denialText =
                         part.state === "approval-responded" &&
                         part.approval?.approved === false
@@ -271,50 +265,6 @@ export const ChatMessage = memo(function ChatMessage({
                             <ToolContent>
                               {part.input !== undefined && (
                                 <ToolInput input={part.input} />
-                              )}
-                              {isAwaitingApproval && (
-                                <div className="flex flex-col gap-2 border-t p-3">
-                                  <div className="flex items-start gap-2 text-xs text-muted-foreground">
-                                    <ShieldAlertIcon className="mt-0.5 size-4 shrink-0 text-amber-500" />
-                                    <span>
-                                      {part.approval?.reason ??
-                                        `Approve ${toolName} before it can run?`}
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center justify-end gap-1.5">
-                                    <Button
-                                      size="xs"
-                                      variant="ghost"
-                                      className="gap-1 text-xs"
-                                      onClick={() => {
-                                        if (!toolCallId) return;
-                                        void onResolveApproval?.(
-                                          toolCallId,
-                                          false,
-                                          "User denied.",
-                                        );
-                                      }}
-                                    >
-                                      <XIcon className="size-3" />
-                                      Deny
-                                    </Button>
-                                    <Button
-                                      size="xs"
-                                      variant="default"
-                                      className="gap-1 text-xs"
-                                      onClick={() => {
-                                        if (!toolCallId) return;
-                                        void onResolveApproval?.(
-                                          toolCallId,
-                                          true,
-                                        );
-                                      }}
-                                    >
-                                      <CheckIcon className="size-3" />
-                                      Approve
-                                    </Button>
-                                  </div>
-                                </div>
                               )}
                               {denialText && (
                                 <div className="border-t p-3 text-xs text-muted-foreground">

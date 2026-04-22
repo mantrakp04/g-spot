@@ -71,6 +71,7 @@ import {
 
 import { ChatMessageList } from "./chat-message-list";
 import { StreamingMessage } from "./streaming-message";
+import { ChatPendingApprovals } from "./chat-pending-approvals";
 import { ChatQueuedMessages } from "./chat-queued-messages";
 import {
   drainFollowUpQueue,
@@ -1415,6 +1416,13 @@ function ChatViewInner({
         <div className="bg-background">
           <div className="mx-auto w-full max-w-2xl px-3 pt-2">
             <ChatQueuedMessages chatId={chatId} />
+          </div>
+          <div className="mx-auto w-full max-w-2xl px-3 pt-2">
+            <ChatPendingApprovals
+              chatId={chatId}
+              messages={messages}
+              onResolveApproval={listHandlers.onResolveApproval}
+            />
           </div>
           <div className="mx-auto w-full max-w-2xl px-3 py-2">
             <PromptInputProvider>

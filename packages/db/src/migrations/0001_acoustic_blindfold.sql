@@ -1,0 +1,1 @@
+ALTER TABLE `gmail_messages` ADD `gmail_draft_id` text;

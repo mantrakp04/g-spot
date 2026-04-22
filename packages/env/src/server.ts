@@ -25,11 +25,19 @@ export const env = createEnv({
   server: {
     DATABASE_URL: z.string().min(1).default(`file:${databasePath}`),
     CORS_ORIGIN: z.url().default("http://localhost:3001"),
-    NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
-    STACK_PROJECT_ID: z.string().min(1),
+    NODE_ENV: z.enum(["development", "production", "test", "preview"]).default("development"),
+    STACK_PROJECT_ID: z.string().min(1).default("528293a9-a93a-4511-92a9-0df356161cc7"),
     // Gmail sync
     GMAIL_SYNC_CONCURRENCY: z.coerce.number().int().min(1).max(50).default(20),
-    GMAIL_PUSH_RELAY_URL: z.string().min(1).default("ws://localhost:8787/api/ws"),
+    GMAIL_PUSH_RELAY_URL: z.string().min(1).default(
+      process.env.NODE_ENV === "production"
+        ? "ws://gmail-relay.g-spot.app"
+        : process.env.NODE_ENV === "test"
+          ? "ws://gmail-relay-test.g-spot.app"
+          : process.env.NODE_ENV === "preview"
+            ? "ws://gmail-relay-preview.g-spot.app"
+          : "ws://dev-proxy.g-spot.dev"
+    ),
     MEMORY_WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(20).default(8),
     GMAIL_RATE_LIMIT_RPS: z.coerce.number().int().min(1).max(100).default(50),
     SKILLS_API_URL: z.string().url().default("https://skills.sh"),

@@ -199,12 +199,27 @@ function sanitizeEmailHtml(html: string) {
     ...Array.from(doc.body.querySelectorAll<HTMLElement>("*")),
   ];
 
+  const URL_ATTRS = new Set(["href", "src", "action", "formaction", "xlink:href", "background"]);
+
   for (const element of elements) {
     for (const attribute of Array.from(element.attributes)) {
-      if (attribute.name.toLowerCase().startsWith("on")) {
+      const name = attribute.name.toLowerCase();
+      if (name.startsWith("on")) {
         element.removeAttribute(attribute.name);
+        continue;
+      }
+      if (URL_ATTRS.has(name)) {
+        const trimmed = attribute.value.trim().toLowerCase();
+        if (trimmed.startsWith("javascript:") || trimmed.startsWith("vbscript:")) {
+          element.removeAttribute(attribute.name);
+        }
       }
     }
+  }
+
+  for (const meta of Array.from(doc.querySelectorAll("meta"))) {
+    const httpEquiv = meta.getAttribute("http-equiv")?.toLowerCase();
+    if (httpEquiv === "refresh") meta.remove();
   }
 
   const styles = Array.from(doc.querySelectorAll("style"))
@@ -291,6 +306,7 @@ html {
   width: 100%; max-width: 100%; min-height: 100%;
   background: ${EMAIL_DOCUMENT_BACKGROUND};
   overflow-x: hidden; overflow-y: hidden;
+  padding: .75rem;
 }
 body {
   margin: 0; padding: 0; box-sizing: border-box;

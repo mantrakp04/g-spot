@@ -445,7 +445,7 @@ function InboxPage() {
       >
         <DrawerContent
           style={{ width: `${drawerWidth}vw`, maxWidth: "none" }}
-          className="h-full"
+          className="h-full p-0 before:inset-0"
           overlayClassName="!bg-transparent !backdrop-blur-none"
         >
           <DrawerTitle className="sr-only">

@@ -29,15 +29,34 @@ export const queryClient = new QueryClient({
 
 const trpcUrl = `${env.VITE_SERVER_URL}/trpc`;
 
+const AUTH_HEADERS_TTL_MS = 30_000;
+let authHeadersCache: { headers: Record<string, string>; expiresAt: number } | null = null;
+let authHeadersInflight: Promise<Record<string, string>> | null = null;
+
+async function resolveAuthHeaders(): Promise<Record<string, string>> {
+  if (authHeadersCache && authHeadersCache.expiresAt > Date.now()) {
+    return authHeadersCache.headers;
+  }
+  if (authHeadersInflight) return authHeadersInflight;
+
+  authHeadersInflight = (async () => {
+    try {
+      const user = await stackClientApp.getUser();
+      const headers = user ? await user.getAuthHeaders() : {};
+      authHeadersCache = { headers, expiresAt: Date.now() + AUTH_HEADERS_TTL_MS };
+      return headers;
+    } finally {
+      authHeadersInflight = null;
+    }
+  })();
+  return authHeadersInflight;
+}
+
 export const trpcClient = createTRPCClient<AppRouter>({
   links: [
     httpBatchLink({
       url: trpcUrl,
-      headers: async () => {
-        const user = await stackClientApp.getUser();
-        if (!user) return {};
-        return user.getAuthHeaders();
-      },
+      headers: resolveAuthHeaders,
     }),
   ],
 });

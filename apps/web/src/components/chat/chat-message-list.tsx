@@ -2,6 +2,7 @@ import { memo } from "react";
 
 import { ChatMessage } from "@/components/chat/chat-message";
 import type { UIMessage } from "@/lib/chat-ui";
+import { perfCount } from "@/lib/chat-perf-log";
 
 type MessageActionHandlers = {
   onRegenerate: (messageId: string) => void;
@@ -30,6 +31,7 @@ export const ChatMessageList = memo(function ChatMessageList({
   messages,
   handlers,
 }: ChatMessageListProps) {
+  perfCount("ChatMessageList.render", { count: messages.length });
   return (
     <>
       {messages.map((msg, index) => (

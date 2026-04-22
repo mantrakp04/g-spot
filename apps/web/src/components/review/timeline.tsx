@@ -56,7 +56,7 @@ export function Timeline({
 }) {
   if (events.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed border-border/50 p-6 text-center text-[13px] text-muted-foreground/70">
+      <div className="rounded-lg border border-dashed border-border/50 p-4 text-center text-[13px] text-muted-foreground/70">
         No activity yet.
       </div>
     );

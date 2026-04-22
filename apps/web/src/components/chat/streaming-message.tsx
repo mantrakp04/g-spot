@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 
 import { ChatMessage } from "@/components/chat/chat-message";
+import { perfCount } from "@/lib/chat-perf-log";
 import {
   getStreamingMessage,
   subscribeStreamingMessage,
@@ -23,6 +24,11 @@ export function StreamingMessage({ chatId }: StreamingMessageProps) {
   );
 
   if (!message) return null;
+
+  perfCount("StreamingMessage.render", {
+    id: message.id,
+    parts: message.parts.length,
+  });
 
   return <ChatMessage message={message} isStreaming />;
 }

@@ -1,4 +1,5 @@
 import type { UIMessage } from "@/lib/chat-ui";
+import { perfCount } from "@/lib/chat-perf-log";
 
 /**
  * Per-chat holder for the in-flight assistant message. Isolated from the main
@@ -39,6 +40,10 @@ function flush(chatId: string) {
   slot.scheduled = false;
   slot.message = slot.pending;
   slot.pending = null;
+  perfCount("streaming-store.flush", {
+    listeners: slot.listeners.size,
+    parts: slot.message?.parts.length ?? 0,
+  });
   emit(slot);
 }
 
@@ -57,6 +62,10 @@ export function setStreamingMessage(
   message: UIMessage | null,
   options: { immediate?: boolean } = {},
 ) {
+  perfCount("streaming-store.set", {
+    parts: message?.parts.length ?? 0,
+    immediate: !!options.immediate,
+  });
   const slot = getSlot(chatId);
   slot.pending = message;
 

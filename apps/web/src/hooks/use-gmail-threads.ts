@@ -15,13 +15,12 @@ export function useGmailThreads(
       accountId: providerAccountId ?? null,
       filters,
     }),
-    queryFn: async ({ pageParam }): Promise<GmailThreadPage> => {
-      return trpcClient.gmail.getThreads.query({
+    queryFn: ({ pageParam }): Promise<GmailThreadPage> =>
+      trpcClient.gmail.getThreads.query({
         providerAccountId: providerAccountId!,
         filters,
         cursor: pageParam,
-      });
-    },
+      }),
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.nextPageToken,
     enabled: providerAccountId != null,

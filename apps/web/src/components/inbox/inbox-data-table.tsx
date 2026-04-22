@@ -349,18 +349,6 @@ export function InboxDataTable<TData>({
     root: scrollContainer,
   });
 
-  // ── Branchy render states ───────────────────────────────────────────
-
-  if (errorState !== undefined && errorState !== null) {
-    return <>{errorState}</>;
-  }
-  // `emptyState` only fires once loading is finished. While loading we
-  // render the same table shell with skeleton rows — this avoids a DOM
-  // swap (and the accompanying layout flash) between loading and data.
-  if (!isLoading && data.length === 0) {
-    return <>{emptyState}</>;
-  }
-
   // ── Main render ─────────────────────────────────────────────────────
 
   const headerGroups = table.getHeaderGroups();
@@ -374,6 +362,18 @@ export function InboxDataTable<TData>({
     estimateSize: () => 40,
     overscan: 8,
   });
+
+  // ── Branchy render states ───────────────────────────────────────────
+
+  if (errorState !== undefined && errorState !== null) {
+    return <>{errorState}</>;
+  }
+  // `emptyState` only fires once loading is finished. While loading we
+  // render the same table shell with skeleton rows — this avoids a DOM
+  // swap (and the accompanying layout flash) between loading and data.
+  if (!isLoading && data.length === 0) {
+    return <>{emptyState}</>;
+  }
   const virtualRows = rowVirtualizer.getVirtualItems();
   const virtualTotalSize = rowVirtualizer.getTotalSize();
   const paddingTop = virtualRows.length > 0 ? virtualRows[0]!.start : 0;

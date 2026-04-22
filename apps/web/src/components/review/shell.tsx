@@ -88,7 +88,7 @@ export function ReviewShell({
         className="flex min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
       >
         <div className="mx-auto flex w-full min-w-0 max-w-[1600px] flex-col gap-4 px-4 sm:px-6 lg:flex-row lg:gap-8 lg:px-8">
-          <div className="min-w-0 flex-1 py-4 lg:py-6">
+          <div className="min-w-0 flex-1">
             <div ref={fullHeaderRef}>{fullHeader}</div>
             {main}
           </div>

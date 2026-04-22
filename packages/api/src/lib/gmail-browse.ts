@@ -1,7 +1,6 @@
 import type {
   ComposeFormState,
   GmailDraft,
-  GmailThreadDraft,
 } from "@g-spot/types/gmail";
 
 import type { GmailApiMessage } from "./gmail-client";
@@ -11,11 +10,6 @@ import {
   getHeader,
   stripHtml,
 } from "./gmail-client";
-
-type GmailDraftListResponse = {
-  drafts?: Array<{ id: string; message: { id: string; threadId: string } }>;
-  nextPageToken?: string;
-};
 
 type GmailDraftFullResponse = {
   id: string;
@@ -55,45 +49,6 @@ async function fetchNoContent(
   if (!res.ok) {
     throw new Error(`Provider API error: ${res.status} ${res.statusText}`);
   }
-}
-
-export async function listGmailDraftsForThread(
-  token: string,
-  threadId: string,
-  messageIds: string[] = [],
-): Promise<GmailThreadDraft[]> {
-  let pageToken: string | undefined;
-  const messageIdSet = new Set(messageIds);
-  const drafts: GmailThreadDraft[] = [];
-
-  for (let page = 0; page < 50; page += 1) {
-    const params = new URLSearchParams({ maxResults: "100" });
-    if (pageToken) params.set("pageToken", pageToken);
-
-    const data = await fetchJsonWithInit<GmailDraftListResponse>(
-      `${GMAIL_API}/drafts?${params.toString()}`,
-      token,
-      { method: "GET" },
-    );
-
-    for (const draft of data.drafts ?? []) {
-      if (
-        draft.message.threadId === threadId
-        || messageIdSet.has(draft.message.id)
-      ) {
-        drafts.push({
-          draftId: draft.id,
-          messageId: draft.message.id,
-          threadId: draft.message.threadId,
-        });
-      }
-    }
-
-    pageToken = data.nextPageToken;
-    if (!pageToken) return drafts;
-  }
-
-  return drafts;
 }
 
 export async function fetchGmailComposeDraft(

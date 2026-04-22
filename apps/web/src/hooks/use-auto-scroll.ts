@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { perfCount } from "@/lib/chat-perf-log";
+
 type UseAutoScrollOptions = {
   /** Distance-from-bottom (px) past which an upward user scroll disables auto-scroll. */
   disableThreshold?: number;
@@ -63,6 +65,7 @@ export function useAutoScroll(options: UseAutoScrollOptions = {}) {
     container.addEventListener("scroll", handleScroll, { passive: true });
 
     const resizeObserver = new ResizeObserver(() => {
+      perfCount("useAutoScroll.resize");
       if (autoScrollRef.current) {
         container.scrollTop = container.scrollHeight;
       }

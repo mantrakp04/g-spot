@@ -125,6 +125,7 @@ export const Markdown = memo(
         "prose prose-invert max-w-none text-[14px] leading-relaxed",
         "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
         "[&_p]:my-2 [&_ul]:my-2 [&_ol]:my-2 [&_pre]:my-3",
+        "[&_ul]:list-disc [&_ol]:list-decimal [&_ul]:pl-5 [&_ol]:pl-5 [&_li]:my-1",
         "[&_a]:text-primary [&_a]:no-underline hover:[&_a]:underline",
         "[&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[13px]",
         "[&_pre]:rounded-md [&_pre]:border [&_pre]:border-border/50 [&_pre]:bg-muted",

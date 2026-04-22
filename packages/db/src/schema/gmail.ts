@@ -137,6 +137,7 @@ export const gmailMessages = sqliteTable(
     inReplyTo: text("in_reply_to"),
     referencesHeader: text("references_header"),
     isDraft: integer("is_draft", { mode: "boolean" }).notNull().default(false),
+    gmailDraftId: text("gmail_draft_id"),
     historyId: text("history_id"),
     rawSizeEstimate: integer("raw_size_estimate"),
     createdAt: text("created_at")

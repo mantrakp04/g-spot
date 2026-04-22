@@ -303,6 +303,31 @@ export async function listAllThreadIds(
   return ids;
 }
 
+export async function listAllDraftMappings(
+  token: string,
+): Promise<Array<{ draftId: string; gmailMessageId: string }>> {
+  const mappings: Array<{ draftId: string; gmailMessageId: string }> = [];
+  let pageToken: string | undefined;
+
+  do {
+    const params = new URLSearchParams({ maxResults: "500" });
+    if (pageToken) params.set("pageToken", pageToken);
+
+    const data = await fetchGmailJson<{
+      drafts?: Array<{ id: string; message: { id: string; threadId: string } }>;
+      nextPageToken?: string;
+    }>(`${GMAIL_API}/drafts?${params.toString()}`, token);
+
+    for (const d of data.drafts ?? []) {
+      mappings.push({ draftId: d.id, gmailMessageId: d.message.id });
+    }
+
+    pageToken = data.nextPageToken;
+  } while (pageToken);
+
+  return mappings;
+}
+
 /**
  * Get a single thread with full message payloads.
  */

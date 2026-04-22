@@ -40,6 +40,7 @@ import {
   ToolOutput,
 } from "@/components/ai-elements/tool";
 import type { DynamicToolUIPart, ToolUIPart, UIMessage, UIMessagePart } from "@/lib/chat-ui";
+import { perfCount } from "@/lib/chat-perf-log";
 
 interface ChatMessageProps {
   message: UIMessage;
@@ -71,6 +72,12 @@ export const ChatMessage = memo(function ChatMessage({
   onFork,
   onResolveApproval,
 }: ChatMessageProps) {
+  perfCount("ChatMessage.render", {
+    id: message.id,
+    role: message.role,
+    parts: message.parts.length,
+    isStreaming,
+  });
   const showAssistantActions = message.role === "assistant" && !isStreaming;
   const [copied, setCopied] = useState(false);
   const [editing, setEditing] = useState(false);

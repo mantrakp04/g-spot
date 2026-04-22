@@ -538,6 +538,68 @@ export async function deleteMissingThreadMessages(
 }
 
 // ---------------------------------------------------------------------------
+// Drafts
+// ---------------------------------------------------------------------------
+
+export async function syncAccountDraftIds(
+  accountId: string,
+  mappings: Array<{ draftId: string; gmailMessageId: string }>,
+): Promise<void> {
+  await db
+    .update(gmailMessages)
+    .set({ gmailDraftId: null })
+    .where(eq(gmailMessages.accountId, accountId));
+
+  for (const m of mappings) {
+    await db
+      .update(gmailMessages)
+      .set({ gmailDraftId: m.draftId })
+      .where(
+        and(
+          eq(gmailMessages.accountId, accountId),
+          eq(gmailMessages.gmailMessageId, m.gmailMessageId),
+        ),
+      );
+  }
+}
+
+export async function getThreadDrafts(
+  accountId: string,
+  gmailThreadId: string,
+  gmailMessageIds: string[] = [],
+): Promise<
+  Array<{ draftId: string; messageId: string; threadId: string }>
+> {
+  const matchClauses: SQL[] = [eq(gmailMessages.gmailThreadId, gmailThreadId)];
+  if (gmailMessageIds.length > 0) {
+    matchClauses.push(inArray(gmailMessages.gmailMessageId, gmailMessageIds));
+  }
+
+  const rows = await db
+    .select({
+      draftId: gmailMessages.gmailDraftId,
+      gmailMessageId: gmailMessages.gmailMessageId,
+      gmailThreadId: gmailMessages.gmailThreadId,
+    })
+    .from(gmailMessages)
+    .where(
+      and(
+        eq(gmailMessages.accountId, accountId),
+        sql`${gmailMessages.gmailDraftId} IS NOT NULL`,
+        or(...matchClauses),
+      ),
+    );
+
+  return rows
+    .filter((r): r is typeof r & { draftId: string } => r.draftId != null)
+    .map((r) => ({
+      draftId: r.draftId,
+      messageId: r.gmailMessageId,
+      threadId: r.gmailThreadId,
+    }));
+}
+
+// ---------------------------------------------------------------------------
 // Attachments
 // ---------------------------------------------------------------------------
 

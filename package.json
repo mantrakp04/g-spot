@@ -4,7 +4,8 @@
   "workspaces": {
     "packages": [
       "apps/*",
-      "packages/*"
+      "packages/*",
+      "tmp/demo-video"
     ],
     "catalog": {
       "@babel/traverse": "^7.29.0",

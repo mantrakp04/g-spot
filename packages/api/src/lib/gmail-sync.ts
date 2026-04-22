@@ -27,6 +27,7 @@ import {
   recordSyncFailure,
   resolveFailuresForThread,
   setGmailAccountNeedsFullResync,
+  syncAccountDraftIds,
   syncLabels,
   updateGmailAccountHistoryId,
   updateGmailAccountSyncTimestamp,
@@ -40,6 +41,7 @@ import {
   getProfile,
   getThreadDetail,
   getHistory,
+  listAllDraftMappings,
   listAllThreadIds,
   listLabels,
   parseGmailMessage,
@@ -710,7 +712,17 @@ export class GmailSyncOrchestrator {
       await updateGmailAccountSyncTimestamp(this.accountId, resolution.completedMode);
     }
 
+    await this.syncDrafts();
     await this.markCompleted();
+  }
+
+  private async syncDrafts(): Promise<void> {
+    try {
+      const mappings = await listAllDraftMappings(this.token);
+      await syncAccountDraftIds(this.accountId, mappings);
+    } catch (err) {
+      console.error("[gmail-sync] Failed to sync draft mappings:", err);
+    }
   }
 
   private async persistSyncState(

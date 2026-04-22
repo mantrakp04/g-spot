@@ -8,6 +8,7 @@ import {
   getGmailAccount,
   getLabels,
   getThread as getStoredThread,
+  getThreadDrafts as getStoredThreadDrafts,
   getThreadMessages,
   queryThreads,
   searchThreads as searchStoredThreads,
@@ -23,7 +24,6 @@ import {
   createGmailDraft,
   deleteGmailDraft,
   fetchGmailComposeDraft,
-  listGmailDraftsForThread,
   modifyGmailThreadLabels,
   sendGmailDraft,
   sendGmailMessage,
@@ -354,13 +354,11 @@ export const gmailRouter = router({
         messageIds: z.array(z.string()).optional(),
       }),
     )
-    .query(async ({ ctx, input }) => {
-      const accessToken = await getGmailAccessToken(
-        ctx.stackAuthHeaders,
-        input.providerAccountId,
-      );
-      return listGmailDraftsForThread(
-        accessToken,
+    .query(async ({ input }) => {
+      const account = await getGmailAccount(input.providerAccountId);
+      if (!account) return [];
+      return getStoredThreadDrafts(
+        account.id,
         input.threadId,
         input.messageIds ?? [],
       );

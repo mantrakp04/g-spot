@@ -429,7 +429,7 @@ export function PRReviewView({
         {files.isLoading ? (
           <DiffSkeleton />
         ) : fileList.length === 0 ? (
-          <div className="flex items-center gap-2 rounded-lg border border-dashed border-border/50 p-6 text-[13px] text-muted-foreground/70">
+          <div className="flex items-center gap-2 rounded-lg border border-dashed border-border/50 p-4 text-[13px] text-muted-foreground/70">
             <FileText className="size-4" />
             No file changes.
           </div>

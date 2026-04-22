@@ -81,6 +81,7 @@ import {
   clearStreamingMessage,
   setStreamingMessage,
 } from "@/lib/streaming-message-store";
+import { perfCount } from "@/lib/chat-perf-log";
 
 const STARTER_PROMPTS = [
   "Brainstorm ideas for a weekend project I could ship in a day",
@@ -428,6 +429,7 @@ function ChatViewInner({
    */
   const handleStreamEvent = useCallback(
     (event: ChatStreamEvent, ctx: { isReconnect: boolean }) => {
+      perfCount("stream-event." + event.type);
       logChatDebug("stream-event", {
         chatId,
         eventType: event.type,

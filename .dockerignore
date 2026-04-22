@@ -1,0 +1,17 @@
+**/node_modules
+**/dist
+**/.turbo
+**/.next
+**/.vercel
+.git
+.github
+tmp
+apps/web
+apps/desktop
+apps/server
+apps/gmail-relay/relay.db
+apps/gmail-relay/relay.db-*
+**/*.log
+.env
+.env.*
+!.env.example

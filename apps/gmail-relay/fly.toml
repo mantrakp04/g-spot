@@ -7,6 +7,11 @@ primary_region = "iad"
 [env]
   RELAY_HOST = "0.0.0.0"
   RELAY_PORT = "8787"
+  DATABASE_URL = "/data/relay.db"
+
+[[mounts]]
+  source = "relay_data"
+  destination = "/data"
 
 [http_service]
   internal_port = 8787

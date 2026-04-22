@@ -20,10 +20,8 @@
     "db:migrate": "RELAY_DRIZZLE_ONLY=1 drizzle-kit migrate"
   },
   "dependencies": {
-    "@libsql/client": "catalog:",
     "@g-spot/env": "workspace:*",
-    "drizzle-orm": "^0.45.2",
-    "libsql": "catalog:"
+    "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {
     "@g-spot/config": "workspace:*",

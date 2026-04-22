@@ -11,35 +11,13 @@ export const relayDatabasePath = resolve(
   "apps/gmail-relay/relay.db",
 );
 
-export function relayLibsqlAuthToken(): string | undefined {
-  const t = process.env.LIBSQL_AUTH_TOKEN ?? process.env.TURSO_AUTH_TOKEN;
-  return t ? t : undefined;
+export function relayDatabaseFilePath(): string {
+  const raw = process.env.DATABASE_URL ?? relayDatabasePath;
+  return raw.startsWith("file:") ? raw.slice("file:".length) : raw;
 }
 
-export function relayDatabaseUrl(): string {
-  return process.env.DATABASE_URL ?? `file:${relayDatabasePath}`;
-}
-
-export function relayDbIsRemoteLibsql(url: string): boolean {
-  return (
-    url.startsWith("libsql:") ||
-    url.startsWith("http://") ||
-    url.startsWith("https://")
-  );
-}
-
-export function getRelayDrizzleDbCredentials(): {
-  url: string;
-  authToken?: string;
-  isRemoteLibsql: boolean;
-} {
-  const url = relayDatabaseUrl();
-  const authToken = relayLibsqlAuthToken();
-  return {
-    url,
-    ...(authToken ? { authToken } : {}),
-    isRemoteLibsql: relayDbIsRemoteLibsql(url),
-  };
+export function getRelayDrizzleDbCredentials(): { url: string } {
+  return { url: relayDatabaseFilePath() };
 }
 
 // `RELAY_DRIZZLE_ONLY=1`: Drizzle Kit only (`relay-db` db:* scripts). Never set for gmail-relay / runtime.
@@ -47,9 +25,7 @@ export const env = createEnv({
   server: {
     RELAY_HOST: z.string().min(1).default("localhost"),
     RELAY_PORT: z.coerce.number().int().min(1).max(65535).default(8787),
-    DATABASE_URL: z.string().min(1).default(`file:${relayDatabasePath}`),
-    LIBSQL_AUTH_TOKEN: z.string().optional(),
-    TURSO_AUTH_TOKEN: z.string().optional(),
+    DATABASE_URL: z.string().min(1).default(relayDatabasePath),
     STACK_PROJECT_ID: z.string().min(1),
     STACK_SECRET_SERVER_KEY: z.string().min(1),
     GMAIL_PUBSUB_TOPIC_NAME: z.string().min(1),

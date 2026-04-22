@@ -40,7 +40,6 @@
         "@g-spot/db": "workspace:*",
         "@g-spot/env": "workspace:*",
         "@g-spot/relay-db": "workspace:*",
-        "@libsql/client": "catalog:",
         "@stackframe/react": "^2.8.78",
         "drizzle-orm": "^0.45.2",
         "zod": "catalog:",
@@ -228,9 +227,7 @@
       "name": "@g-spot/relay-db",
       "dependencies": {
         "@g-spot/env": "workspace:*",
-        "@libsql/client": "catalog:",
         "drizzle-orm": "^0.45.2",
-        "libsql": "catalog:",
       },
       "devDependencies": {
         "@g-spot/config": "workspace:*",

@@ -1,33 +1,31 @@
-import { createClient, type Client } from "@libsql/client";
+import { Database } from "bun:sqlite";
 import { env } from "@g-spot/env/relay";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/libsql";
+import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { relayEvents, type RelayEventRow } from "./schema";
 
-let relayClient: Client | null = null;
+let relaySqlite: Database | null = null;
 let relayDb: ReturnType<typeof drizzle> | null = null;
 
-function getOrCreateClient() {
-  if (!relayClient) {
-    const authToken = env.LIBSQL_AUTH_TOKEN ?? env.TURSO_AUTH_TOKEN;
-    relayClient = createClient({
-      url: env.DATABASE_URL,
-      ...(authToken ? { authToken } : {}),
-    });
+function getOrCreateSqlite() {
+  if (!relaySqlite) {
+    const path = env.DATABASE_URL.startsWith("file:")
+      ? env.DATABASE_URL.slice("file:".length)
+      : env.DATABASE_URL;
+    relaySqlite = new Database(path, { create: true });
+    relaySqlite.exec("PRAGMA journal_mode = WAL;");
   }
-
-  return relayClient;
+  return relaySqlite;
 }
 
 function getRelayDb() {
   if (!relayDb) {
     relayDb = drizzle({
-      client: getOrCreateClient(),
+      client: getOrCreateSqlite(),
       schema: { relayEvents },
     });
   }
-
   return relayDb;
 }
 
@@ -87,8 +85,8 @@ export async function deleteRelayEventsWithoutUser() {
 }
 
 export function closeRelayDb() {
-  relayClient?.close();
-  relayClient = null;
+  relaySqlite?.close();
+  relaySqlite = null;
   relayDb = null;
 }
 

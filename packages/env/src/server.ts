@@ -45,6 +45,18 @@ export const env = createEnv({
       .string()
       .min(1)
       .default("onnx-community/embeddinggemma-300m-ONNX"),
+    // chat-sdk state store path
+    CHAT_STATE_SQLITE_PATH: z.string().optional(),
+    // Optional platform adapters: absent creds = adapter not registered
+    SLACK_SIGNING_SECRET: z.string().optional(),
+    SLACK_BOT_TOKEN: z.string().optional(),
+    DISCORD_TOKEN: z.string().optional(),
+    DISCORD_APPLICATION_ID: z.string().optional(),
+    DISCORD_PUBLIC_KEY: z.string().optional(),
+    WHATSAPP_ACCESS_TOKEN: z.string().optional(),
+    WHATSAPP_APP_SECRET: z.string().optional(),
+    WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
+    WHATSAPP_VERIFY_TOKEN: z.string().optional(),
   },
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,

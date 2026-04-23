@@ -1,9 +1,54 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CheckCircle2, Circle, CircleDashed, XCircle } from "lucide-react";
 
 import { Button } from "@g-spot/ui/components/button";
 
 import type { CheckItem } from "@/hooks/use-github-detail";
+
+function formatDuration(ms: number) {
+  if (ms < 0 || !Number.isFinite(ms)) return null;
+  const totalSec = Math.round(ms / 1000);
+  if (totalSec < 60) return `${totalSec}s`;
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  if (m < 60) return s ? `${m}m ${s}s` : `${m}m`;
+  const h = Math.floor(m / 60);
+  const rm = m % 60;
+  return rm ? `${h}h ${rm}m` : `${h}h`;
+}
+
+function checkElapsedMs(c: CheckItem, now: number): number | null {
+  if (!c.startedAt) return null;
+  const start = new Date(c.startedAt).getTime();
+  if (Number.isNaN(start)) return null;
+  const end =
+    c.status === "completed" && c.completedAt
+      ? new Date(c.completedAt).getTime()
+      : now;
+  return end - start;
+}
+
+function CheckDuration({ c }: { c: CheckItem }) {
+  const live = c.status !== "completed";
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!live) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [live]);
+  const ms = checkElapsedMs(c, now);
+  if (ms == null) return null;
+  const text = formatDuration(ms);
+  if (!text) return null;
+  return (
+    <span
+      className="shrink-0 font-mono text-[11px] text-muted-foreground/70"
+      title={live ? "Running" : "Duration"}
+    >
+      {text}
+    </span>
+  );
+}
 
 function isPassing(c: CheckItem) {
   return (
@@ -69,6 +114,7 @@ export function ChecksPanel({ checks }: { checks: CheckItem[] }) {
               >
                 <CheckIcon status={c.status} conclusion={c.conclusion} />
                 <span className="flex-1 truncate">{c.name}</span>
+                <CheckDuration c={c} />
               </a>
             </li>
           ))}

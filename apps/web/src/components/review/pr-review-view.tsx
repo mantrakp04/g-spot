@@ -53,6 +53,52 @@ import { Timeline, TimelineSkeleton } from "./timeline";
 const FILE_EXPAND_LIMIT = 50;
 const EMPTY_COMMENTS: never[] = [];
 
+// Mount the heavy <FileDiffCard> only when its placeholder is within ~2
+// viewports of the visible area. Once mounted, stays mounted so inline
+// composer/thread state isn't lost on scroll.
+function LazyFileMount({
+  estimatedHeight,
+  children,
+}: {
+  estimatedHeight: number;
+  children: React.ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    if (mounted) return;
+    const el = ref.current;
+    if (!el) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setMounted(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setMounted(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "200% 0px 200% 0px" },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [mounted]);
+  return (
+    <div ref={ref} style={mounted ? undefined : { minHeight: estimatedHeight }}>
+      {mounted ? children : null}
+    </div>
+  );
+}
+
+// Rough px guess: header (~36) + per-line (~18) capped so an enormous file
+// doesn't reserve a screen-and-a-half of empty space.
+function estimateDiffHeight(file: PRFile): number {
+  const lines = (file.additions ?? 0) + (file.deletions ?? 0);
+  return 36 + Math.min(lines, 40) * 18;
+}
+
 function FileRailHandle({
   files,
   activeFile,
@@ -200,7 +246,10 @@ export function PRReviewView({
 
   const setAllFiles = useSetAllFiles();
   useEffect(() => {
-    setAllFiles(fileList.map((f) => f.filename));
+    setAllFiles(
+      fileList.map((f) => f.filename),
+      FILE_EXPAND_LIMIT,
+    );
   }, [fileList, setAllFiles]);
   const filesSectionRef = useRef<HTMLDivElement | null>(null);
   const [floatingState, setFloatingState] = useState<"skip" | "top">("skip");
@@ -466,7 +515,7 @@ export function PRReviewView({
             )}
           >
             {treeOpen ? (
-              <div className="sticky top-[44px] h-[calc(100vh-92px)] self-start">
+              <div className="sticky top-[44px] h-[calc(100vh-92px)] self-start overflow-y-auto">
                 <FileTreePanel
                   files={fileList}
                   activeFile={activeFile}
@@ -486,7 +535,8 @@ export function PRReviewView({
                 <div className="flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12px] text-muted-foreground">
                   <AlertTriangle className="size-3.5 shrink-0 text-amber-500" />
                   This PR has {fileList.length} files. To improve performance,
-                  only the first {FILE_EXPAND_LIMIT} files are expanded.
+                  only the first {FILE_EXPAND_LIMIT} files are expanded by
+                  default — the rest are collapsed.
                 </div>
               ) : null}
               {fileList.map((f) => (
@@ -498,22 +548,24 @@ export function PRReviewView({
                     else fileRefs.current.delete(f.filename);
                   }}
                 >
-                  <FileDiffCard
-                    file={f}
-                    isActive={activeFile === f.filename}
-                    mode={diffMode}
-                    comments={reviewComments.data?.[f.filename] ?? EMPTY_COMMENTS}
-                    target={target}
-                    account={account}
-                    baseSha={pr?.base.sha}
-                    headSha={pr?.head.sha}
-                    headRef={pr?.head.ref}
-                    pendingKey={{
-                      owner: target.owner,
-                      repo: target.repo,
-                      prNumber: target.number,
-                    }}
-                  />
+                  <LazyFileMount estimatedHeight={estimateDiffHeight(f)}>
+                    <FileDiffCard
+                      file={f}
+                      isActive={activeFile === f.filename}
+                      mode={diffMode}
+                      comments={reviewComments.data?.[f.filename] ?? EMPTY_COMMENTS}
+                      target={target}
+                      account={account}
+                      baseSha={pr?.base.sha}
+                      headSha={pr?.head.sha}
+                      headRef={pr?.head.ref}
+                      pendingKey={{
+                        owner: target.owner,
+                        repo: target.repo,
+                        prNumber: target.number,
+                      }}
+                    />
+                  </LazyFileMount>
                 </div>
               ))}
             </div>

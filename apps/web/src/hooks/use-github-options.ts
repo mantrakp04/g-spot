@@ -53,10 +53,7 @@ export function useGitHubRepoSearch(
   return useInfiniteQuery({
     queryKey: githubKeys.repoSearch(account?.providerAccountId, normalizedQuery),
     queryFn: async ({ pageParam }): Promise<RepoPage> => {
-      const accessToken = await getConnectedAccountAccessToken(account!, [
-        "repo",
-        "read:org",
-      ]);
+      const accessToken = await getConnectedAccountAccessToken(account!);
       const octokit = new Octokit({ auth: accessToken });
 
       if (normalizedQuery.endsWith("/")) {
@@ -136,10 +133,7 @@ export function useGitHubLabels(
   return useQuery({
     queryKey: githubKeys.labels(account?.providerAccountId, repos),
     queryFn: async () => {
-      const accessToken = await getConnectedAccountAccessToken(account!, [
-        "repo",
-        "read:org",
-      ]);
+      const accessToken = await getConnectedAccountAccessToken(account!);
       const octokit = new Octokit({ auth: accessToken });
 
       const allLabels = await Promise.all(
@@ -177,10 +171,7 @@ export async function fetchGitHubUserSearch(
   const trimmedQuery = query.trim();
   if (!trimmedQuery) return [];
 
-  const accessToken = await getConnectedAccountAccessToken(account, [
-    "repo",
-    "read:org",
-  ]);
+  const accessToken = await getConnectedAccountAccessToken(account);
   const octokit = new Octokit({ auth: accessToken });
   const { data } = await octokit.rest.search.users({
     q: trimmedQuery,
@@ -207,10 +198,7 @@ export function useGitHubUsers(
 export async function fetchGitHubProfileForConnection(
   account: OAuthConnection,
 ) {
-  const accessToken = await getConnectedAccountAccessToken(account, [
-    "repo",
-    "read:org",
-  ]);
+  const accessToken = await getConnectedAccountAccessToken(account);
   const octokit = new Octokit({ auth: accessToken });
   const { data } = await octokit.rest.users.getAuthenticated();
   return { login: data.login, avatarUrl: data.avatar_url, name: data.name };
@@ -408,10 +396,7 @@ export async function fetchGitHubFilterSuggestions(
   const fragment = fragments[field];
   if (!fragment) return [];
 
-  const accessToken = await getConnectedAccountAccessToken(account, [
-    "repo",
-    "read:org",
-  ]);
+  const accessToken = await getConnectedAccountAccessToken(account);
   const octokit = new Octokit({ auth: accessToken });
   const searchQuery = buildGitHubSearchQuery(itemType, filters, repos);
   const graphqlType = itemType === "pr" ? "PullRequest" : "Issue";

@@ -10,8 +10,49 @@ const collapsedFilesAtom = atom<Set<string>>(new Set<string>());
  */
 const allFilesAtom = atom<readonly string[]>([]);
 
+/**
+ * Filenames we've already applied default-collapse logic to. Lets us seed
+ * "collapsed past index N" once per file without clobbering later user toggles.
+ */
+const seededFilesAtom = atom<Set<string>>(new Set<string>());
+
 export function useSetAllFiles() {
-  return useSetAtom(allFilesAtom);
+  const setAll = useSetAtom(allFilesAtom);
+  const setCollapsed = useSetAtom(collapsedFilesAtom);
+  const setSeeded = useSetAtom(seededFilesAtom);
+  return useCallback(
+    (filenames: readonly string[], defaultCollapsedAfter?: number) => {
+      setAll(filenames);
+      if (defaultCollapsedAfter == null) return;
+      setSeeded((prevSeeded) => {
+        const newlySeen: string[] = [];
+        const nextSeeded = new Set(prevSeeded);
+        for (const f of filenames) {
+          if (!nextSeeded.has(f)) {
+            newlySeen.push(f);
+            nextSeeded.add(f);
+          }
+        }
+        if (newlySeen.length === 0) return prevSeeded;
+        setCollapsed((prevCollapsed) => {
+          let changed = false;
+          const next = new Set(prevCollapsed);
+          for (let i = 0; i < filenames.length; i++) {
+            const f = filenames[i]!;
+            if (i >= defaultCollapsedAfter && newlySeen.includes(f)) {
+              if (!next.has(f)) {
+                next.add(f);
+                changed = true;
+              }
+            }
+          }
+          return changed ? next : prevCollapsed;
+        });
+        return nextSeeded;
+      });
+    },
+    [setAll, setCollapsed, setSeeded],
+  );
 }
 
 export function useFileCollapse(filename: string) {

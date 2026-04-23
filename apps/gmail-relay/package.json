@@ -10,11 +10,10 @@
     "start": "bun run dist/index.js"
   },
   "dependencies": {
-    "@g-spot/db": "workspace:*",
+    "@g-spot/chat-state-sqlite": "workspace:*",
     "@g-spot/env": "workspace:*",
-    "@g-spot/relay-db": "workspace:*",
     "@stackframe/react": "^2.8.78",
-    "drizzle-orm": "^0.45.2",
+    "chat": "^4.26.0",
     "zod": "catalog:"
   },
   "devDependencies": {

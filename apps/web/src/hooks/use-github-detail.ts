@@ -79,10 +79,7 @@ export const githubDetailKeys = {
 };
 
 async function octokit(account: OAuthConnection) {
-  const accessToken = await getConnectedAccountAccessToken(account, [
-    "repo",
-    "read:org",
-  ]);
+  const accessToken = await getConnectedAccountAccessToken(account);
   return new Octokit({ auth: accessToken });
 }
 
@@ -346,6 +343,8 @@ export type CheckItem = {
   status: string;
   conclusion: string | null;
   detailsUrl: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
 };
 
 export function useGitHubPRChecks(
@@ -372,6 +371,8 @@ export function useGitHubPRChecks(
         status: c.status,
         conclusion: c.conclusion,
         detailsUrl: c.details_url,
+        startedAt: c.started_at ?? null,
+        completedAt: c.completed_at ?? null,
       }));
     },
     ...persistedStaleWhileRevalidateQueryOptions,
@@ -639,7 +640,8 @@ export function useResolveReviewThread(
   target: ReviewTarget,
   account: OAuthConnection | null,
 ) {
-  const queryClient = useQueryClient();
+  const qc = useQueryClient();
+  const accountId = account?.providerAccountId;
   return useMutation({
     mutationFn: async (args: { threadId: string; resolve: boolean }) => {
       const kit = await octokit(requireAccount(account));
@@ -648,12 +650,32 @@ export function useResolveReviewThread(
         : `mutation($id:ID!){ unresolveReviewThread(input:{threadId:$id}){ thread{ id isResolved } } }`;
       return kit.graphql(mutation, { id: args.threadId });
     },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: githubDetailKeys.prReviewComments(
-          target,
-          account?.providerAccountId,
-        ),
+    onMutate: async ({ threadId, resolve }) => {
+      const key = githubDetailKeys.prReviewComments(target, accountId);
+      await qc.cancelQueries({ queryKey: key });
+      const prev = qc.getQueryData<Record<string, ReviewComment[]>>(key);
+      if (prev) {
+        const next: Record<string, ReviewComment[]> = {};
+        for (const path of Object.keys(prev)) {
+          next[path] = prev[path]!.map((c) =>
+            c.threadId === threadId ? { ...c, isResolved: resolve } : c,
+          );
+        }
+        qc.setQueryData(key, next);
+      }
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) {
+        qc.setQueryData(
+          githubDetailKeys.prReviewComments(target, accountId),
+          ctx.prev,
+        );
+      }
+    },
+    onSettled: () => {
+      qc.invalidateQueries({
+        queryKey: githubDetailKeys.prReviewComments(target, accountId),
       });
     },
   });
@@ -857,111 +879,394 @@ function invalidateIssueQueries(
   });
 }
 
-type IssueKit = Awaited<ReturnType<typeof octokit>>;
+type IssueDetail = NonNullable<ReturnType<typeof useGitHubIssueDetail>["data"]>;
+type PRDetail = NonNullable<ReturnType<typeof useGitHubPRDetail>["data"]>;
+type RepoLabel = NonNullable<
+  ReturnType<typeof useGitHubRepoLabels>["data"]
+>[number];
+type RepoAssignee = NonNullable<
+  ReturnType<typeof useGitHubRepoAssignees>["data"]
+>[number];
+type RepoMilestone = NonNullable<
+  ReturnType<typeof useGitHubRepoMilestones>["data"]
+>[number];
 
-function useIssueUpdateMutation<TArgs>(
+function patchIssueAndPR(
+  qc: ReturnType<typeof useQueryClient>,
   target: ReviewTarget,
-  account: OAuthConnection | null,
-  run: (kit: IssueKit, target: ReviewTarget, args: TArgs) => Promise<void>,
+  accountId: string | null | undefined,
+  patchIssue: (prev: IssueDetail) => IssueDetail,
+  patchPR: (prev: PRDetail) => PRDetail,
 ) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (args: TArgs) => {
-      const kit = await octokit(requireAccount(account));
-      await run(kit, target, args);
-    },
-    onSuccess: () =>
-      invalidateIssueQueries(qc, target, account?.providerAccountId),
-  });
+  const issueKey = githubDetailKeys.issue(target, accountId);
+  const prKey = githubDetailKeys.pr(target, accountId);
+  const prevIssue = qc.getQueryData<IssueDetail>(issueKey);
+  const prevPR = qc.getQueryData<PRDetail>(prKey);
+  if (prevIssue) qc.setQueryData<IssueDetail>(issueKey, patchIssue(prevIssue));
+  if (prevPR) qc.setQueryData<PRDetail>(prKey, patchPR(prevPR));
+  return { prevIssue, prevPR };
+}
+
+function rollbackIssueAndPR(
+  qc: ReturnType<typeof useQueryClient>,
+  target: ReviewTarget,
+  accountId: string | null | undefined,
+  snapshot: { prevIssue?: IssueDetail; prevPR?: PRDetail },
+) {
+  if (snapshot.prevIssue) {
+    qc.setQueryData(
+      githubDetailKeys.issue(target, accountId),
+      snapshot.prevIssue,
+    );
+  }
+  if (snapshot.prevPR) {
+    qc.setQueryData(githubDetailKeys.pr(target, accountId), snapshot.prevPR);
+  }
 }
 
 export function useIssueLabelsMutation(
   target: ReviewTarget,
   account: OAuthConnection | null,
 ) {
-  return useIssueUpdateMutation<{ name: string; enabled: boolean }>(
-    target,
-    account,
-    async (kit, t, { name, enabled }) => {
+  const qc = useQueryClient();
+  const accountId = account?.providerAccountId;
+  return useMutation({
+    mutationFn: async ({
+      name,
+      enabled,
+    }: {
+      name: string;
+      enabled: boolean;
+    }) => {
+      const kit = await octokit(requireAccount(account));
       if (enabled) {
         await kit.rest.issues.addLabels({
-          owner: t.owner,
-          repo: t.repo,
-          issue_number: t.number,
+          owner: target.owner,
+          repo: target.repo,
+          issue_number: target.number,
           labels: [name],
         });
       } else {
         await kit.rest.issues.removeLabel({
-          owner: t.owner,
-          repo: t.repo,
-          issue_number: t.number,
+          owner: target.owner,
+          repo: target.repo,
+          issue_number: target.number,
           name,
         });
       }
     },
-  );
+    onMutate: async ({ name, enabled }) => {
+      await qc.cancelQueries({
+        queryKey: githubDetailKeys.issue(target, accountId),
+      });
+      await qc.cancelQueries({
+        queryKey: githubDetailKeys.pr(target, accountId),
+      });
+      const repoLabels =
+        qc.getQueryData<RepoLabel[]>(
+          githubDetailKeys.repoLabels(target, accountId),
+        ) ?? [];
+      const labelObj = repoLabels.find((l) => l.name === name);
+      const applyLabels = <T extends { labels: unknown[] }>(src: T): T => {
+        const existing = src.labels;
+        if (enabled) {
+          const already = existing.some((l) =>
+            typeof l === "string" ? l === name : (l as { name?: string }).name === name,
+          );
+          if (already) return src;
+          return {
+            ...src,
+            labels: [
+              ...existing,
+              labelObj ?? { name, color: "ededed", description: null },
+            ],
+          };
+        }
+        return {
+          ...src,
+          labels: existing.filter((l) =>
+            typeof l === "string"
+              ? l !== name
+              : (l as { name?: string }).name !== name,
+          ),
+        };
+      };
+      return patchIssueAndPR(qc, target, accountId, applyLabels, applyLabels);
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx) rollbackIssueAndPR(qc, target, accountId, ctx);
+    },
+    onSettled: () => invalidateIssueQueries(qc, target, accountId),
+  });
 }
 
 export function useIssueAssigneesMutation(
   target: ReviewTarget,
   account: OAuthConnection | null,
 ) {
-  return useIssueUpdateMutation<{ login: string; enabled: boolean }>(
-    target,
-    account,
-    async (kit, t, { login, enabled }) => {
+  const qc = useQueryClient();
+  const accountId = account?.providerAccountId;
+  return useMutation({
+    mutationFn: async ({
+      login,
+      enabled,
+    }: {
+      login: string;
+      enabled: boolean;
+    }) => {
+      const kit = await octokit(requireAccount(account));
       if (enabled) {
         await kit.rest.issues.addAssignees({
-          owner: t.owner,
-          repo: t.repo,
-          issue_number: t.number,
+          owner: target.owner,
+          repo: target.repo,
+          issue_number: target.number,
           assignees: [login],
         });
       } else {
         await kit.rest.issues.removeAssignees({
-          owner: t.owner,
-          repo: t.repo,
-          issue_number: t.number,
+          owner: target.owner,
+          repo: target.repo,
+          issue_number: target.number,
           assignees: [login],
         });
       }
     },
-  );
+    onMutate: async ({ login, enabled }) => {
+      await qc.cancelQueries({
+        queryKey: githubDetailKeys.issue(target, accountId),
+      });
+      await qc.cancelQueries({
+        queryKey: githubDetailKeys.pr(target, accountId),
+      });
+      const repoAssignees =
+        qc.getQueryData<RepoAssignee[]>(
+          githubDetailKeys.repoAssignees(target, accountId),
+        ) ?? [];
+      const user = repoAssignees.find((a) => a.login === login);
+      const applyAssignees = <
+        T extends { assignees?: Array<{ login: string }> | null },
+      >(
+        src: T,
+      ): T => {
+        const existing = src.assignees ?? [];
+        if (enabled) {
+          if (existing.some((a) => a.login === login)) return src;
+          const next = user ?? {
+            login,
+            id: -1,
+            avatar_url: "",
+            type: "User",
+          };
+          return { ...src, assignees: [...existing, next] as typeof existing };
+        }
+        return {
+          ...src,
+          assignees: existing.filter((a) => a.login !== login),
+        };
+      };
+      return patchIssueAndPR(
+        qc,
+        target,
+        accountId,
+        applyAssignees,
+        applyAssignees,
+      );
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx) rollbackIssueAndPR(qc, target, accountId, ctx);
+    },
+    onSettled: () => invalidateIssueQueries(qc, target, accountId),
+  });
 }
 
 export function useIssueMilestoneMutation(
   target: ReviewTarget,
   account: OAuthConnection | null,
 ) {
-  return useIssueUpdateMutation<{ milestone: number | null }>(
-    target,
-    account,
-    async (kit, t, { milestone }) => {
+  const qc = useQueryClient();
+  const accountId = account?.providerAccountId;
+  return useMutation({
+    mutationFn: async ({ milestone }: { milestone: number | null }) => {
+      const kit = await octokit(requireAccount(account));
       await kit.rest.issues.update({
-        owner: t.owner,
-        repo: t.repo,
-        issue_number: t.number,
+        owner: target.owner,
+        repo: target.repo,
+        issue_number: target.number,
         milestone,
       });
     },
-  );
+    onMutate: async ({ milestone }) => {
+      await qc.cancelQueries({
+        queryKey: githubDetailKeys.issue(target, accountId),
+      });
+      await qc.cancelQueries({
+        queryKey: githubDetailKeys.pr(target, accountId),
+      });
+      const milestones =
+        qc.getQueryData<RepoMilestone[]>(
+          githubDetailKeys.repoMilestones(target, accountId),
+        ) ?? [];
+      const next =
+        milestone == null
+          ? null
+          : (milestones.find((m) => m.number === milestone) ?? null);
+      const apply = <T extends { milestone?: unknown }>(src: T): T =>
+        ({ ...src, milestone: next } as T);
+      return patchIssueAndPR(qc, target, accountId, apply, apply);
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx) rollbackIssueAndPR(qc, target, accountId, ctx);
+    },
+    onSettled: () => invalidateIssueQueries(qc, target, accountId),
+  });
 }
 
 export function useIssueStateMutation(
   target: ReviewTarget,
   account: OAuthConnection | null,
 ) {
-  return useIssueUpdateMutation<{ state: "open" | "closed" }>(
-    target,
-    account,
-    async (kit, t, { state }) => {
+  const qc = useQueryClient();
+  const accountId = account?.providerAccountId;
+  return useMutation({
+    mutationFn: async ({ state }: { state: "open" | "closed" }) => {
+      const kit = await octokit(requireAccount(account));
       await kit.rest.issues.update({
-        owner: t.owner,
-        repo: t.repo,
-        issue_number: t.number,
+        owner: target.owner,
+        repo: target.repo,
+        issue_number: target.number,
         state,
       });
     },
+    onMutate: async ({ state }) => {
+      await qc.cancelQueries({
+        queryKey: githubDetailKeys.issue(target, accountId),
+      });
+      await qc.cancelQueries({
+        queryKey: githubDetailKeys.pr(target, accountId),
+      });
+      const apply = <T extends { state?: string }>(src: T): T =>
+        ({ ...src, state } as T);
+      return patchIssueAndPR(qc, target, accountId, apply, apply);
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx) rollbackIssueAndPR(qc, target, accountId, ctx);
+    },
+    onSettled: () => invalidateIssueQueries(qc, target, accountId),
+  });
+}
+
+export function useGitHubViewer(account: OAuthConnection | null) {
+  return useQuery({
+    queryKey: ["github", "viewer", account?.providerAccountId ?? null] as const,
+    enabled: !!account,
+    queryFn: async () => {
+      const kit = await octokit(requireAccount(account));
+      const { data } = await kit.rest.users.getAuthenticated();
+      return data;
+    },
+    staleTime: 60 * 60 * 1000,
+  });
+}
+
+function reactionScopeKey(scope: ReactionScope): string {
+  if (scope.kind === "issue-comment") return `ic:${scope.commentId}`;
+  if (scope.kind === "pr-review-comment") return `prc:${scope.commentId}`;
+  return `i:${scope.issueNumber}`;
+}
+
+export const myReactionsKey = (
+  target: ReviewTarget,
+  accountId: string | null | undefined,
+  scope: ReactionScope,
+) =>
+  [
+    "github",
+    "my-reactions",
+    accountId ?? null,
+    target.owner,
+    target.repo,
+    reactionScopeKey(scope),
+  ] as const;
+
+export type MyReactions = Partial<Record<ReactionContent, number>>;
+
+export function useMyReactions(
+  target: ReviewTarget,
+  account: OAuthConnection | null,
+  scope: ReactionScope,
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: myReactionsKey(target, account?.providerAccountId, scope),
+    enabled: !!account && enabled,
+    queryFn: async (): Promise<MyReactions> => {
+      const kit = await octokit(requireAccount(account));
+      const viewer = await kit.rest.users.getAuthenticated();
+      const me = viewer.data.login;
+      const list = await (scope.kind === "issue-comment"
+        ? kit.rest.reactions.listForIssueComment({
+            owner: target.owner,
+            repo: target.repo,
+            comment_id: scope.commentId,
+            per_page: 100,
+          })
+        : scope.kind === "pr-review-comment"
+          ? kit.rest.reactions.listForPullRequestReviewComment({
+              owner: target.owner,
+              repo: target.repo,
+              comment_id: scope.commentId,
+              per_page: 100,
+            })
+          : kit.rest.reactions.listForIssue({
+              owner: target.owner,
+              repo: target.repo,
+              issue_number: scope.issueNumber,
+              per_page: 100,
+            }));
+      const out: MyReactions = {};
+      for (const r of list.data) {
+        if (r.user?.login === me) {
+          out[r.content as ReactionContent] = r.id;
+        }
+      }
+      return out;
+    },
+    staleTime: 60 * 1000,
+  });
+}
+
+function patchReactionCount(
+  qc: ReturnType<typeof useQueryClient>,
+  target: ReviewTarget,
+  accountId: string | null | undefined,
+  scope: ReactionScope,
+  content: ReactionContent,
+  delta: number,
+) {
+  const mutate = (events: TimelineEvent[] | undefined) => {
+    if (!events) return events;
+    return events.map((ev) => {
+      if (!ev.reactionScope) return ev;
+      if (reactionScopeKey(ev.reactionScope) !== reactionScopeKey(scope))
+        return ev;
+      const current = ev.reactions?.[content] ?? 0;
+      const nextCount = Math.max(0, current + delta);
+      const nextReactions: ReactionSummary = { ...(ev.reactions ?? {}) };
+      if (nextCount === 0) {
+        delete nextReactions[content];
+      } else {
+        nextReactions[content] = nextCount;
+      }
+      return { ...ev, reactions: nextReactions };
+    });
+  };
+  qc.setQueryData<TimelineEvent[]>(
+    githubDetailKeys.prTimeline(target, accountId),
+    mutate,
+  );
+  qc.setQueryData<TimelineEvent[]>(
+    githubDetailKeys.issueTimeline(target, accountId),
+    mutate,
   );
 }
 
@@ -970,41 +1275,74 @@ export function useReactionMutation(
   account: OAuthConnection | null,
 ) {
   const qc = useQueryClient();
+  const accountId = account?.providerAccountId;
   return useMutation({
     mutationFn: async ({
       scope,
       content,
-      existingReactionId,
     }: {
       scope: ReactionScope;
       content: ReactionContent;
-      existingReactionId: number | null;
     }) => {
       const kit = await octokit(requireAccount(account));
-      if (existingReactionId != null) {
+      // Resolve viewer's existing reaction for this content via cache or fresh fetch.
+      const cached = qc.getQueryData<MyReactions>(
+        myReactionsKey(target, accountId, scope),
+      );
+      let existingId = cached?.[content];
+      if (existingId == null) {
+        const viewer = await kit.rest.users.getAuthenticated();
+        const me = viewer.data.login;
+        const list = await (scope.kind === "issue-comment"
+          ? kit.rest.reactions.listForIssueComment({
+              owner: target.owner,
+              repo: target.repo,
+              comment_id: scope.commentId,
+              content,
+              per_page: 100,
+            })
+          : scope.kind === "pr-review-comment"
+            ? kit.rest.reactions.listForPullRequestReviewComment({
+                owner: target.owner,
+                repo: target.repo,
+                comment_id: scope.commentId,
+                content,
+                per_page: 100,
+              })
+            : kit.rest.reactions.listForIssue({
+                owner: target.owner,
+                repo: target.repo,
+                issue_number: scope.issueNumber,
+                content,
+                per_page: 100,
+              }));
+        const mine = list.data.find((r) => r.user?.login === me);
+        existingId = mine?.id;
+      }
+      if (existingId != null) {
         if (scope.kind === "issue-comment") {
           await kit.rest.reactions.deleteForIssueComment({
             owner: target.owner,
             repo: target.repo,
             comment_id: scope.commentId,
-            reaction_id: existingReactionId,
+            reaction_id: existingId,
           });
         } else if (scope.kind === "pr-review-comment") {
           await kit.rest.reactions.deleteForPullRequestComment({
             owner: target.owner,
             repo: target.repo,
             comment_id: scope.commentId,
-            reaction_id: existingReactionId,
+            reaction_id: existingId,
           });
         } else {
           await kit.rest.reactions.deleteForIssue({
             owner: target.owner,
             repo: target.repo,
             issue_number: scope.issueNumber,
-            reaction_id: existingReactionId,
+            reaction_id: existingId,
           });
         }
-        return null;
+        return { action: "removed" as const, reactionId: existingId };
       }
       if (scope.kind === "issue-comment") {
         const { data } = await kit.rest.reactions.createForIssueComment({
@@ -1013,7 +1351,7 @@ export function useReactionMutation(
           comment_id: scope.commentId,
           content,
         });
-        return data.id;
+        return { action: "added" as const, reactionId: data.id };
       }
       if (scope.kind === "pr-review-comment") {
         const { data } =
@@ -1023,7 +1361,7 @@ export function useReactionMutation(
             comment_id: scope.commentId,
             content,
           });
-        return data.id;
+        return { action: "added" as const, reactionId: data.id };
       }
       const { data } = await kit.rest.reactions.createForIssue({
         owner: target.owner,
@@ -1031,10 +1369,68 @@ export function useReactionMutation(
         issue_number: scope.issueNumber,
         content,
       });
-      return data.id;
+      return { action: "added" as const, reactionId: data.id };
     },
-    onSuccess: () => {
-      const accountId = account?.providerAccountId;
+    onMutate: async ({ scope, content }) => {
+      const myKey = myReactionsKey(target, accountId, scope);
+      await qc.cancelQueries({ queryKey: myKey });
+      await qc.cancelQueries({
+        queryKey: githubDetailKeys.prTimeline(target, accountId),
+      });
+      await qc.cancelQueries({
+        queryKey: githubDetailKeys.issueTimeline(target, accountId),
+      });
+      const prevMine = qc.getQueryData<MyReactions>(myKey) ?? {};
+      const hadMine = prevMine[content] != null;
+      const delta = hadMine ? -1 : 1;
+      const nextMine: MyReactions = { ...prevMine };
+      if (hadMine) {
+        delete nextMine[content];
+      } else {
+        // placeholder id; reconciled on success
+        nextMine[content] = -1;
+      }
+      qc.setQueryData<MyReactions>(myKey, nextMine);
+      patchReactionCount(qc, target, accountId, scope, content, delta);
+      const prevPrTimeline = qc.getQueryData<TimelineEvent[]>(
+        githubDetailKeys.prTimeline(target, accountId),
+      );
+      const prevIssueTimeline = qc.getQueryData<TimelineEvent[]>(
+        githubDetailKeys.issueTimeline(target, accountId),
+      );
+      return { prevMine, prevPrTimeline, prevIssueTimeline, delta };
+    },
+    onError: (_err, { scope }, ctx) => {
+      if (!ctx) return;
+      qc.setQueryData<MyReactions>(
+        myReactionsKey(target, accountId, scope),
+        ctx.prevMine,
+      );
+      if (ctx.prevPrTimeline !== undefined) {
+        qc.setQueryData(
+          githubDetailKeys.prTimeline(target, accountId),
+          ctx.prevPrTimeline,
+        );
+      }
+      if (ctx.prevIssueTimeline !== undefined) {
+        qc.setQueryData(
+          githubDetailKeys.issueTimeline(target, accountId),
+          ctx.prevIssueTimeline,
+        );
+      }
+    },
+    onSuccess: (result, { scope, content }) => {
+      const myKey = myReactionsKey(target, accountId, scope);
+      const current = qc.getQueryData<MyReactions>(myKey) ?? {};
+      const next: MyReactions = { ...current };
+      if (result.action === "added") {
+        next[content] = result.reactionId;
+      } else {
+        delete next[content];
+      }
+      qc.setQueryData<MyReactions>(myKey, next);
+    },
+    onSettled: () => {
       qc.invalidateQueries({
         queryKey: githubDetailKeys.prTimeline(target, accountId),
       });
@@ -1043,6 +1439,89 @@ export function useReactionMutation(
       });
       qc.invalidateQueries({
         queryKey: githubDetailKeys.prReviewComments(target, accountId),
+      });
+    },
+  });
+}
+
+export function useRequestReviewersMutation(
+  target: ReviewTarget,
+  account: OAuthConnection | null,
+) {
+  const qc = useQueryClient();
+  const accountId = account?.providerAccountId;
+  return useMutation({
+    mutationFn: async ({
+      login,
+      enabled,
+    }: {
+      login: string;
+      enabled: boolean;
+    }) => {
+      const kit = await octokit(requireAccount(account));
+      if (enabled) {
+        await kit.rest.pulls.requestReviewers({
+          owner: target.owner,
+          repo: target.repo,
+          pull_number: target.number,
+          reviewers: [login],
+        });
+      } else {
+        await kit.rest.pulls.removeRequestedReviewers({
+          owner: target.owner,
+          repo: target.repo,
+          pull_number: target.number,
+          reviewers: [login],
+        });
+      }
+    },
+    onMutate: async ({ login, enabled }) => {
+      const prKey = githubDetailKeys.pr(target, accountId);
+      await qc.cancelQueries({ queryKey: prKey });
+      const prev = qc.getQueryData<PRDetail>(prKey);
+      if (prev) {
+        const existing = (prev.requested_reviewers ?? []) as Array<{
+          login: string;
+          avatar_url?: string;
+          id?: number;
+        }>;
+        const repoAssignees =
+          qc.getQueryData<RepoAssignee[]>(
+            githubDetailKeys.repoAssignees(target, accountId),
+          ) ?? [];
+        const user = repoAssignees.find((a) => a.login === login);
+        let next: typeof existing;
+        if (enabled) {
+          if (existing.some((r) => r.login === login)) {
+            next = existing;
+          } else {
+            next = [
+              ...existing,
+              user ?? {
+                login,
+                id: -1,
+                avatar_url: "",
+              },
+            ];
+          }
+        } else {
+          next = existing.filter((r) => r.login !== login);
+        }
+        qc.setQueryData<PRDetail>(prKey, {
+          ...prev,
+          requested_reviewers: next,
+        } as PRDetail);
+      }
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) {
+        qc.setQueryData(githubDetailKeys.pr(target, accountId), ctx.prev);
+      }
+    },
+    onSettled: () => {
+      qc.invalidateQueries({
+        queryKey: githubDetailKeys.pr(target, accountId),
       });
     },
   });

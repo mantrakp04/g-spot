@@ -3,7 +3,9 @@ import { cn } from "@g-spot/ui/lib/utils";
 import {
   BrainIcon,
   CheckIcon,
+  ChevronDownIcon,
   CopyIcon,
+  FileTextIcon,
   GitForkIcon,
   PencilIcon,
   RefreshCwIcon,
@@ -338,6 +340,16 @@ export const ChatMessage = memo(function ChatMessage({
               }
 
               if (part.type === "file") {
+                if (part.extractedText) {
+                  return (
+                    <ExtractedAttachmentChip
+                      key={key}
+                      filename={part.filename}
+                      mediaType={part.mediaType}
+                      extractedText={part.extractedText}
+                    />
+                  );
+                }
                 return (
                   <Attachments key={key} variant="inline">
                     <Attachment data={{ ...part, id: key }}>
@@ -395,3 +407,48 @@ export const ChatMessage = memo(function ChatMessage({
     </div>
   );
 });
+
+function ExtractedAttachmentChip({
+  filename,
+  mediaType,
+  extractedText,
+}: {
+  filename?: string;
+  mediaType?: string;
+  extractedText: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const label = filename ?? "attachment";
+  const kind =
+    mediaType?.split("/").pop()?.split(".").pop()?.toUpperCase() ??
+    (label.split(".").pop() ?? "").toUpperCase();
+
+  return (
+    <div className="my-1 overflow-hidden rounded-md border border-border bg-secondary/40">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-secondary/60"
+      >
+        <FileTextIcon className="size-4 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1 truncate font-medium">{label}</span>
+        {kind ? (
+          <span className="shrink-0 rounded bg-background/60 px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
+            {kind}
+          </span>
+        ) : null}
+        <ChevronDownIcon
+          className={cn(
+            "size-4 shrink-0 text-muted-foreground transition-transform",
+            open && "rotate-180",
+          )}
+        />
+      </button>
+      {open && (
+        <pre className="max-h-64 overflow-auto border-t border-border bg-background/40 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground whitespace-pre-wrap break-words font-mono">
+          {extractedText}
+        </pre>
+      )}
+    </div>
+  );
+}

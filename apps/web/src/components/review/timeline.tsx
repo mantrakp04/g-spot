@@ -10,15 +10,16 @@ import type {
 } from "@/hooks/use-github-detail";
 import {
   REACTION_CONTENTS,
+  useMyReactions,
   useReactionMutation,
 } from "@/hooks/use-github-detail";
 
 import { Button } from "@g-spot/ui/components/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from "@g-spot/ui/components/dropdown-menu";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@g-spot/ui/components/popover";
 import { Skeleton } from "@g-spot/ui/components/skeleton";
 
 import { Markdown } from "./markdown";
@@ -32,6 +33,17 @@ const REACTION_EMOJI: Record<ReactionContent, string> = {
   heart: "❤️",
   rocket: "🚀",
   eyes: "👀",
+};
+
+const REACTION_LABEL: Record<ReactionContent, string> = {
+  "+1": "Like",
+  "-1": "Dislike",
+  laugh: "Laugh",
+  hooray: "Hooray",
+  confused: "Confused",
+  heart: "Heart",
+  rocket: "Rocket",
+  eyes: "Eyes",
 };
 
 function relativeTime(iso: string) {
@@ -154,10 +166,15 @@ function ReactionsRow({
   account: OAuthConnection;
 }) {
   const mutate = useReactionMutation(target, account);
-  const active = new Set<ReactionContent>();
+  const mine = useMyReactions(target, account, scope, true);
+  const active = new Set<ReactionContent>(
+    (Object.keys(mine.data ?? {}) as ReactionContent[]).filter(
+      (k) => mine.data?.[k] != null,
+    ),
+  );
   const visible = REACTION_CONTENTS.filter((c) => (reactions[c] ?? 0) > 0);
   const toggle = (content: ReactionContent) => {
-    mutate.mutate({ scope, content, existingReactionId: null });
+    mutate.mutate({ scope, content });
   };
   return (
     <div className="flex items-center gap-1 border-t border-border/50 px-3 py-2">
@@ -182,8 +199,8 @@ function ReactionsRow({
           </Button>
         );
       })}
-      <DropdownMenu>
-        <DropdownMenuTrigger
+      <Popover>
+        <PopoverTrigger
           render={
             <Button
               type="button"
@@ -195,24 +212,23 @@ function ReactionsRow({
             </Button>
           }
         />
-        <DropdownMenuContent align="start" className="min-w-0 p-1">
-          <div className="flex gap-0.5">
+        <PopoverContent align="start" className="w-fit gap-0 p-1">
+          <div className="flex items-center gap-0.5">
             {REACTION_CONTENTS.map((c) => (
-              <Button
+              <button
                 key={c}
                 type="button"
-                variant="ghost"
-                size="icon"
                 onClick={() => toggle(c)}
-                className="text-[15px]"
-                title={c}
+                title={REACTION_LABEL[c]}
+                aria-label={REACTION_LABEL[c]}
+                className="flex size-8 items-center justify-center rounded-md text-lg transition hover:scale-125 hover:bg-accent"
               >
                 {REACTION_EMOJI[c]}
-              </Button>
+              </button>
             ))}
           </div>
-        </DropdownMenuContent>
-      </DropdownMenu>
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }

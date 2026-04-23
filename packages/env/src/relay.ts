@@ -16,11 +16,6 @@ export function relayDatabaseFilePath(): string {
   return raw.startsWith("file:") ? raw.slice("file:".length) : raw;
 }
 
-export function getRelayDrizzleDbCredentials(): { url: string } {
-  return { url: relayDatabaseFilePath() };
-}
-
-// `RELAY_DRIZZLE_ONLY=1`: Drizzle Kit only (`relay-db` db:* scripts). Never set for gmail-relay / runtime.
 export const env = createEnv({
   server: {
     RELAY_HOST: z.string().min(1).default("localhost"),
@@ -33,5 +28,4 @@ export const env = createEnv({
   },
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,
-  skipValidation: process.env.RELAY_DRIZZLE_ONLY === "1",
 });

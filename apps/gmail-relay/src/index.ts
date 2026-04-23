@@ -1,26 +1,23 @@
 import type { ServerWebSocket } from "bun";
 import { createHash } from "node:crypto";
-import { env } from "@g-spot/env/relay";
-import {
-  deleteRelayEventsWithoutUser,
-  enqueueRelayEvent,
-  getNextPendingRelayEvent,
-  incrementRelayEventAttempt,
-  markRelayEventDrained,
-} from "@g-spot/relay-db";
+import { env, relayDatabaseFilePath } from "@g-spot/env/relay";
+import { createSqliteState } from "@g-spot/chat-state-sqlite";
 import { StackServerApp } from "@stackframe/react";
+import type { QueueEntry } from "chat";
 import { z } from "zod";
+
+type RelayEventPayload = {
+  id: string;
+  messageId: string | null;
+  emailAddress: string;
+  historyId: string;
+  publishTime: string | null;
+  receivedAt: string;
+};
 
 type RelayPushMessage = {
   type: "gmail.push";
-  event: {
-    id: string;
-    messageId: string | null;
-    emailAddress: string;
-    historyId: string;
-    publishTime: string | null;
-    receivedAt: string;
-  };
+  event: RelayEventPayload;
 };
 
 type ConnectedGmailAccount = {
@@ -34,13 +31,19 @@ type RelaySocketData = {
 };
 
 const REQUIRED_GMAIL_SCOPE = "https://mail.google.com/";
+const PENDING_QUEUE_MAX = 1000;
+const PENDING_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+const INFLIGHT_TTL_MS = 10 * 60 * 1000; // 10min
+const DEDUPE_TTL_MS = 5 * 60 * 1000; // 5min
 
 const pubSubPushEnvelopeSchema = z.object({
-  message: z.object({
-    data: z.string().optional(),
-    messageId: z.string().optional(),
-    publishTime: z.string().optional(),
-  }).optional(),
+  message: z
+    .object({
+      data: z.string().optional(),
+      messageId: z.string().optional(),
+      publishTime: z.string().optional(),
+    })
+    .optional(),
 });
 const gmailPushPayloadSchema = z.object({
   emailAddress: z.string().min(1),
@@ -69,13 +72,23 @@ const stackServerApp = new StackServerApp({
 });
 type RelayUser = NonNullable<Awaited<ReturnType<typeof stackServerApp.getUser>>>;
 
-await deleteRelayEventsWithoutUser();
+const state = createSqliteState({ path: relayDatabaseFilePath(), keyPrefix: "relay" });
+await state.connect();
 
 const activeSockets = new Map<string, ServerWebSocket<RelaySocketData>>();
-const inflightEventIds = new Map<string, string>();
-const drainingUsers = new Set<string>();
+const draining = new Set<string>();
 const registeredEmailsByUserId = new Map<string, Set<string>>();
 const userIdsByEmail = new Map<string, Set<string>>();
+
+function userThreadId(userId: string): string {
+  return `relay:user:${userId}`;
+}
+function inflightKey(userId: string): string {
+  return `inflight:${userId}`;
+}
+function dedupeKey(userId: string, messageId: string): string {
+  return `dedupe:${userId}:${messageId}`;
+}
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -92,9 +105,7 @@ function fmtMs(ms: number): string {
 
 async function getGmailProfile(token: string): Promise<{ emailAddress: string }> {
   const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/profile", {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+    headers: { Authorization: `Bearer ${token}` },
   });
 
   if (!response.ok) {
@@ -141,9 +152,7 @@ async function listConnectedGmailAccounts(user: RelayUser): Promise<ConnectedGma
     const tokenResult = await account.getAccessToken({
       scopes: [REQUIRED_GMAIL_SCOPE],
     });
-    if (tokenResult.status !== "ok") {
-      continue;
-    }
+    if (tokenResult.status !== "ok") continue;
 
     try {
       const profile = await getGmailProfile(tokenResult.data.accessToken);
@@ -173,9 +182,7 @@ function replaceRegisteredEmails(userId: string, emails: string[]) {
       const userIds = userIdsByEmail.get(email);
       if (!userIds) continue;
       userIds.delete(userId);
-      if (userIds.size === 0) {
-        userIdsByEmail.delete(email);
-      }
+      if (userIds.size === 0) userIdsByEmail.delete(email);
     }
   }
 
@@ -212,50 +219,68 @@ async function enqueueEventForUser(
   payload: GmailPushPayload,
   receivedAt: string,
 ) {
-  await enqueueRelayEvent({
+  const pubsubMessageId = envelope.message?.messageId ?? null;
+
+  if (pubsubMessageId) {
+    const fresh = await state.setIfNotExists(
+      dedupeKey(userId, pubsubMessageId),
+      true,
+      DEDUPE_TTL_MS,
+    );
+    if (!fresh) return;
+  }
+
+  const event: RelayEventPayload = {
     id: crypto.randomUUID(),
-    userId,
-    pubsubMessageId: envelope.message?.messageId ?? null,
+    messageId: pubsubMessageId,
     emailAddress: payload.emailAddress,
     historyId: payload.historyId,
     publishTime: envelope.message?.publishTime ?? null,
     receivedAt,
-  });
+  };
+
+  const entry: QueueEntry = {
+    enqueuedAt: Date.now(),
+    expiresAt: Date.now() + PENDING_TTL_MS,
+    // chat-sdk's QueueEntry.message is typed `Message`; we stash our relay payload
+    // in the `raw` slot since the relay is not itself a chat-sdk runtime.
+    message: { raw: event } as unknown as QueueEntry["message"],
+  };
+
+  await state.enqueue(userThreadId(userId), entry, PENDING_QUEUE_MAX);
 }
 
 async function drainQueue(userId: string) {
-  if (drainingUsers.has(userId)) return;
-
+  if (draining.has(userId)) return;
   const socket = activeSockets.get(userId);
-  if (!socket || inflightEventIds.has(userId)) return;
+  if (!socket) return;
 
-  drainingUsers.add(userId);
+  draining.add(userId);
   const userRef = opaqueRef(userId);
   try {
-    const event = await getNextPendingRelayEvent(userId);
+    const existingInflight = await state.get<RelayEventPayload>(inflightKey(userId));
+    if (existingInflight) return;
+
+    const entry = await state.dequeue(userThreadId(userId));
+    if (!entry) return;
+
+    const event = extractRelayEvent(entry);
     if (!event) return;
 
-    inflightEventIds.set(userId, event.id);
-    await incrementRelayEventAttempt(event.id, new Date().toISOString());
+    await state.set(inflightKey(userId), event, INFLIGHT_TTL_MS);
 
-    const message: RelayPushMessage = {
-      type: "gmail.push",
-      event: {
-        id: event.id,
-        messageId: event.pubsubMessageId,
-        emailAddress: event.emailAddress,
-        historyId: event.historyId,
-        publishTime: event.publishTime,
-        receivedAt: event.receivedAt,
-      },
-    };
+    const message: RelayPushMessage = { type: "gmail.push", event };
     socket.send(JSON.stringify(message));
   } catch (error) {
-    inflightEventIds.delete(userId);
     console.error(`[gmail-relay] push.dispatch_failed userRef=${userRef}`, error);
   } finally {
-    drainingUsers.delete(userId);
+    draining.delete(userId);
   }
+}
+
+function extractRelayEvent(entry: QueueEntry): RelayEventPayload | null {
+  const slot = entry.message as unknown as { raw?: RelayEventPayload };
+  return slot?.raw ?? null;
 }
 
 async function handleApiWsUpgrade(
@@ -271,12 +296,8 @@ async function handleApiWsUpgrade(
     });
   }
 
-  const user = await stackServerApp.getUser({
-    tokenStore: request,
-  });
-  if (!user) {
-    return new Response("Unauthorized", { status: 401 });
-  }
+  const user = await stackServerApp.getUser({ tokenStore: request });
+  if (!user) return new Response("Unauthorized", { status: 401 });
 
   const userRef = opaqueRef(user.id);
   const gmailAccounts = await listConnectedGmailAccounts(user);
@@ -292,10 +313,7 @@ async function handleApiWsUpgrade(
   );
 
   const upgraded = server.upgrade(request, {
-    data: {
-      userId: user.id,
-      gmailAccounts,
-    },
+    data: { userId: user.id, gmailAccounts },
   });
 
   if (!upgraded) {
@@ -320,9 +338,7 @@ async function handlePushWebhook(request: Request): Promise<Response> {
     return new Response("Invalid JSON", { status: 400 });
   }
 
-  if (!envelope.message?.data) {
-    return new Response(null, { status: 204 });
-  }
+  if (!envelope.message?.data) return new Response(null, { status: 204 });
 
   let payload: GmailPushPayload;
   try {
@@ -332,9 +348,7 @@ async function handlePushWebhook(request: Request): Promise<Response> {
   }
 
   const userIds = [...(userIdsByEmail.get(normalizeEmail(payload.emailAddress)) ?? [])];
-  if (userIds.length === 0) {
-    return new Response(null, { status: 204 });
-  }
+  if (userIds.length === 0) return new Response(null, { status: 204 });
 
   const receivedAt = envelope.message.publishTime ?? new Date().toISOString();
   for (const userId of userIds) {
@@ -351,9 +365,7 @@ Bun.serve<RelaySocketData>({
   async fetch(request, server) {
     const url = new URL(request.url);
 
-    if (url.pathname === "/api/ws") {
-      return handleApiWsUpgrade(request, server);
-    }
+    if (url.pathname === "/api/ws") return handleApiWsUpgrade(request, server);
 
     if (url.pathname === "/api/gmail/push" && request.method === "POST") {
       return handlePushWebhook(request);
@@ -382,16 +394,16 @@ Bun.serve<RelaySocketData>({
       }
 
       activeSockets.set(userId, ws);
-      inflightEventIds.delete(userId);
 
-      ws.send(
-        JSON.stringify({
-          type: "relay.hello",
-          gmailAccounts,
-        }),
-      );
-
-      void drainQueue(userId);
+      void (async () => {
+        const inflight = await state.get<RelayEventPayload>(inflightKey(userId));
+        ws.send(JSON.stringify({ type: "relay.hello", gmailAccounts }));
+        if (inflight) {
+          ws.send(JSON.stringify({ type: "gmail.push", event: inflight } satisfies RelayPushMessage));
+        } else {
+          await drainQueue(userId);
+        }
+      })();
     },
     message(ws, raw) {
       if (typeof raw !== "string") return;
@@ -404,21 +416,17 @@ Bun.serve<RelaySocketData>({
       }
 
       const { userId } = ws.data;
-      const inflightEventId = inflightEventIds.get(userId);
-      if (!inflightEventId || message.id !== inflightEventId) return;
 
       void (async () => {
-        await markRelayEventDrained(userId, message.id, new Date().toISOString());
-        inflightEventIds.delete(userId);
+        const inflight = await state.get<RelayEventPayload>(inflightKey(userId));
+        if (!inflight || inflight.id !== message.id) return;
+        await state.delete(inflightKey(userId));
         await drainQueue(userId);
       })();
     },
     close(ws) {
       const { userId } = ws.data;
-      if (activeSockets.get(userId) === ws) {
-        activeSockets.delete(userId);
-      }
-      inflightEventIds.delete(userId);
+      if (activeSockets.get(userId) === ws) activeSockets.delete(userId);
     },
   },
 });

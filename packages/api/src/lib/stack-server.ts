@@ -48,7 +48,6 @@ export async function getStackConnectedAccountAccessToken(
   authHeaders: StackAuthHeaders,
   provider: string,
   providerAccountId: string,
-  scopes?: string[],
 ): Promise<string> {
   const user = await getStackUserFromAuthHeaders(authHeaders);
   if (!user) {
@@ -63,9 +62,7 @@ export async function getStackConnectedAccountAccessToken(
     throw new Error("Connected account not found");
   }
 
-  const result = await account.getAccessToken(
-    scopes?.length ? { scopes } : undefined,
-  );
+  const result = await account.getAccessToken();
   if (result.status !== "ok") {
     throw new Error(
       result.error.message || `Unable to get ${provider} access token`,

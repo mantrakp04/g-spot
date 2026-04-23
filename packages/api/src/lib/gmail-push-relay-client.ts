@@ -4,7 +4,7 @@ import { env } from "@g-spot/env/server";
 import { z } from "zod";
 import WebSocket from "ws";
 
-import { processGmailPushNotification } from "./gmail-push";
+import { getChatInstance, setChatAuthHeaders } from "./chat-gmail";
 
 type RelayAck = {
   type: "ack";
@@ -101,16 +101,30 @@ async function handleRelayMessage(state: RelayClientState, raw: string) {
   const message = relayPushEventSchema.parse(parsed);
   if (message.type !== "gmail.push") return;
 
-  await processGmailPushNotification(
-    {
+  setChatAuthHeaders(state.authHeaders);
+  const chat = await getChatInstance();
+
+  const pubsubData = Buffer.from(
+    JSON.stringify({
       emailAddress: message.event.emailAddress,
       historyId: message.event.historyId,
-    },
-    message.event.publishTime ?? message.event.receivedAt,
-    {
-      authHeaders: state.authHeaders,
-    },
-  );
+    }),
+    "utf-8",
+  ).toString("base64url");
+
+  const pubsubRequest = new Request("https://relay.local/gmail/push", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      message: {
+        data: pubsubData,
+        messageId: message.event.messageId ?? undefined,
+        publishTime: message.event.publishTime ?? message.event.receivedAt,
+      },
+    }),
+  });
+
+  await chat.webhooks.gmail(pubsubRequest);
 
   const ack: RelayAck = {
     type: "ack",

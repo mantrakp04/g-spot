@@ -111,8 +111,16 @@ export function InlineThread({
     };
   }, [account, prHeadRef, baseRepoFull, root.path, root.side, root.line]);
   const [expanded, setExpanded] = useState(true);
+  // Resolved threads default to collapsed — they're noise once handled.
+  const [threadCollapsed, setThreadCollapsed] = useState(root.isResolved);
   const [replyOpen, setReplyOpen] = useState(false);
   const [replyBody, setReplyBody] = useState("");
+
+  const totalCount = 1 + replies.length;
+  const snippet = useMemo(() => {
+    const text = (root.body ?? "").replace(/\s+/g, " ").trim();
+    return text.length > 80 ? `${text.slice(0, 80)}…` : text;
+  }, [root.body]);
 
   const canMutate = !!target && !!account;
   const reply = useReplyReviewComment(
@@ -155,12 +163,62 @@ export function InlineThread({
         fontFamily: "var(--diffs-font-family, inherit)",
       }}
     >
-      {root.isResolved ? (
-        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/70">
-          <Check className="size-3 text-primary" />
-          Resolved
-        </div>
-      ) : null}
+      {threadCollapsed ? (
+        <button
+          type="button"
+          onClick={() => setThreadCollapsed(false)}
+          className="flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-left text-[12px] transition-colors hover:bg-card/60"
+          style={{
+            background: "var(--diffs-bg, var(--card))",
+            borderColor: "var(--diffs-bg-separator, var(--border))",
+          }}
+        >
+          <ChevronRight className="size-3 shrink-0 text-muted-foreground/70" />
+          {root.isResolved ? (
+            <Check className="size-3 shrink-0 text-primary" />
+          ) : null}
+          {root.user?.avatarUrl ? (
+            <img
+              src={root.user.avatarUrl}
+              alt=""
+              className="size-4 shrink-0 rounded-full object-cover"
+            />
+          ) : null}
+          <span className="shrink-0 font-medium text-foreground">
+            {root.user?.login ?? "ghost"}
+          </span>
+          {snippet ? (
+            <span className="min-w-0 flex-1 truncate text-muted-foreground">
+              {snippet}
+            </span>
+          ) : (
+            <span className="min-w-0 flex-1" />
+          )}
+          <span className="shrink-0 text-[11px] text-muted-foreground/70">
+            {totalCount} {totalCount === 1 ? "comment" : "comments"}
+          </span>
+        </button>
+      ) : (
+        <>
+      <div className="flex items-center justify-between gap-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          onClick={() => setThreadCollapsed(true)}
+          className="text-muted-foreground/70"
+          title="Collapse thread"
+        >
+          <ChevronDown />
+          {totalCount} {totalCount === 1 ? "comment" : "comments"}
+        </Button>
+        {root.isResolved ? (
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/70">
+            <Check className="size-3 text-primary" />
+            Resolved
+          </div>
+        ) : null}
+      </div>
       <CommentCard comment={root} anchor={anchor} />
       {replies.length > 0 ? (
         <>
@@ -258,6 +316,8 @@ export function InlineThread({
           </div>
         </div>
       ) : null}
+        </>
+      )}
     </div>
   );
 }

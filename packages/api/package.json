@@ -13,9 +13,12 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@g-spot/chat-adapter-gmail": "workspace:*",
+    "@g-spot/chat-state-sqlite": "workspace:*",
     "@g-spot/db": "workspace:*",
     "@g-spot/env": "workspace:*",
     "@g-spot/types": "workspace:*",
+    "chat": "^4.26.0",
     "@huggingface/transformers": "catalog:",
     "@mariozechner/pi-agent-core": "^0.65.0",
     "@mariozechner/pi-ai": "^0.65.0",
@@ -26,8 +29,12 @@
     "@trpc/client": "catalog:",
     "@trpc/server": "catalog:",
     "dotenv": "catalog:",
+    "jszip": "^3.10.1",
+    "mammoth": "^1.8.0",
     "nanoid": "^5.1.7",
     "unique-names-generator": "catalog:",
+    "unpdf": "^1.6.0",
+    "xlsx": "^0.18.5",
     "ws": "^8.18.3",
     "zod": "catalog:"
   },

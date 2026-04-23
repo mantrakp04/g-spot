@@ -13,16 +13,14 @@
     }
   },
   "scripts": {
-    "db:local": "turso dev --db-file local.db",
-    "db:push": "drizzle-kit push",
+    "db:push": "drizzle-kit generate && bun run src/migrate.ts",
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "bun run src/migrate.ts"
   },
   "dependencies": {
     "@g-spot/env": "workspace:*",
     "@g-spot/types": "workspace:*",
-    "@libsql/client": "catalog:",
     "dotenv": "catalog:",
     "drizzle-orm": "^0.45.2",
     "nanoid": "^5.1.7",

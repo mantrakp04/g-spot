@@ -23,6 +23,7 @@ import {
   getRetryableFailureThreadIds,
   getUnprocessedInboxGmailThreadIds,
   incrementSyncProgress,
+  listMessagesByThreadIds,
   markThreadProcessed,
   recordSyncFailure,
   resolveFailuresForThread,
@@ -36,6 +37,8 @@ import {
   upsertSyncState,
   upsertThread,
 } from "@g-spot/db/gmail";
+
+import { fanoutNewGmailMessages } from "./chat-gmail";
 
 import {
   getProfile,
@@ -373,11 +376,26 @@ export async function upsertRemoteGmailThread(
     detail.messages.map((message) => message.id),
   );
 
+  const knownGmailMessageIds = new Set(
+    (await listMessagesByThreadIds([dbThreadId])).map((m) => m.gmailMessageId),
+  );
+
   const msgIds = await upsertMessages(dbThreadId, accountId, messages);
 
   for (let i = 0; i < detail.messages.length; i++) {
     if (!msgIds[i]) continue;
     await upsertAttachments(msgIds[i]!, parseAttachments(detail.messages[i]!));
+  }
+
+  const newlyIngested = detail.messages.filter(
+    (raw) => !knownGmailMessageIds.has(raw.id),
+  );
+  if (newlyIngested.length > 0) {
+    fanoutNewGmailMessages({
+      accountId,
+      gmailThreadId,
+      rawMessages: newlyIngested,
+    });
   }
 
   const labels = Array.from(allLabels);

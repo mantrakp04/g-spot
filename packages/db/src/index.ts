@@ -1,15 +1,14 @@
 import { env } from "@g-spot/env/server";
-import { createClient } from "@libsql/client";
-import { drizzle } from "drizzle-orm/libsql";
+import type { Database } from "bun:sqlite";
+import { drizzle } from "drizzle-orm/bun-sqlite";
 
+import { openNativeDb, resolveDbFilePath } from "./native-sqlite";
 import * as schema from "./schema";
 
-const client = createClient({
-  url: env.DATABASE_URL,
-});
+const client: Database = openNativeDb(resolveDbFilePath(env.DATABASE_URL));
 
 export function createDb() {
-  return drizzle({ client, schema });
+  return drizzle(client, { schema });
 }
 
 export const db = createDb();

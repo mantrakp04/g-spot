@@ -2,11 +2,8 @@ import type { OAuthConnection } from "@stackframe/react";
 
 export async function getConnectedAccountAccessToken(
   account: OAuthConnection,
-  scopes?: string[],
 ): Promise<string> {
-  const result = await account.getAccessToken(
-    scopes?.length ? { scopes: [...scopes] } : undefined,
-  );
+  const result = await account.getAccessToken();
 
   if (result.status !== "ok") {
     throw new Error(

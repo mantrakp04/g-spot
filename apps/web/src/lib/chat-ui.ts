@@ -1,3 +1,4 @@
+import { env } from "@g-spot/env/web";
 import type {
   PiChatHistoryMessage,
   PiSdkMessage,
@@ -21,6 +22,13 @@ export type FileUIPart = {
   url: string;
   mediaType?: string;
   filename?: string;
+  /** Content-addressed file id, when the part originated from a server upload. */
+  fileId?: string;
+  /** Populated for non-image documents (PDF/DOCX/XLSX/PPTX/text) whose body
+   * was extracted server-side. When present, renderers show the chip in
+   * collapsed form with a disclosure; the raw text stays in the message so
+   * the model still sees it. */
+  extractedText?: string;
 };
 
 export type SourceDocumentUIPart = {
@@ -171,6 +179,80 @@ function base64ImageUrl(data: string, mimeType: string) {
   return `data:${mimeType};base64,${data}`;
 }
 
+const GS_ATTACHMENT_TAG_RE =
+  /<gs-attachment([^>]*)>([\s\S]*?)<\/gs-attachment>/g;
+
+function unescapeXmlAttr(value: string) {
+  return value
+    .replaceAll("&quot;", '"')
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&amp;", "&");
+}
+
+function parseGsAttachmentAttrs(attrsString: string) {
+  const out: { filename?: string; fileId?: string; mediaType?: string } = {};
+  for (const m of attrsString.matchAll(/(\w+)="([^"]*)"/g)) {
+    const key = m[1];
+    const raw = m[2] ?? "";
+    const value = unescapeXmlAttr(raw);
+    if (key === "filename") out.filename = value;
+    else if (key === "fileId") out.fileId = value;
+    else if (key === "mediaType") out.mediaType = value;
+  }
+  return out;
+}
+
+/**
+ * Pull `<gs-attachment …>…</gs-attachment>` envelopes out of a joined text
+ * block and emit them as synthetic FileUIPart entries. Any prose left over
+ * after the attachments is returned as `residualText` (empty → drop).
+ *
+ * The server emits envelopes at the top of the user message so in practice
+ * `residualText` is just the user's typed input.
+ */
+function splitAttachmentsFromText(
+  text: string,
+  serverOrigin: string | undefined,
+): { attachments: FileUIPart[]; residualText: string } {
+  const attachments: FileUIPart[] = [];
+  let lastIndex = 0;
+  const remaining: string[] = [];
+
+  for (const match of text.matchAll(GS_ATTACHMENT_TAG_RE)) {
+    const [full, attrsString, body] = match;
+    const start = match.index ?? 0;
+    remaining.push(text.slice(lastIndex, start));
+    lastIndex = start + (full?.length ?? 0);
+
+    const { filename, fileId, mediaType } = parseGsAttachmentAttrs(
+      attrsString ?? "",
+    );
+    const url =
+      fileId && serverOrigin
+        ? `${serverOrigin}/api/files/${fileId}`
+        : fileId
+          ? `/api/files/${fileId}`
+          : "";
+
+    attachments.push({
+      type: "file",
+      url,
+      mediaType,
+      filename,
+      fileId,
+      extractedText: (body ?? "").trim(),
+    });
+  }
+
+  if (attachments.length === 0) {
+    return { attachments, residualText: text };
+  }
+
+  remaining.push(text.slice(lastIndex));
+  return { attachments, residualText: remaining.join("").trim() };
+}
+
 function partsFromValue(
   value: unknown,
   options: { streaming?: boolean } = {},
@@ -184,6 +266,7 @@ function partsFromValue(
   }
 
   const parts: UIMessagePart[] = [];
+  const serverOrigin = env.VITE_SERVER_URL;
 
   for (const item of value) {
     if (!item || typeof item !== "object") {
@@ -203,7 +286,16 @@ function partsFromValue(
     };
 
     if (contentPart.type === "text" && typeof contentPart.text === "string") {
-      parts.push({ type: "text", text: contentPart.text });
+      const { attachments, residualText } = splitAttachmentsFromText(
+        contentPart.text,
+        serverOrigin,
+      );
+      for (const attachment of attachments) {
+        parts.push(attachment);
+      }
+      if (residualText.length > 0) {
+        parts.push({ type: "text", text: residualText });
+      }
       continue;
     }
 

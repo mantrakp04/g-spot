@@ -1,6 +1,8 @@
 import { env } from "@g-spot/env/server";
 import type { Message, UserMessage } from "@mariozechner/pi-ai";
 
+import { detectDocumentKind, extractDocumentText } from "./extract-document";
+
 const INLINE_TEXT_FILE_EXTENSIONS = new Set([
   "c",
   "cc",
@@ -135,8 +137,46 @@ async function readImageFromUrl(url: string, mediaType?: string) {
   };
 }
 
-function createAttachmentNote(filename: string | undefined, text: string) {
-  return `Attached file: ${filename ?? "attachment"}\n\n${text}`;
+async function readArrayBufferFromUrl(url: string) {
+  const response = await fetch(resolveAttachmentUrl(url));
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+  return response.arrayBuffer();
+}
+
+function escapeXmlAttr(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function extractFileIdFromUrl(url: string): string | null {
+  const match = url.match(/\/api\/files\/([^/?#]+)/);
+  return match?.[1] ?? null;
+}
+
+/**
+ * Envelope format that survives pi-coding-agent's `sendUserMessage` text-join:
+ * every text block gets joined with "\n" into one string, so the client has
+ * to pull attachments back out via tag parsing.
+ */
+function createAttachmentEnvelope(
+  filename: string | undefined,
+  fileId: string | null,
+  mediaType: string | undefined,
+  body: string,
+) {
+  const attrs: string[] = [];
+  if (filename) attrs.push(`filename="${escapeXmlAttr(filename)}"`);
+  if (fileId) attrs.push(`fileId="${escapeXmlAttr(fileId)}"`);
+  if (mediaType) attrs.push(`mediaType="${escapeXmlAttr(mediaType)}"`);
+  const openTag = attrs.length > 0
+    ? `<gs-attachment ${attrs.join(" ")}>`
+    : "<gs-attachment>";
+  return `${openTag}\n${body}\n</gs-attachment>`;
 }
 
 async function createUserContentFromParts(
@@ -146,10 +186,12 @@ async function createUserContentFromParts(
     return [];
   }
 
-  const content: Array<
-    | { type: "text"; text: string }
-    | { type: "image"; data: string; mimeType: string }
-  > = [];
+  // Split into buckets so attachments land ABOVE the user's typed text after
+  // pi-coding-agent joins adjacent text blocks with "\n". Order in output:
+  //   [doc attachments..., image blocks..., user text].
+  const attachmentBlocks: Array<{ type: "text"; text: string }> = [];
+  const imageBlocks: Array<{ type: "image"; data: string; mimeType: string }> = [];
+  const textBlocks: Array<{ type: "text"; text: string }> = [];
 
   for (const rawPart of parts) {
     const part = rawPart as IncomingUserPart;
@@ -157,7 +199,7 @@ async function createUserContentFromParts(
     if (part.type === "text" && typeof part.text === "string") {
       const text = part.text.trim();
       if (text.length > 0) {
-        content.push({ type: "text", text });
+        textBlocks.push({ type: "text", text });
       }
       continue;
     }
@@ -166,35 +208,78 @@ async function createUserContentFromParts(
       continue;
     }
 
-    if (
-      typeof part.mediaType === "string" &&
-      part.mediaType.startsWith("image/")
-    ) {
-      content.push(await readImageFromUrl(part.url, part.mediaType));
+    const filename =
+      typeof part.filename === "string" ? part.filename : undefined;
+    const mediaType =
+      typeof part.mediaType === "string" ? part.mediaType : undefined;
+    const fileId = extractFileIdFromUrl(part.url);
+
+    if (mediaType?.startsWith("image/")) {
+      imageBlocks.push(await readImageFromUrl(part.url, mediaType));
       continue;
     }
 
     if (isTextLikeFile(part)) {
-      content.push({
+      attachmentBlocks.push({
         type: "text",
-        text: createAttachmentNote(
-          typeof part.filename === "string" ? part.filename : undefined,
+        text: createAttachmentEnvelope(
+          filename,
+          fileId,
+          mediaType ?? "text/plain",
           await readTextFromUrl(part.url),
         ),
       });
       continue;
     }
 
-    content.push({
+    const kind = detectDocumentKind(mediaType, filename);
+
+    if (kind) {
+      try {
+        const buffer = await readArrayBufferFromUrl(part.url);
+        const extracted = await extractDocumentText(
+          buffer,
+          kind,
+          filename ?? "attachment",
+        );
+        attachmentBlocks.push({
+          type: "text",
+          text: createAttachmentEnvelope(filename, fileId, mediaType, extracted),
+        });
+      } catch (error) {
+        console.error("Failed to extract document text", {
+          filename,
+          mediaType,
+          kind,
+          error,
+        });
+        attachmentBlocks.push({
+          type: "text",
+          text: createAttachmentEnvelope(
+            filename,
+            fileId,
+            mediaType,
+            `[Failed to extract ${kind.toUpperCase()} contents: ${
+              error instanceof Error ? error.message : String(error)
+            }]`,
+          ),
+        });
+      }
+      continue;
+    }
+
+    attachmentBlocks.push({
       type: "text",
-      text: createAttachmentNote(
-        typeof part.filename === "string" ? part.filename : undefined,
+      text: createAttachmentEnvelope(
+        filename,
+        fileId,
+        mediaType,
         "[Unsupported attachment omitted from model context.]",
       ),
     });
   }
 
-  return content;
+  return [...attachmentBlocks, ...imageBlocks, ...textBlocks];
 }
 
 function isPiMessage(value: unknown): value is Message {

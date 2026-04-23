@@ -23,11 +23,6 @@ import {
   DropdownMenuTrigger,
 } from "@g-spot/ui/components/dropdown-menu";
 import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "@g-spot/ui/components/hover-card";
-import {
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -49,10 +44,19 @@ import {
   useIssueLabelsMutation,
   useIssueMilestoneMutation,
   useIssueStateMutation,
+  useRequestReviewersMutation,
 } from "@/hooks/use-github-detail";
 
 type PR = NonNullable<ReturnType<typeof useGitHubPRDetail>["data"]>;
 type Issue = NonNullable<ReturnType<typeof useGitHubIssueDetail>["data"]>;
+
+type Labelable = {
+  labels: ReadonlyArray<string | { name?: string | null; color?: string | null }>;
+  assignees?: ReadonlyArray<{ login: string; avatar_url: string; id: number }> | null;
+  milestone?: { id: number; number: number; title: string } | null;
+  state: string;
+  state_reason?: string | null;
+};
 
 function copy(text: string) {
   void navigator.clipboard.writeText(text);
@@ -213,13 +217,23 @@ export function PRActionBar({
   const branchName = pr.head.ref;
   const repoFull = pr.base.repo.full_name;
   const checkoutCmd = `gh pr checkout ${pr.number} --repo ${repoFull}`;
-  const reviewers = (pr.requested_reviewers ?? []) as Array<{
-    login: string;
-    avatar_url: string;
-  }>;
 
   return (
     <div className="flex items-center gap-1.5">
+      {account && target ? (
+        <>
+          <LabelEditor target={target} account={account} item={pr} />
+          <AssigneePicker target={target} account={account} item={pr} />
+          <ReviewersPicker target={target} account={account} pr={pr} />
+          <MilestonePicker target={target} account={account} item={pr} />
+          <CloseReopenButton
+            target={target}
+            account={account}
+            state={pr.state as "open" | "closed"}
+            stateReason={null}
+          />
+        </>
+      ) : null}
       {account && target ? (
         <PreviewDeploysDropdown
           target={target}
@@ -309,39 +323,6 @@ export function PRActionBar({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <HoverCard>
-        <HoverCardTrigger
-          render={
-            <Button type="button" variant="outline" size="default">
-              <Users />
-              {reviewers.length}
-            </Button>
-          }
-        />
-        <HoverCardContent align="end" className="w-[220px] p-2">
-          {reviewers.length === 0 ? (
-            <div className="px-1 py-1 text-[12px] text-muted-foreground/70">
-              No reviewers requested.
-            </div>
-          ) : (
-            <ul className="space-y-1">
-              {reviewers.map((r) => (
-                <li
-                  key={r.login}
-                  className="flex items-center gap-2 rounded-md px-1 py-1 text-[12px] text-foreground"
-                >
-                  <Avatar className="size-5">
-                    <AvatarImage src={r.avatar_url} alt={r.login} />
-                    <AvatarFallback>{r.login.slice(0, 1)}</AvatarFallback>
-                  </Avatar>
-                  {r.login}
-                </li>
-              ))}
-            </ul>
-          )}
-        </HoverCardContent>
-      </HoverCard>
-
       <Button type="button" variant="outline" size="default">
         Agent
         <ChevronDown />
@@ -350,19 +331,85 @@ export function PRActionBar({
   );
 }
 
-function LabelEditor({
+function ReviewersPicker({
   target,
   account,
-  issue,
+  pr,
 }: {
   target: ReviewTarget;
   account: OAuthConnection;
-  issue: Issue;
+  pr: PR;
+}) {
+  const candidates = useGitHubRepoAssignees(target, account);
+  const mutate = useRequestReviewersMutation(target, account);
+  const reviewers = (pr.requested_reviewers ?? []) as Array<{
+    login: string;
+    avatar_url: string;
+  }>;
+  const current = new Set(reviewers.map((r) => r.login));
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <ActionButton>
+            <Users className="size-3" />
+            {reviewers.length > 0 ? reviewers.length : null}
+            <ChevronDown className="size-3" />
+          </ActionButton>
+        }
+      />
+      <DropdownMenuContent align="end" className="min-w-[240px]">
+        <div className="px-2 py-1.5 text-[11px] uppercase tracking-wide text-muted-foreground/70">
+          Reviewers
+        </div>
+        {candidates.isLoading ? (
+          <div className="px-2 py-2 text-[12px] text-muted-foreground/70">
+            Loading...
+          </div>
+        ) : (candidates.data ?? []).length === 0 ? (
+          <div className="px-2 py-2 text-[12px] text-muted-foreground/70">
+            No suggestions
+          </div>
+        ) : (
+          (candidates.data ?? []).map((a) => {
+            const active = current.has(a.login);
+            return (
+              <DropdownMenuItem
+                key={a.id}
+                onClick={(e) => {
+                  e.preventDefault();
+                  mutate.mutate({ login: a.login, enabled: !active });
+                }}
+                className="flex items-center gap-2"
+              >
+                <Checkbox checked={active} />
+                <Avatar className="size-5">
+                  <AvatarImage src={a.avatar_url} alt={a.login} />
+                  <AvatarFallback>{a.login.slice(0, 1)}</AvatarFallback>
+                </Avatar>
+                <span className="truncate text-[12px]">{a.login}</span>
+              </DropdownMenuItem>
+            );
+          })
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function LabelEditor({
+  target,
+  account,
+  item,
+}: {
+  target: ReviewTarget;
+  account: OAuthConnection;
+  item: Labelable;
 }) {
   const labels = useGitHubRepoLabels(target, account);
   const mutate = useIssueLabelsMutation(target, account);
   const current = new Set(
-    issue.labels.map((l) => (typeof l === "string" ? l : (l.name ?? ""))),
+    item.labels.map((l) => (typeof l === "string" ? l : (l.name ?? ""))),
   );
   return (
     <DropdownMenu>
@@ -415,15 +462,15 @@ function LabelEditor({
 function AssigneePicker({
   target,
   account,
-  issue,
+  item,
 }: {
   target: ReviewTarget;
   account: OAuthConnection;
-  issue: Issue;
+  item: Labelable;
 }) {
   const assignees = useGitHubRepoAssignees(target, account);
   const mutate = useIssueAssigneesMutation(target, account);
-  const current = new Set((issue.assignees ?? []).map((a) => a.login));
+  const current = new Set((item.assignees ?? []).map((a) => a.login));
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -475,15 +522,15 @@ function AssigneePicker({
 function MilestonePicker({
   target,
   account,
-  issue,
+  item,
 }: {
   target: ReviewTarget;
   account: OAuthConnection;
-  issue: Issue;
+  item: Labelable;
 }) {
   const milestones = useGitHubRepoMilestones(target, account);
   const mutate = useIssueMilestoneMutation(target, account);
-  const currentId = issue.milestone?.id ?? null;
+  const currentId = item.milestone?.id ?? null;
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -576,9 +623,9 @@ export function IssueActionBar({
 }) {
   return (
     <div className="flex items-center gap-1.5">
-      <LabelEditor target={target} account={account} issue={issue} />
-      <AssigneePicker target={target} account={account} issue={issue} />
-      <MilestonePicker target={target} account={account} issue={issue} />
+      <LabelEditor target={target} account={account} item={issue} />
+      <AssigneePicker target={target} account={account} item={issue} />
+      <MilestonePicker target={target} account={account} item={issue} />
       <CloseReopenButton
         target={target}
         account={account}

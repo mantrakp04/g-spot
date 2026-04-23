@@ -97,10 +97,7 @@ export function ReviewForm({
 
   const submit = useMutation({
     mutationFn: async () => {
-      const accessToken = await getConnectedAccountAccessToken(account, [
-        "repo",
-        "read:org",
-      ]);
+      const accessToken = await getConnectedAccountAccessToken(account);
       const kit = new Octokit({ auth: accessToken });
       const { data } = await kit.rest.pulls.createReview({
         owner: target.owner,

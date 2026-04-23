@@ -9,7 +9,6 @@ import {
 } from "@/lib/gmail/account";
 import { gmailKeys, googleKeys } from "@/lib/query-keys";
 import { persistedStaleWhileRevalidateQueryOptions } from "@/utils/query-defaults";
-import { GOOGLE_OAUTH_SCOPES } from "@/stack/client";
 import { trpcClient } from "@/utils/trpc";
 
 export type GmailLabelCatalogEntry = {
@@ -44,10 +43,7 @@ type GmailSuggestionField =
 export async function fetchGoogleProfileForConnection(
   account: OAuthConnection,
 ) {
-  const accessToken = await getConnectedAccountAccessToken(account, [
-    "https://www.googleapis.com/auth/userinfo.profile",
-    "https://www.googleapis.com/auth/userinfo.email",
-  ]);
+  const accessToken = await getConnectedAccountAccessToken(account);
   return fetchGoogleProfileByAccessToken(accessToken);
 }
 
@@ -95,9 +91,7 @@ export async function fetchGmailFilterSuggestions(
   field: GmailSuggestionField,
   filters: FilterCondition[],
 ): Promise<FilterSuggestionOption[]> {
-  const accessToken = await getConnectedAccountAccessToken(account, [
-    GOOGLE_OAUTH_SCOPES[3],
-  ]);
+  const accessToken = await getConnectedAccountAccessToken(account);
   const options = await fetchDirectGmailFilterSuggestions(
     accessToken,
     field,

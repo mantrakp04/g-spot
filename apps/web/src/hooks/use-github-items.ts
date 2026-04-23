@@ -30,10 +30,7 @@ export function useGitHubItems(
       sortAsc: sortAsc ?? false,
     }),
     queryFn: async ({ pageParam }): Promise<GitHubItemPage> => {
-      const accessToken = await getConnectedAccountAccessToken(account!, [
-        "repo",
-        "read:org",
-      ]);
+      const accessToken = await getConnectedAccountAccessToken(account!);
       return searchGitHubItems(
         itemType,
         accessToken,

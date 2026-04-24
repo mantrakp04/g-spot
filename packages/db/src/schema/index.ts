@@ -2,7 +2,7 @@ import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 
 export { chats, chatMessages } from "./chat";
-export { fileHashes, fileMetadata } from "./files";
+export { fileExtractions, fileHashes, fileMetadata } from "./files";
 export { piState } from "./pi";
 export { projects } from "./projects";
 export { skills } from "./skills";

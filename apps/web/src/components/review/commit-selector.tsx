@@ -1,6 +1,11 @@
 import { useMemo } from "react";
 import { ChevronDown, Check, GitCommit } from "lucide-react";
 
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from "@g-spot/ui/components/avatar";
 import { Button } from "@g-spot/ui/components/button";
 import {
   DropdownMenu,
@@ -146,6 +151,10 @@ function CommitList({
       {commits.map((c) => {
         const msg = (c.commit.message ?? "").split("\n")[0] ?? "";
         const active = selected === c.sha;
+        const authorName =
+          c.author?.login ?? c.commit.author?.name ?? "unknown";
+        const avatarUrl = c.author?.avatar_url ?? undefined;
+        const initials = authorName.slice(0, 2).toUpperCase();
         return (
           <button
             key={c.sha}
@@ -153,6 +162,14 @@ function CommitList({
             onClick={() => onPick(c.sha)}
             className={rowClass(active)}
           >
+            <Avatar className="size-4 shrink-0">
+              {avatarUrl ? (
+                <AvatarImage src={avatarUrl} alt={authorName} />
+              ) : null}
+              <AvatarFallback className="text-[8px]">
+                {initials}
+              </AvatarFallback>
+            </Avatar>
             <span className="shrink-0 font-mono text-[10px] text-muted-foreground/70">
               {short(c.sha)}
             </span>

@@ -3,7 +3,7 @@ import { createFileRoute, Outlet } from "@tanstack/react-router";
 import { useEffect } from "react";
 
 import { useProject } from "@/hooks/use-projects";
-import { setLastProjectId } from "@/lib/active-project";
+import { useSetLastProjectId } from "@/lib/active-project";
 
 export const Route = createFileRoute("/projects/$projectId")({
   component: ProjectLayout,
@@ -12,12 +12,13 @@ export const Route = createFileRoute("/projects/$projectId")({
 function ProjectLayout() {
   const { projectId } = Route.useParams();
   const projectQuery = useProject(projectId);
+  const setLastProjectId = useSetLastProjectId();
 
   useEffect(() => {
     if (projectQuery.data) {
       setLastProjectId(projectQuery.data.id);
     }
-  }, [projectQuery.data]);
+  }, [projectQuery.data, setLastProjectId]);
 
   if (projectQuery.isLoading) {
     return (

@@ -1,27 +1,23 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { queryPersister } from "@/utils/query-persister";
+import { useAtomValue, useSetAtom } from "jotai";
+import { atomWithStorage } from "jotai/utils";
 
-const QUERY_KEY = ["settings", "link-warning-dismissed"] as const;
+const linkWarningDismissedAtom = atomWithStorage(
+  "gspot:settings:link-warning-dismissed",
+  false,
+  undefined,
+  { getOnInit: true },
+);
 
 export function useLinkWarningDismissed() {
-  const queryClient = useQueryClient();
-
-  const { data: dismissed = false } = useQuery({
-    queryKey: QUERY_KEY,
-    queryFn: () => false,
-    staleTime: Infinity,
-    refetchOnMount: false,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
-    persister: queryPersister as any,
-  });
+  const dismissed = useAtomValue(linkWarningDismissedAtom);
+  const setDismissed = useSetAtom(linkWarningDismissedAtom);
 
   const dismiss = () => {
-    queryClient.setQueryData(QUERY_KEY, true);
+    setDismissed(true);
   };
 
   const reset = () => {
-    queryClient.setQueryData(QUERY_KEY, false);
+    setDismissed(false);
   };
 
   return { dismissed, dismiss, reset } as const;

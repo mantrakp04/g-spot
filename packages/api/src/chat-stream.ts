@@ -13,7 +13,9 @@ import {
   awaitChatToolApproval,
   finishChatRuntimeStream,
   getChatRuntime,
+  markChatRuntimeRead,
   startChatRuntimeStream,
+  subscribeToChatRuntimeStatuses,
   subscribeToChatRuntimeStream,
 } from "./chat-runtime";
 import { refreshChatTitle } from "./chat-title";
@@ -58,8 +60,23 @@ type ChatSocket = {
   };
 };
 
+type ChatStatusSocket = {
+  raw: {
+    send: (data: string) => unknown;
+  };
+};
+
+type ChatStatusSocketClientMessage = {
+  type: "mark_read";
+  chatId: string;
+};
+
 const chatSocketSubscriptions = new WeakMap<
   ChatSocket,
+  () => void
+>();
+const chatStatusSocketSubscriptions = new WeakMap<
+  ChatStatusSocket,
   () => void
 >();
 
@@ -111,21 +128,13 @@ function isPersistablePiMessage(message: unknown): message is Message {
   return role === "user" || role === "assistant" || role === "toolResult";
 }
 
-/**
- * Compare two user messages by their content. Used to detect that the
- * incoming user message is the trigger row that the client just persisted
- * via `chat.replaceMessages` (regenerate / edit flow). Timestamps differ
- * between calls so we ignore them and only compare role + content.
- */
-function userMessageContentMatches(
-  stored: Message,
-  incoming: Message,
-): boolean {
-  if (stored.role !== "user" || incoming.role !== "user") {
-    return false;
+function getIncomingUiMessageId(message: unknown) {
+  if (!message || typeof message !== "object") {
+    return null;
   }
 
-  return JSON.stringify(stored.content) === JSON.stringify(incoming.content);
+  const id = (message as { id?: unknown }).id;
+  return typeof id === "string" && id.length > 0 ? id : null;
 }
 
 async function startChatRun(body: ChatStreamRequestBody): Promise<void> {
@@ -175,24 +184,17 @@ async function startChatRun(body: ChatStreamRequestBody): Promise<void> {
     );
     const history = storedMessages.map((row) => row.parsedMessage);
 
-    // Regenerate / edit flow: the client persists the truncated history
-    // (including the trigger user message) via `chat.replaceMessages` and
-    // then re-sends that user message via this stream. If we don't dedupe
-    // here, we'd both add it to the agent's in-memory history a second time
-    // and persist it as a brand-new row, leaving a duplicate user bubble in
-    // the chat. Detect that case by comparing the last persisted message
-    // against the incoming user message — when they match, drop it from the
-    // in-memory history (so `sendUserMessage` is the single source) and
-    // remember the existing row id so the persistence subscriber can reuse
-    // it instead of inserting a duplicate.
-    let preExistingTriggerRowId: string | null = null;
-    if (storedMessages.length > 0) {
-      const lastStored = storedMessages[storedMessages.length - 1]!;
-      if (userMessageContentMatches(lastStored.parsedMessage, userMessage)) {
-        history.pop();
-        preExistingTriggerRowId = lastStored.id;
-      }
+    const triggerMessageId = getIncomingUiMessageId(body.message) ?? nanoid();
+    if (storedMessages.some((message) => message.id === triggerMessageId)) {
+      throw new Error(
+        "Trigger message is already persisted. Trim chat history before starting a run.",
+      );
     }
+
+    await saveChatMessage(body.chatId, {
+      id: triggerMessageId,
+      message: serializePiMessage(userMessage),
+    });
 
     const { session, config } = await createPiAgentSession({
       config: chatConfig,
@@ -262,7 +264,6 @@ async function startChatRun(body: ChatStreamRequestBody): Promise<void> {
     };
 
     const persistenceTasks: Promise<void>[] = [];
-    let triggerMessageId: string | null = null;
 
     const unsubscribe = session.subscribe((event: AgentSessionEvent) => {
       stream.publish(event);
@@ -271,23 +272,11 @@ async function startChatRun(body: ChatStreamRequestBody): Promise<void> {
         return;
       }
 
-      // First user message_end is the trigger. If the row already exists in
-      // DB (regenerate / edit dedupe above), reuse its id and skip the
-      // duplicate insert; otherwise create a fresh row id like normal.
-      if (
-        event.message.role === "user" &&
-        triggerMessageId === null &&
-        preExistingTriggerRowId !== null
-      ) {
-        triggerMessageId = preExistingTriggerRowId;
-        preExistingTriggerRowId = null;
+      if (event.message.role === "user") {
         return;
       }
 
       const rowId = nanoid();
-      if (event.message.role === "user" && triggerMessageId === null) {
-        triggerMessageId = rowId;
-      }
 
       persistenceTasks.push(
         saveChatMessage(body.chatId, {
@@ -303,7 +292,10 @@ async function startChatRun(body: ChatStreamRequestBody): Promise<void> {
         await Promise.all(persistenceTasks);
 
         const finalMessages = session.messages.filter(isPersistablePiMessage);
-        if (triggerMessageId) {
+        const isFirstUserTurn =
+          finalMessages.filter((message) => message.role === "user").length === 1;
+
+        if (triggerMessageId && isFirstUserTurn) {
           void refreshChatTitle({
             chatId: body.chatId,
             messages: finalMessages,
@@ -338,30 +330,6 @@ async function startChatRun(body: ChatStreamRequestBody): Promise<void> {
       error,
     });
     throw error;
-  }
-}
-
-export async function handleChatStream(request: Request): Promise<Response> {
-  try {
-    const body = (await request.json()) as ChatStreamRequestBody;
-    await startChatRun(body);
-    return new Response(null, { status: 202 });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Stream failed";
-    const status =
-      message === "Missing user message"
-        ? 400
-        : message === "Chat not found"
-          ? 404
-          : 502;
-
-    return new Response(
-      JSON.stringify({ error: message }),
-      {
-        status,
-        headers: { "content-type": "application/json" },
-      },
-    );
   }
 }
 
@@ -425,4 +393,52 @@ export function handleChatSocketClose(
   ws: ChatSocket,
 ) {
   detachChatSocket(ws);
+}
+
+export function handleChatStatusSocketOpen(ws: ChatStatusSocket) {
+  const unsubscribe = subscribeToChatRuntimeStatuses((statuses) => {
+    ws.raw.send(JSON.stringify({
+      type: "runtime_statuses",
+      statuses,
+    }));
+  });
+
+  chatStatusSocketSubscriptions.set(ws, unsubscribe);
+}
+
+export function handleChatStatusSocketMessage(
+  _ws: ChatStatusSocket,
+  rawMessage: unknown,
+) {
+  const payload =
+    typeof rawMessage === "string"
+      ? rawMessage
+      : Buffer.isBuffer(rawMessage)
+        ? rawMessage.toString()
+        : JSON.stringify(rawMessage);
+
+  let message: ChatStatusSocketClientMessage;
+  try {
+    message = JSON.parse(payload) as ChatStatusSocketClientMessage;
+  } catch {
+    return;
+  }
+
+  if (
+    message.type === "mark_read" &&
+    typeof message.chatId === "string" &&
+    message.chatId.length > 0
+  ) {
+    markChatRuntimeRead(message.chatId);
+  }
+}
+
+export function handleChatStatusSocketClose(ws: ChatStatusSocket) {
+  const unsubscribe = chatStatusSocketSubscriptions.get(ws);
+  if (!unsubscribe) {
+    return;
+  }
+
+  unsubscribe();
+  chatStatusSocketSubscriptions.delete(ws);
 }

@@ -9,7 +9,7 @@ import { cn } from "@g-spot/ui/lib/utils";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import type { OAuthConnection } from "@stackframe/react";
 import { Download, Loader2, RefreshCw, RotateCcw, X } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 
 import { useGoogleProfile } from "@/hooks/use-gmail-options";
@@ -38,7 +38,9 @@ export function GoogleAccountRow({
       }),
     refetchInterval: (query) => {
       const status = query.state.data?.status;
-      return status === "running" || status === "paused" ? 1500 : false;
+      return status === "running" || status === "paused" || status === "interrupted"
+        ? 1500
+        : false;
     },
   });
 
@@ -50,7 +52,9 @@ export function GoogleAccountRow({
       }),
     refetchInterval: () => {
       const status = syncProgress.data?.status;
-      return status === "running" || status === "paused" ? 1500 : false;
+      return status === "running" || status === "paused" || status === "interrupted"
+        ? 1500
+        : false;
     },
   });
 
@@ -81,14 +85,6 @@ export function GoogleAccountRow({
       syncFailures.refetch();
     },
   });
-
-  const handleSync = useCallback(() => {
-    startSyncMutation.mutate("auto");
-  }, [startSyncMutation]);
-
-  const handleRetry = useCallback(() => {
-    startSyncMutation.mutate("retry_failed");
-  }, [startSyncMutation]);
 
   async function handleRemove() {
     setRemoving(true);
@@ -134,11 +130,14 @@ export function GoogleAccountRow({
 
   const isSyncing = syncProgress.data?.status === "running";
   const syncData = syncProgress.data;
+  const failedThreadCount = syncFailures.data?.length ?? 0;
+  const syncAction = getSyncAction(syncData, failedThreadCount);
   const showSyncProgress = Boolean(
     syncData
       && (isSyncing
         || syncData.status === "paused"
-        || syncData.failedThreads > 0),
+        || syncData.status === "interrupted"
+        || failedThreadCount > 0),
   );
   const failureSummary = summarizeFailures(syncFailures.data ?? []);
   const latestFailure = syncFailures.data?.[0] ?? null;
@@ -175,27 +174,34 @@ export function GoogleAccountRow({
             !isSyncing && "opacity-0 group-hover/row:opacity-100",
           )}
         >
-          {!isSyncing && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-6 text-muted-foreground hover:text-foreground"
-              onClick={handleSync}
-              disabled={startSyncMutation.isPending}
-              title={
-                syncData?.status === "paused"
-                  ? "Resume sync"
-                  : "Start sync"
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className={cn(
+              "size-6 text-muted-foreground hover:text-foreground",
+              isSyncing && "hover:text-destructive",
+            )}
+            onClick={() => {
+              if (syncAction.kind === "cancel") {
+                cancelSyncMutation.mutate();
+              } else {
+                startSyncMutation.mutate(syncAction.intent);
               }
-            >
-              {startSyncMutation.isPending ? (
-                <Loader2 className="size-3 animate-spin" />
-              ) : (
-                <Download className="size-3" strokeWidth={2} />
-              )}
-            </Button>
-          )}
+            }}
+            disabled={startSyncMutation.isPending || cancelSyncMutation.isPending}
+            title={syncAction.label}
+          >
+            {startSyncMutation.isPending || cancelSyncMutation.isPending ? (
+              <Loader2 className="size-3 animate-spin" />
+            ) : syncAction.icon === "retry" ? (
+              <RotateCcw className="size-3" strokeWidth={2} />
+            ) : syncAction.icon === "cancel" ? (
+              <X className="size-3" strokeWidth={2.5} />
+            ) : (
+              <Download className="size-3" strokeWidth={2} />
+            )}
+          </Button>
           <Button
             type="button"
             variant="ghost"
@@ -227,10 +233,11 @@ export function GoogleAccountRow({
       {/* Sync progress bar */}
       {showSyncProgress && syncData && (
         <SyncProgressBar
-          total={syncData.totalThreads}
-          fetched={syncData.fetchedThreads}
-          processableTotal={syncData.processableThreads}
-          processed={syncData.processedThreads}
+          statusLabel={getSyncStatusLabel(syncData)}
+          mailTotal={syncData.mail.totalThreads}
+          mailSynced={syncData.mail.syncedThreads}
+          inboxTotal={syncData.extraction.totalInboxThreads}
+          inboxAnalyzed={syncData.extraction.analyzedInboxThreads}
           fetchFailed={fetchFailed}
           processFailed={processFailed}
         />
@@ -255,80 +262,92 @@ export function GoogleAccountRow({
           )}
         </div>
       )}
-
-      {/* Cancel / retry */}
-      {isSyncing ? (
-        <div className="mt-1.5 ml-10 flex items-center gap-2">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-auto gap-1 px-1.5 py-0.5 text-[11px] text-muted-foreground hover:text-destructive"
-            onClick={() => cancelSyncMutation.mutate()}
-            disabled={cancelSyncMutation.isPending}
-          >
-            <X className="size-3" strokeWidth={2.5} />
-            Cancel sync
-          </Button>
-        </div>
-      ) : (
-        syncData && syncData.status !== "paused" && syncData.failedThreads > 0 && (
-          <div className="mt-1.5 ml-10 flex items-center gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-auto gap-1 px-1.5 py-0.5 text-[11px] text-amber-400 hover:text-amber-300"
-              onClick={handleRetry}
-              disabled={startSyncMutation.isPending}
-            >
-              <RotateCcw
-                className={cn("size-3", startSyncMutation.isPending && "animate-spin")}
-              />
-              {`Retry ${syncData.failedThreads} failed`}
-            </Button>
-          </div>
-        )
-      )}
     </li>
   );
 }
 
 function SyncProgressBar({
-  total,
-  fetched,
-  processableTotal,
-  processed,
+  statusLabel,
+  mailTotal,
+  mailSynced,
+  inboxTotal,
+  inboxAnalyzed,
   fetchFailed,
   processFailed,
 }: {
-  total: number;
-  fetched: number;
-  processableTotal: number;
-  processed: number;
+  statusLabel: string;
+  mailTotal: number;
+  mailSynced: number;
+  inboxTotal: number;
+  inboxAnalyzed: number;
   fetchFailed: number;
   processFailed: number;
 }) {
   return (
     <div className="mt-2 ml-10 space-y-2">
+      <p className="text-[10px] text-muted-foreground">{statusLabel}</p>
       <PhaseBar
-        label="Fetch"
-        total={total}
-        done={fetched}
+        label="Mail"
+        total={mailTotal}
+        done={mailSynced}
         failed={fetchFailed}
         doneClass="bg-blue-500/70"
         doneText="text-blue-400"
       />
       <PhaseBar
-        label="Process"
-        total={processableTotal}
-        done={processed}
+        label="Inbox analysis"
+        total={inboxTotal}
+        done={inboxAnalyzed}
         failed={processFailed}
         doneClass="bg-emerald-500/70"
         doneText="text-emerald-400"
       />
     </div>
   );
+}
+
+type SyncProgressData = NonNullable<
+  Awaited<ReturnType<typeof trpcClient.gmailSync.getSyncProgress.query>>
+>;
+
+function getSyncAction(
+  syncData: SyncProgressData | null | undefined,
+  failedThreadCount: number,
+):
+  | { kind: "cancel"; icon: "cancel"; label: string }
+  | { kind: "start"; icon: "download" | "retry"; intent: "auto" | "retry_failed"; label: string } {
+  if (syncData?.status === "running") {
+    return { kind: "cancel", icon: "cancel", label: "Cancel sync" };
+  }
+  if (syncData?.status === "error") {
+    return { kind: "start", icon: "retry", intent: "auto", label: "Retry sync" };
+  }
+  if (failedThreadCount > 0 && syncData?.status !== "paused" && syncData?.status !== "interrupted") {
+    return {
+      kind: "start",
+      icon: "retry",
+      intent: "retry_failed",
+      label: `Retry ${failedThreadCount} failed`,
+    };
+  }
+  if (syncData?.status === "paused") {
+    return { kind: "start", icon: "download", intent: "auto", label: "Resume sync" };
+  }
+  if (syncData?.status === "interrupted") {
+    return { kind: "start", icon: "download", intent: "auto", label: "Resume interrupted sync" };
+  }
+  return { kind: "start", icon: "download", intent: "auto", label: "Sync" };
+}
+
+function getSyncStatusLabel(syncData: SyncProgressData): string {
+  if (syncData.status === "running") {
+    return syncData.phase === "extracting" ? "Analyzing inbox" : "Syncing mail";
+  }
+  if (syncData.status === "paused") return "Paused";
+  if (syncData.status === "interrupted") return "Interrupted";
+  if (syncData.status === "error") return "Needs attention";
+  if (syncData.status === "completed") return "Synced";
+  return "Not synced";
 }
 
 function PhaseBar({

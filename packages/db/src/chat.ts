@@ -12,13 +12,12 @@ type ChatListCursor = {
 type CreateChatInput = {
   projectId: string;
   title?: string;
-  model?: string;
   agentConfig?: string;
 };
 
-function getFallbackSerializedAgentConfig(model: string) {
+function getFallbackSerializedAgentConfig() {
   return JSON.stringify({
-    modelId: model,
+    modelId: "gpt-5.4-mini",
     thinkingLevel: "off",
   });
 }
@@ -103,14 +102,12 @@ export async function getChat(chatId: string) {
 export async function createChat(input: CreateChatInput) {
   const id = nanoid();
   const now = new Date().toISOString();
-  const model = input.model ?? "gpt-5.4-mini";
 
   await db.insert(chats).values({
     id,
     projectId: input.projectId,
     title: input.title ?? "New Chat",
-    model,
-    agentConfig: input.agentConfig ?? getFallbackSerializedAgentConfig(model),
+    agentConfig: input.agentConfig ?? getFallbackSerializedAgentConfig(),
     createdAt: now,
     updatedAt: now,
   });
@@ -125,22 +122,13 @@ export async function updateChatTitle(chatId: string, title: string) {
     .where(eq(chats.id, chatId));
 }
 
-export async function updateChatModel(chatId: string, model: string) {
-  await db
-    .update(chats)
-    .set({ model, updatedAt: new Date().toISOString() })
-    .where(eq(chats.id, chatId));
-}
-
 export async function updateChatAgentConfig(
   chatId: string,
   agentConfig: string,
-  model: string,
 ) {
   await db
     .update(chats)
     .set({
-      model,
       agentConfig,
       updatedAt: new Date().toISOString(),
     })
@@ -232,7 +220,6 @@ export async function replaceChatMessages(
 export async function forkChat(
   projectId: string,
   title: string | undefined,
-  model: string | undefined,
   agentConfig: string | undefined,
   messages: Array<{ id: string; message: string }>,
 ) {
@@ -240,11 +227,7 @@ export async function forkChat(
   const now = new Date().toISOString();
   const forkedMessages = messages.map((message) => {
     const nextMessageId = nanoid();
-    const parsedMessage = JSON.parse(message.message) as { id?: string };
-    const nextSerializedMessage = JSON.stringify({
-      ...parsedMessage,
-      id: nextMessageId,
-    });
+    const nextSerializedMessage = message.message;
 
     return {
       id: nextMessageId,
@@ -259,8 +242,7 @@ export async function forkChat(
       id,
       projectId,
       title: title ?? "New Chat",
-      model: model ?? "gpt-5.4-mini",
-      agentConfig: agentConfig ?? getFallbackSerializedAgentConfig(model ?? "gpt-5.4-mini"),
+      agentConfig: agentConfig ?? getFallbackSerializedAgentConfig(),
       createdAt: now,
       updatedAt: now,
     });

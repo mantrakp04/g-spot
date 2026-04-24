@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, Circle, CircleDashed, XCircle } from "lucide-react";
+import { CheckCircle2, Circle, CircleDashed, RotateCw, XCircle } from "lucide-react";
+import type { OAuthConnection } from "@stackframe/react";
+import { toast } from "sonner";
 
 import { Button } from "@g-spot/ui/components/button";
 
-import type { CheckItem } from "@/hooks/use-github-detail";
+import type { CheckItem, ReviewTarget } from "@/hooks/use-github-detail";
+import { useRerunCheckMutation } from "@/hooks/use-github-detail";
 
 function formatDuration(ms: number) {
   if (ms < 0 || !Number.isFinite(ms)) return null;
@@ -59,8 +62,33 @@ function isPassing(c: CheckItem) {
   );
 }
 
-export function ChecksPanel({ checks }: { checks: CheckItem[] }) {
+function isFailed(c: CheckItem) {
+  return (
+    c.status === "completed" &&
+    (c.conclusion === "failure" ||
+      c.conclusion === "timed_out" ||
+      c.conclusion === "cancelled")
+  );
+}
+
+export function ChecksPanel({
+  checks,
+  target,
+  account,
+  headSha,
+}: {
+  checks: CheckItem[];
+  target?: ReviewTarget;
+  account?: OAuthConnection | null;
+  headSha?: string;
+}) {
   const [showAll, setShowAll] = useState(false);
+  const rerun = useRerunCheckMutation(
+    target ?? { kind: "pr", owner: "", repo: "", number: 0 },
+    account ?? null,
+    headSha,
+  );
+  const canRerun = !!target && !!account;
 
   if (checks.length === 0) {
     return (
@@ -106,16 +134,46 @@ export function ChecksPanel({ checks }: { checks: CheckItem[] }) {
         <ul className="space-y-0.5">
           {visible.map((c) => (
             <li key={c.name}>
-              <a
-                href={c.detailsUrl ?? "#"}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-2 rounded-md px-2 py-1 text-[12px] hover:bg-muted"
-              >
+              <div className="group/check flex items-center gap-2 rounded-md px-2 py-1 text-[12px] hover:bg-muted">
                 <CheckIcon status={c.status} conclusion={c.conclusion} />
-                <span className="flex-1 truncate">{c.name}</span>
+                <a
+                  href={c.detailsUrl ?? "#"}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="min-w-0 flex-1 truncate hover:underline"
+                >
+                  {c.name}
+                </a>
+                {canRerun && isFailed(c) ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label={`Retry ${c.name}`}
+                    title="Retry"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      rerun.mutate(
+                        { check: c },
+                        {
+                          onSuccess: () =>
+                            toast.success(`Retrying ${c.name}`),
+                          onError: (err) =>
+                            toast.error(
+                              err instanceof Error
+                                ? err.message
+                                : "Failed to retry check",
+                            ),
+                        },
+                      );
+                    }}
+                    className="opacity-0 transition-opacity group-hover/check:opacity-100 focus-visible:opacity-100"
+                  >
+                    <RotateCw />
+                  </Button>
+                ) : null}
                 <CheckDuration c={c} />
-              </a>
+              </div>
             </li>
           ))}
         </ul>
@@ -147,6 +205,28 @@ function CheckIcon({
   status: string;
   conclusion: string | null;
 }) {
+  if (status === "in_progress") {
+    return (
+      <span className="relative inline-flex size-3.5 shrink-0 items-center justify-center">
+        <svg
+          viewBox="0 0 16 16"
+          fill="none"
+          className="absolute inset-0 size-3.5 animate-spin text-amber-500"
+        >
+          <circle
+            cx="8"
+            cy="8"
+            r="6.25"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeDasharray="28 10"
+            strokeLinecap="round"
+          />
+        </svg>
+        <span className="size-1.5 rounded-full bg-amber-500" />
+      </span>
+    );
+  }
   if (status !== "completed") {
     return <CircleDashed className="size-3.5 text-amber-500" />;
   }

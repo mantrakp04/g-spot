@@ -1,34 +1,77 @@
+import { Plus } from "lucide-react";
+import type { OAuthConnection } from "@stackframe/react";
+
+import { Button } from "@g-spot/ui/components/button";
+
+import type { ReviewTarget } from "@/hooks/use-github-detail";
+import { useGitHubIssueDetail } from "@/hooks/use-github-detail";
+
 import {
-  SidebarAddButton,
+  AssigneePicker,
+  CloseReopenButton,
+  LabelEditor,
+  MilestonePicker,
+} from "./action-bar";
+import {
   SidebarEmpty,
   SidebarSection,
 } from "./sidebar-section";
 import { StateBadge } from "./state-badge";
 
+type Issue = NonNullable<ReturnType<typeof useGitHubIssueDetail>["data"]>;
 type Actor = { login: string; avatarUrl: string };
 
 export function IssueSidebar({
-  state,
-  stateReason,
-  author,
-  assignees,
-  labels,
-  milestone,
+  issue,
+  target,
+  account,
 }: {
-  state: "open" | "closed";
-  stateReason: string | null;
-  author: Actor | null;
-  assignees: Actor[];
-  labels: Array<{ name: string; color: string }>;
-  milestone: string | null;
+  issue: Issue;
+  target: ReviewTarget;
+  account: OAuthConnection | null;
 }) {
+  const state = issue.state as "open" | "closed";
+  const stateReason = issue.state_reason ?? null;
+  const author: Actor | null = issue.user
+    ? { login: issue.user.login, avatarUrl: issue.user.avatar_url }
+    : null;
+  const assignees: Actor[] = (issue.assignees ?? []).map((a) => ({
+    login: a.login,
+    avatarUrl: a.avatar_url,
+  }));
+  const labels = issue.labels.map((l) => {
+    if (typeof l === "string") return { name: l, color: "aeaeb8" };
+    return { name: l.name ?? "", color: l.color ?? "aeaeb8" };
+  });
+  const milestone = issue.milestone?.title ?? null;
+
   return (
     <div>
-      <div className="mb-3 rounded-md border border-border/50 bg-card p-3">
+      <div className="mb-3 flex items-center justify-between gap-2 rounded-md border border-border/50 bg-card px-3 py-2.5">
         <StateBadge kind="issue" state={state} stateReason={stateReason} />
+        {account ? (
+          <CloseReopenButton
+            target={target}
+            account={account}
+            state={state}
+            stateReason={stateReason}
+          />
+        ) : null}
       </div>
 
-      <SidebarSection label="Assignees" action={<SidebarAddButton />}>
+      <SidebarSection
+        label="Assignees"
+        action={
+          account ? (
+            <AssigneePicker
+              target={target}
+              account={account}
+              item={issue}
+              trigger={<SidebarIconTrigger label="Edit assignees" />}
+            />
+          ) : null
+        }
+      >
         {assignees.length > 0 ? (
           <ul className="space-y-1">
             {assignees.map((a) => (
@@ -40,7 +83,19 @@ export function IssueSidebar({
         )}
       </SidebarSection>
 
-      <SidebarSection label="Labels" action={<SidebarAddButton />}>
+      <SidebarSection
+        label="Labels"
+        action={
+          account ? (
+            <LabelEditor
+              target={target}
+              account={account}
+              item={issue}
+              trigger={<SidebarIconTrigger label="Edit labels" />}
+            />
+          ) : null
+        }
+      >
         {labels.length > 0 ? (
           <div className="flex flex-wrap gap-1.5">
             {labels.map((l) => (
@@ -61,11 +116,25 @@ export function IssueSidebar({
         )}
       </SidebarSection>
 
-      {milestone ? (
-        <SidebarSection label="Milestone">
+      <SidebarSection
+        label="Milestone"
+        action={
+          account ? (
+            <MilestonePicker
+              target={target}
+              account={account}
+              item={issue}
+              trigger={<SidebarIconTrigger label="Edit milestone" />}
+            />
+          ) : null
+        }
+      >
+        {milestone ? (
           <div className="text-[12px]">{milestone}</div>
-        </SidebarSection>
-      ) : null}
+        ) : (
+          <SidebarEmpty>No milestone</SidebarEmpty>
+        )}
+      </SidebarSection>
 
       {author ? (
         <SidebarSection label="Author">
@@ -73,6 +142,23 @@ export function IssueSidebar({
         </SidebarSection>
       ) : null}
     </div>
+  );
+}
+
+function SidebarIconTrigger({
+  label,
+  ...props
+}: { label: string } & React.ComponentProps<typeof Button>) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-sm"
+      aria-label={label}
+      {...props}
+    >
+      <Plus />
+    </Button>
   );
 }
 

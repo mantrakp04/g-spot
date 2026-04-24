@@ -15,6 +15,33 @@ type MessageMetadataResponse = {
   };
 };
 
+const CONTACT_METADATA_CONCURRENCY = 3;
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  mapper: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await mapper(items[currentIndex]!);
+    }
+  }
+
+  await Promise.all(
+    Array.from(
+      { length: Math.min(limit, items.length) },
+      () => worker(),
+    ),
+  );
+  return results;
+}
+
 function getHeaderValue(msg: MessageMetadataResponse, name: string): string {
   return (
     msg.payload?.headers?.find(
@@ -111,15 +138,15 @@ export async function fetchKnownContacts(
   ]);
 
   const [sentMessages, receivedMessages] = await Promise.all([
-    Promise.all(
-      sentIds.map((id) =>
-        fetchMessageMetadata(accessToken, id, ["To", "Cc", "Bcc"]),
-      ),
+    mapWithConcurrency(
+      sentIds,
+      CONTACT_METADATA_CONCURRENCY,
+      (id) => fetchMessageMetadata(accessToken, id, ["To", "Cc", "Bcc"]),
     ),
-    Promise.all(
-      receivedIds.map((id) =>
-        fetchMessageMetadata(accessToken, id, ["From"]),
-      ),
+    mapWithConcurrency(
+      receivedIds,
+      CONTACT_METADATA_CONCURRENCY,
+      (id) => fetchMessageMetadata(accessToken, id, ["From"]),
     ),
   ]);
 

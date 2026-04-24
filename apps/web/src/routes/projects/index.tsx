@@ -7,7 +7,7 @@ import { FolderPlus, Plus } from "lucide-react";
 import { useEffect } from "react";
 
 import { useProjects } from "@/hooks/use-projects";
-import { getLastProjectId, setLastProjectId } from "@/lib/active-project";
+import { useLastProjectId, useSetLastProjectId } from "@/lib/active-project";
 
 export const Route = createFileRoute("/projects/")({
   component: ProjectsIndexPage,
@@ -16,6 +16,8 @@ export const Route = createFileRoute("/projects/")({
 function ProjectsIndexPage() {
   const navigate = useNavigate();
   const projectsQuery = useProjects();
+  const lastProjectId = useLastProjectId();
+  const setLastProjectId = useSetLastProjectId();
 
   // Auto-redirect to the last-used project (or the first one) when there's
   // a sensible target. We do this in an effect so the loading state still
@@ -23,17 +25,18 @@ function ProjectsIndexPage() {
   useEffect(() => {
     const projects = projectsQuery.data;
     if (!projects || projects.length === 0) return;
-    const lastId = getLastProjectId();
     const target =
-      (lastId && projects.find((p) => p.id === lastId)) ?? projects[0];
+      (lastProjectId && projects.find((p) => p.id === lastProjectId)) ??
+      projects[0];
     if (target) {
+      setLastProjectId(target.id);
       void navigate({
         to: "/projects/$projectId",
         params: { projectId: target.id },
         replace: true,
       });
     }
-  }, [navigate, projectsQuery.data]);
+  }, [lastProjectId, navigate, projectsQuery.data, setLastProjectId]);
 
   if (projectsQuery.isLoading) {
     return (
@@ -74,7 +77,6 @@ function ProjectsIndexPage() {
 
   // Once the effect lands on a real project, we won't render. Show a quiet
   // skeleton in the meantime.
-  setLastProjectId(projects[0]?.id ?? null);
   return (
     <div className="container mx-auto max-w-3xl space-y-6 px-4 py-12">
       <Skeleton className="h-32 w-full rounded-xl" />

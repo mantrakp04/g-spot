@@ -1,7 +1,10 @@
 import { env } from "@g-spot/env/server";
+import { getFileById } from "@g-spot/db/files";
 import type { Message, UserMessage } from "@mariozechner/pi-ai";
 
 import { detectDocumentKind, extractDocumentText } from "./extract-document";
+import { getOrCreateFileExtraction } from "./file-extraction-cache";
+import { getLocalObjectPath } from "./storage";
 
 const INLINE_TEXT_FILE_EXTENSIONS = new Set([
   "c",
@@ -60,11 +63,12 @@ type IncomingUserPart = {
   type?: unknown;
   text?: unknown;
   url?: unknown;
+  fileId?: unknown;
   mediaType?: unknown;
   filename?: unknown;
 };
 
-type IncomingUserMessage = {
+export type IncomingUserMessage = {
   role?: unknown;
   parts?: unknown;
 };
@@ -153,11 +157,6 @@ function escapeXmlAttr(value: string) {
     .replaceAll(">", "&gt;");
 }
 
-function extractFileIdFromUrl(url: string): string | null {
-  const match = url.match(/\/api\/files\/([^/?#]+)/);
-  return match?.[1] ?? null;
-}
-
 /**
  * Envelope format that survives pi-coding-agent's `sendUserMessage` text-join:
  * every text block gets joined with "\n" into one string, so the client has
@@ -166,12 +165,18 @@ function extractFileIdFromUrl(url: string): string | null {
 function createAttachmentEnvelope(
   filename: string | undefined,
   fileId: string | null,
+  localPath: string | undefined,
+  extractedTextPath: string | undefined,
   mediaType: string | undefined,
   body: string,
 ) {
   const attrs: string[] = [];
   if (filename) attrs.push(`filename="${escapeXmlAttr(filename)}"`);
   if (fileId) attrs.push(`fileId="${escapeXmlAttr(fileId)}"`);
+  if (localPath) attrs.push(`localPath="${escapeXmlAttr(localPath)}"`);
+  if (extractedTextPath) {
+    attrs.push(`extractedTextPath="${escapeXmlAttr(extractedTextPath)}"`);
+  }
   if (mediaType) attrs.push(`mediaType="${escapeXmlAttr(mediaType)}"`);
   const openTag = attrs.length > 0
     ? `<gs-attachment ${attrs.join(" ")}>`
@@ -204,7 +209,7 @@ async function createUserContentFromParts(
       continue;
     }
 
-    if (part.type !== "file" || typeof part.url !== "string") {
+    if (part.type !== "file") {
       continue;
     }
 
@@ -212,21 +217,38 @@ async function createUserContentFromParts(
       typeof part.filename === "string" ? part.filename : undefined;
     const mediaType =
       typeof part.mediaType === "string" ? part.mediaType : undefined;
-    const fileId = extractFileIdFromUrl(part.url);
+    const fileId = typeof part.fileId === "string" ? part.fileId : null;
+    const file = fileId ? await getFileById(fileId) : null;
+    const localPath = file ? getLocalObjectPath(file.s3Key) : undefined;
+    const url =
+      typeof part.url === "string"
+        ? part.url
+        : fileId
+          ? `/api/files/${fileId}`
+          : null;
+
+    if (!url) {
+      continue;
+    }
 
     if (mediaType?.startsWith("image/")) {
-      imageBlocks.push(await readImageFromUrl(part.url, mediaType));
+      imageBlocks.push(await readImageFromUrl(url, mediaType));
       continue;
     }
 
     if (isTextLikeFile(part)) {
+      const extraction = file
+        ? await getOrCreateFileExtraction(file, () => readTextFromUrl(url))
+        : null;
       attachmentBlocks.push({
         type: "text",
         text: createAttachmentEnvelope(
           filename,
           fileId,
+          localPath,
+          extraction?.truncated ? extraction.localPath : undefined,
           mediaType ?? "text/plain",
-          await readTextFromUrl(part.url),
+          extraction ? extraction.inlineText : await readTextFromUrl(url),
         ),
       });
       continue;
@@ -236,15 +258,32 @@ async function createUserContentFromParts(
 
     if (kind) {
       try {
-        const buffer = await readArrayBufferFromUrl(part.url);
-        const extracted = await extractDocumentText(
-          buffer,
-          kind,
-          filename ?? "attachment",
-        );
+        const buffer = await readArrayBufferFromUrl(url);
+        const extraction = file
+          ? await getOrCreateFileExtraction(file, () =>
+              extractDocumentText(buffer, kind, filename ?? "attachment"),
+            )
+          : null;
+        const extracted =
+          extraction?.inlineText ??
+          (await extractDocumentText(
+            buffer,
+            kind,
+            filename ?? "attachment",
+          ));
+        const extractedTextPath = extraction?.truncated
+          ? extraction.localPath
+          : undefined;
         attachmentBlocks.push({
           type: "text",
-          text: createAttachmentEnvelope(filename, fileId, mediaType, extracted),
+          text: createAttachmentEnvelope(
+            filename,
+            fileId,
+            localPath,
+            extractedTextPath,
+            mediaType,
+            extracted,
+          ),
         });
       } catch (error) {
         console.error("Failed to extract document text", {
@@ -258,6 +297,8 @@ async function createUserContentFromParts(
           text: createAttachmentEnvelope(
             filename,
             fileId,
+            localPath,
+            undefined,
             mediaType,
             `[Failed to extract ${kind.toUpperCase()} contents: ${
               error instanceof Error ? error.message : String(error)
@@ -273,6 +314,8 @@ async function createUserContentFromParts(
       text: createAttachmentEnvelope(
         filename,
         fileId,
+        localPath,
+        undefined,
         mediaType,
         "[Unsupported attachment omitted from model context.]",
       ),
@@ -287,8 +330,13 @@ function isPiMessage(value: unknown): value is Message {
     return false;
   }
 
-  const role = (value as { role?: unknown }).role;
-  return role === "user" || role === "assistant" || role === "toolResult";
+  const message = value as { role?: unknown; content?: unknown };
+  const role = message.role;
+  if (role !== "user" && role !== "assistant" && role !== "toolResult") {
+    return false;
+  }
+
+  return typeof message.content === "string" || Array.isArray(message.content);
 }
 
 export function serializePiMessage(message: Message) {

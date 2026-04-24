@@ -1,35 +1,21 @@
 import { useCallback } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useAtomValue, useSetAtom } from "jotai";
+import { atomWithStorage } from "jotai/utils";
 
-import { sidebarKeys } from "@/lib/query-keys";
-
-const STORAGE_KEY = "gspot.sidebar.setup-checklist-dismissed";
+const setupChecklistDismissedAtom = atomWithStorage(
+  "gspot.sidebar.setup-checklist-dismissed",
+  false,
+  undefined,
+  { getOnInit: true },
+);
 
 export function useSetupChecklistDismissed() {
-  const queryClient = useQueryClient();
-
-  const { data: dismissed = false } = useQuery({
-    queryKey: sidebarKeys.setupChecklistDismissed(),
-    queryFn: () => {
-      if (typeof window === "undefined") {
-        return false;
-      }
-
-      return window.localStorage.getItem(STORAGE_KEY) === "true";
-    },
-    staleTime: Infinity,
-    refetchOnMount: false,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
-  });
+  const dismissed = useAtomValue(setupChecklistDismissedAtom);
+  const setDismissed = useSetAtom(setupChecklistDismissedAtom);
 
   const dismiss = useCallback(() => {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(STORAGE_KEY, "true");
-    }
-
-    queryClient.setQueryData(sidebarKeys.setupChecklistDismissed(), true);
-  }, [queryClient]);
+    setDismissed(true);
+  }, [setDismissed]);
 
   return { dismissed, dismiss } as const;
 }

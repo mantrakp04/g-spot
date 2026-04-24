@@ -1,8 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Octokit } from "octokit";
+import type { Octokit } from "octokit";
 import type { OAuthConnection } from "@stackframe/react";
 
-import { getConnectedAccountAccessToken } from "@/lib/connected-account";
+import {
+  getGitHubOctokit,
+  requireGitHubAccount,
+} from "@/lib/github/client";
+import { normalizePullRequestFiles } from "@/lib/github/pr-files";
 import { persistedStaleWhileRevalidateQueryOptions } from "@/utils/query-defaults";
 
 export type ReviewKind = "pr" | "issue";
@@ -76,17 +80,12 @@ export const githubDetailKeys = {
     accountId: string | null | undefined,
   ) =>
     ["github", "repo-milestones", accountId ?? null, t.owner, t.repo] as const,
+  repoBranches: (
+    t: Pick<ReviewTarget, "owner" | "repo">,
+    accountId: string | null | undefined,
+  ) =>
+    ["github", "repo-branches", accountId ?? null, t.owner, t.repo] as const,
 };
-
-async function octokit(account: OAuthConnection) {
-  const accessToken = await getConnectedAccountAccessToken(account);
-  return new Octokit({ auth: accessToken });
-}
-
-function requireAccount(account: OAuthConnection | null): OAuthConnection {
-  if (!account) throw new Error("No GitHub account connected");
-  return account;
-}
 
 function decodeBase64Utf8(b64: string): string {
   const bin = atob(b64.replace(/\n/g, ""));
@@ -109,7 +108,7 @@ export function useGitHubPRDetail(
     queryKey: githubDetailKeys.pr(target, account?.providerAccountId),
     enabled: !!account && target.kind === "pr",
     queryFn: async () => {
-      const kit = await octokit(requireAccount(account));
+      const kit = await getGitHubOctokit(requireGitHubAccount(account));
       const { data } = await kit.rest.pulls.get({
         owner: target.owner,
         repo: target.repo,
@@ -134,7 +133,7 @@ export function useGitHubPRFiles(
     ],
     enabled: !!account && target.kind === "pr",
     queryFn: async () => {
-      const kit = await octokit(requireAccount(account));
+      const kit = await getGitHubOctokit(requireGitHubAccount(account));
       if (range) {
         const { data } = await kit.rest.repos.compareCommits({
           owner: target.owner,
@@ -143,7 +142,12 @@ export function useGitHubPRFiles(
           head: range.headSha,
           per_page: 100,
         });
-        return data.files ?? [];
+        return normalizePullRequestFiles(data.files ?? [], {
+          owner: target.owner,
+          repo: target.repo,
+          number: target.number,
+          rangeKey,
+        });
       }
       const { data } = await kit.rest.pulls.listFiles({
         owner: target.owner,
@@ -151,7 +155,12 @@ export function useGitHubPRFiles(
         pull_number: target.number,
         per_page: 100,
       });
-      return data;
+      return normalizePullRequestFiles(data, {
+        owner: target.owner,
+        repo: target.repo,
+        number: target.number,
+        rangeKey,
+      });
     },
     ...persistedStaleWhileRevalidateQueryOptions,
   });
@@ -165,7 +174,7 @@ export function useGitHubPRCommits(
     queryKey: githubDetailKeys.prCommits(target, account?.providerAccountId),
     enabled: !!account && target.kind === "pr",
     queryFn: async () => {
-      const kit = await octokit(requireAccount(account));
+      const kit = await getGitHubOctokit(requireGitHubAccount(account));
       const { data } = await kit.rest.pulls.listCommits({
         owner: target.owner,
         repo: target.repo,
@@ -198,7 +207,7 @@ export function useGitHubFileContents(
     ),
     enabled: !!account && !!ref && enabled,
     queryFn: async (): Promise<string | null> => {
-      const kit = await octokit(requireAccount(account));
+      const kit = await getGitHubOctokit(requireGitHubAccount(account));
       try {
         const { data } = await kit.rest.repos.getContent({
           owner: target.owner,
@@ -290,7 +299,7 @@ export function useGitHubPRTimeline(
     queryKey: githubDetailKeys.prTimeline(target, account?.providerAccountId),
     enabled: !!account && target.kind === "pr",
     queryFn: async (): Promise<TimelineEvent[]> => {
-      const kit = await octokit(requireAccount(account));
+      const kit = await getGitHubOctokit(requireGitHubAccount(account));
       const [comments, reviews] = await Promise.all([
         kit.rest.issues.listComments({
           owner: target.owner,
@@ -339,12 +348,16 @@ export function useGitHubPRTimeline(
 }
 
 export type CheckItem = {
+  id: number;
   name: string;
   status: string;
   conclusion: string | null;
   detailsUrl: string | null;
   startedAt: string | null;
   completedAt: string | null;
+  appSlug: string | null;
+  checkSuiteId: number | null;
+  externalId: string | null;
 };
 
 export function useGitHubPRChecks(
@@ -359,7 +372,7 @@ export function useGitHubPRChecks(
     ],
     enabled: !!account && !!headSha && target.kind === "pr",
     queryFn: async (): Promise<CheckItem[]> => {
-      const kit = await octokit(requireAccount(account));
+      const kit = await getGitHubOctokit(requireGitHubAccount(account));
       const { data } = await kit.rest.checks.listForRef({
         owner: target.owner,
         repo: target.repo,
@@ -367,12 +380,16 @@ export function useGitHubPRChecks(
         per_page: 100,
       });
       return data.check_runs.map((c) => ({
+        id: c.id,
         name: c.name,
         status: c.status,
         conclusion: c.conclusion,
         detailsUrl: c.details_url,
         startedAt: c.started_at ?? null,
         completedAt: c.completed_at ?? null,
+        appSlug: c.app?.slug ?? null,
+        checkSuiteId: c.check_suite?.id ?? null,
+        externalId: c.external_id ?? null,
       }));
     },
     ...persistedStaleWhileRevalidateQueryOptions,
@@ -418,7 +435,7 @@ export function useGitHubPRStack(
     enabled: !!account && !!pr && target.kind === "pr",
     queryFn: async (): Promise<StackNode[]> => {
       if (!pr) return [];
-      const kit = await octokit(requireAccount(account));
+      const kit = await getGitHubOctokit(requireGitHubAccount(account));
       const [parents, children] = await Promise.all([
         kit.rest.pulls.list({
           owner: target.owner,
@@ -466,6 +483,7 @@ export type ReviewCommentUser = { login: string; avatarUrl: string } | null;
 
 export type ReviewComment = {
   id: number;
+  htmlUrl: string;
   inReplyToId: number | null;
   path: string;
   line: number | null;
@@ -555,9 +573,9 @@ export function useGitHubPRReviewComments(
     queryKey: githubDetailKeys.prReviewComments(target, account?.providerAccountId),
     enabled: !!account && target.kind === "pr",
     queryFn: async (): Promise<Record<string, ReviewComment[]>> => {
-      const kit = await octokit(requireAccount(account));
-      const [{ data }, threadMap] = await Promise.all([
-        kit.rest.pulls.listReviewComments({
+      const kit = await getGitHubOctokit(requireGitHubAccount(account));
+      const [data, threadMap] = await Promise.all([
+        kit.paginate(kit.rest.pulls.listReviewComments, {
           owner: target.owner,
           repo: target.repo,
           pull_number: target.number,
@@ -569,6 +587,7 @@ export function useGitHubPRReviewComments(
         const thread = threadMap.get(c.id);
         return {
           id: c.id,
+          htmlUrl: c.html_url,
           inReplyToId: c.in_reply_to_id ?? null,
           path: c.path,
           line: c.line ?? null,
@@ -609,7 +628,7 @@ export function useReplyReviewComment(
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (args: { commentId: number; body: string }) => {
-      const kit = await octokit(requireAccount(account));
+      const kit = await getGitHubOctokit(requireGitHubAccount(account));
       const { data } = await kit.rest.pulls.createReplyForReviewComment({
         owner: target.owner,
         repo: target.repo,
@@ -644,7 +663,7 @@ export function useResolveReviewThread(
   const accountId = account?.providerAccountId;
   return useMutation({
     mutationFn: async (args: { threadId: string; resolve: boolean }) => {
-      const kit = await octokit(requireAccount(account));
+      const kit = await getGitHubOctokit(requireGitHubAccount(account));
       const mutation = args.resolve
         ? `mutation($id:ID!){ resolveReviewThread(input:{threadId:$id}){ thread{ id isResolved } } }`
         : `mutation($id:ID!){ unresolveReviewThread(input:{threadId:$id}){ thread{ id isResolved } } }`;
@@ -689,7 +708,7 @@ export function useGitHubIssueDetail(
     queryKey: githubDetailKeys.issue(target, account?.providerAccountId),
     enabled: !!account && target.kind === "issue",
     queryFn: async () => {
-      const kit = await octokit(requireAccount(account));
+      const kit = await getGitHubOctokit(requireGitHubAccount(account));
       const { data } = await kit.rest.issues.get({
         owner: target.owner,
         repo: target.repo,
@@ -709,7 +728,7 @@ export function useGitHubIssueTimeline(
     queryKey: githubDetailKeys.issueTimeline(target, account?.providerAccountId),
     enabled: !!account && target.kind === "issue",
     queryFn: async (): Promise<TimelineEvent[]> => {
-      const kit = await octokit(requireAccount(account));
+      const kit = await getGitHubOctokit(requireGitHubAccount(account));
       const { data } = await kit.rest.issues.listComments({
         owner: target.owner,
         repo: target.repo,
@@ -755,7 +774,7 @@ export function useGitHubPRDeployments(
     ),
     enabled: !!account && !!headSha && target.kind === "pr",
     queryFn: async (): Promise<DeploymentSummary[]> => {
-      const kit = await octokit(requireAccount(account));
+      const kit = await getGitHubOctokit(requireGitHubAccount(account));
       const { data: deployments } = await kit.rest.repos.listDeployments({
         owner: target.owner,
         repo: target.repo,
@@ -808,7 +827,7 @@ export function useGitHubRepoLabels(
     queryKey: githubDetailKeys.repoLabels(target, account?.providerAccountId),
     enabled: !!account,
     queryFn: async () => {
-      const kit = await octokit(requireAccount(account));
+      const kit = await getGitHubOctokit(requireGitHubAccount(account));
       const { data } = await kit.rest.issues.listLabelsForRepo({
         owner: target.owner,
         repo: target.repo,
@@ -828,7 +847,7 @@ export function useGitHubRepoAssignees(
     queryKey: githubDetailKeys.repoAssignees(target, account?.providerAccountId),
     enabled: !!account,
     queryFn: async () => {
-      const kit = await octokit(requireAccount(account));
+      const kit = await getGitHubOctokit(requireGitHubAccount(account));
       const { data } = await kit.rest.issues.listAssignees({
         owner: target.owner,
         repo: target.repo,
@@ -851,7 +870,7 @@ export function useGitHubRepoMilestones(
     ),
     enabled: !!account,
     queryFn: async () => {
-      const kit = await octokit(requireAccount(account));
+      const kit = await getGitHubOctokit(requireGitHubAccount(account));
       const { data } = await kit.rest.issues.listMilestones({
         owner: target.owner,
         repo: target.repo,
@@ -938,7 +957,7 @@ export function useIssueLabelsMutation(
       name: string;
       enabled: boolean;
     }) => {
-      const kit = await octokit(requireAccount(account));
+      const kit = await getGitHubOctokit(requireGitHubAccount(account));
       if (enabled) {
         await kit.rest.issues.addLabels({
           owner: target.owner,
@@ -1014,7 +1033,7 @@ export function useIssueAssigneesMutation(
       login: string;
       enabled: boolean;
     }) => {
-      const kit = await octokit(requireAccount(account));
+      const kit = await getGitHubOctokit(requireGitHubAccount(account));
       if (enabled) {
         await kit.rest.issues.addAssignees({
           owner: target.owner,
@@ -1087,7 +1106,7 @@ export function useIssueMilestoneMutation(
   const accountId = account?.providerAccountId;
   return useMutation({
     mutationFn: async ({ milestone }: { milestone: number | null }) => {
-      const kit = await octokit(requireAccount(account));
+      const kit = await getGitHubOctokit(requireGitHubAccount(account));
       await kit.rest.issues.update({
         owner: target.owner,
         repo: target.repo,
@@ -1129,7 +1148,7 @@ export function useIssueStateMutation(
   const accountId = account?.providerAccountId;
   return useMutation({
     mutationFn: async ({ state }: { state: "open" | "closed" }) => {
-      const kit = await octokit(requireAccount(account));
+      const kit = await getGitHubOctokit(requireGitHubAccount(account));
       await kit.rest.issues.update({
         owner: target.owner,
         repo: target.repo,
@@ -1160,7 +1179,7 @@ export function useGitHubViewer(account: OAuthConnection | null) {
     queryKey: ["github", "viewer", account?.providerAccountId ?? null] as const,
     enabled: !!account,
     queryFn: async () => {
-      const kit = await octokit(requireAccount(account));
+      const kit = await getGitHubOctokit(requireGitHubAccount(account));
       const { data } = await kit.rest.users.getAuthenticated();
       return data;
     },
@@ -1200,7 +1219,7 @@ export function useMyReactions(
     queryKey: myReactionsKey(target, account?.providerAccountId, scope),
     enabled: !!account && enabled,
     queryFn: async (): Promise<MyReactions> => {
-      const kit = await octokit(requireAccount(account));
+      const kit = await getGitHubOctokit(requireGitHubAccount(account));
       const viewer = await kit.rest.users.getAuthenticated();
       const me = viewer.data.login;
       const list = await (scope.kind === "issue-comment"
@@ -1284,7 +1303,7 @@ export function useReactionMutation(
       scope: ReactionScope;
       content: ReactionContent;
     }) => {
-      const kit = await octokit(requireAccount(account));
+      const kit = await getGitHubOctokit(requireGitHubAccount(account));
       // Resolve viewer's existing reaction for this content via cache or fresh fetch.
       const cached = qc.getQueryData<MyReactions>(
         myReactionsKey(target, accountId, scope),
@@ -1444,6 +1463,158 @@ export function useReactionMutation(
   });
 }
 
+export function usePRDraftMutation(
+  target: ReviewTarget,
+  account: OAuthConnection | null,
+) {
+  const qc = useQueryClient();
+  const accountId = account?.providerAccountId;
+  return useMutation({
+    mutationFn: async ({
+      draft,
+      nodeId,
+    }: {
+      draft: boolean;
+      nodeId: string;
+    }) => {
+      const kit = await getGitHubOctokit(requireGitHubAccount(account));
+      const mutation = draft
+        ? `mutation($id:ID!){ convertPullRequestToDraft(input:{pullRequestId:$id}){ pullRequest{ id isDraft } } }`
+        : `mutation($id:ID!){ markPullRequestReadyForReview(input:{pullRequestId:$id}){ pullRequest{ id isDraft } } }`;
+      return kit.graphql(mutation, { id: nodeId });
+    },
+    onMutate: async ({ draft }) => {
+      const key = githubDetailKeys.pr(target, accountId);
+      await qc.cancelQueries({ queryKey: key });
+      const prev = qc.getQueryData<PRDetail>(key);
+      if (prev) {
+        qc.setQueryData<PRDetail>(key, { ...prev, draft } as PRDetail);
+      }
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) {
+        qc.setQueryData(githubDetailKeys.pr(target, accountId), ctx.prev);
+      }
+    },
+    onSettled: () => {
+      qc.invalidateQueries({
+        queryKey: githubDetailKeys.pr(target, accountId),
+      });
+    },
+  });
+}
+
+export function useRerunCheckMutation(
+  target: ReviewTarget,
+  account: OAuthConnection | null,
+  headSha: string | null | undefined,
+) {
+  const qc = useQueryClient();
+  const accountId = account?.providerAccountId;
+  return useMutation({
+    mutationFn: async ({ check }: { check: CheckItem }) => {
+      const kit = await getGitHubOctokit(requireGitHubAccount(account));
+      // GitHub's rerun endpoints all require the parent workflow run to be
+      // fully completed — you can't retry a job while its siblings are still
+      // running. We branch by check owner and surface a friendly error if the
+      // run isn't done.
+      const isActions =
+        check.appSlug === "github-actions" ||
+        (check.detailsUrl?.includes("/actions/") ?? false);
+      if (isActions) {
+        const urlMatch = check.detailsUrl?.match(
+          /\/actions\/runs\/(\d+)\/job\/(\d+)/,
+        );
+        const runId = urlMatch ? Number(urlMatch[1]) : NaN;
+        const jobId = Number.isFinite(Number(check.externalId))
+          ? Number(check.externalId)
+          : urlMatch
+            ? Number(urlMatch[2])
+            : NaN;
+        // Prefer the failed-jobs endpoint — reruns every failed job in the run
+        // in one call, which is almost always what the user wants.
+        if (Number.isFinite(runId)) {
+          const { data: run } = await kit.rest.actions.getWorkflowRun({
+            owner: target.owner,
+            repo: target.repo,
+            run_id: runId,
+          });
+          if (run.status !== "completed") {
+            throw new Error(
+              "Workflow is still running — wait for it to finish before retrying.",
+            );
+          }
+          await kit.rest.actions.reRunWorkflowFailedJobs({
+            owner: target.owner,
+            repo: target.repo,
+            run_id: runId,
+          });
+          return;
+        }
+        if (Number.isFinite(jobId)) {
+          await kit.rest.actions.reRunJobForWorkflowRun({
+            owner: target.owner,
+            repo: target.repo,
+            job_id: jobId,
+          });
+          return;
+        }
+      }
+      // Third-party Apps (Vercel, CircleCI, etc.) — suite-level rerequest has
+      // the broadest coverage; per-run rerequest as last resort.
+      if (check.checkSuiteId) {
+        try {
+          await kit.rest.checks.rerequestSuite({
+            owner: target.owner,
+            repo: target.repo,
+            check_suite_id: check.checkSuiteId,
+          });
+          return;
+        } catch {
+          // fall through
+        }
+      }
+      await kit.rest.checks.rerequestRun({
+        owner: target.owner,
+        repo: target.repo,
+        check_run_id: check.id,
+      });
+    },
+    onMutate: async ({ check }) => {
+      const key = [
+        ...githubDetailKeys.prChecks(target, accountId),
+        headSha ?? null,
+      ] as const;
+      await qc.cancelQueries({ queryKey: key });
+      const prev = qc.getQueryData<CheckItem[]>(key);
+      if (prev) {
+        const next = prev.map((c) =>
+          c.id === check.id
+            ? {
+                ...c,
+                status: "queued",
+                conclusion: null,
+                startedAt: null,
+                completedAt: null,
+              }
+            : c,
+        );
+        qc.setQueryData<CheckItem[]>(key, next);
+      }
+      return { prev, key };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) qc.setQueryData(ctx.key, ctx.prev);
+    },
+    onSettled: () => {
+      qc.invalidateQueries({
+        queryKey: githubDetailKeys.prChecks(target, accountId),
+      });
+    },
+  });
+}
+
 export function useRequestReviewersMutation(
   target: ReviewTarget,
   account: OAuthConnection | null,
@@ -1458,7 +1629,7 @@ export function useRequestReviewersMutation(
       login: string;
       enabled: boolean;
     }) => {
-      const kit = await octokit(requireAccount(account));
+      const kit = await getGitHubOctokit(requireGitHubAccount(account));
       if (enabled) {
         await kit.rest.pulls.requestReviewers({
           owner: target.owner,
@@ -1546,7 +1717,7 @@ export function useApplySuggestionMutation(
       endLine: number;
       replacement: string;
     }) => {
-      const kit = await octokit(requireAccount(account));
+      const kit = await getGitHubOctokit(requireGitHubAccount(account));
       const { data } = await kit.rest.repos.getContent({
         owner: target.owner,
         repo: target.repo,
@@ -1580,6 +1751,64 @@ export function useApplySuggestionMutation(
       qc.invalidateQueries({ queryKey: ["github", "pr-timeline"] });
       qc.invalidateQueries({ queryKey: ["github", "pr-review-comments"] });
       qc.invalidateQueries({ queryKey: ["github", "file-contents"] });
+    },
+  });
+}
+
+export function useGitHubRepoBranches(
+  target: Pick<ReviewTarget, "owner" | "repo">,
+  account: OAuthConnection | null,
+  enabled: boolean = true,
+) {
+  return useQuery({
+    queryKey: githubDetailKeys.repoBranches(target, account?.providerAccountId),
+    enabled: !!account && enabled,
+    queryFn: async () => {
+      const kit = await getGitHubOctokit(requireGitHubAccount(account));
+      const branches = await kit.paginate(kit.rest.repos.listBranches, {
+        owner: target.owner,
+        repo: target.repo,
+        per_page: 100,
+      });
+      return branches.map((b) => ({ name: b.name, protected: b.protected }));
+    },
+    ...persistedStaleWhileRevalidateQueryOptions,
+  });
+}
+
+export function useUpdatePRBaseMutation(
+  target: ReviewTarget,
+  account: OAuthConnection | null,
+) {
+  const qc = useQueryClient();
+  const accountId = account?.providerAccountId;
+  return useMutation({
+    mutationFn: async (base: string) => {
+      const kit = await getGitHubOctokit(requireGitHubAccount(account));
+      const { data } = await kit.rest.pulls.update({
+        owner: target.owner,
+        repo: target.repo,
+        pull_number: target.number,
+        base,
+      });
+      return data;
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({
+        queryKey: githubDetailKeys.pr(target, accountId),
+      });
+      void qc.invalidateQueries({
+        queryKey: githubDetailKeys.prFiles(target, accountId),
+      });
+      void qc.invalidateQueries({
+        queryKey: githubDetailKeys.prCommits(target, accountId),
+      });
+      void qc.invalidateQueries({
+        queryKey: githubDetailKeys.prTimeline(target, accountId),
+      });
+      void qc.invalidateQueries({
+        queryKey: githubDetailKeys.prStack(target, accountId),
+      });
     },
   });
 }

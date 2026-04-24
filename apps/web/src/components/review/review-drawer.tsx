@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { OAuthConnection } from "@stackframe/react";
-import { Octokit } from "octokit";
 import { AlertCircle, MessageSquare, CheckCircle2, XCircle } from "lucide-react";
 
 import { Button } from "@g-spot/ui/components/button";
@@ -10,7 +9,8 @@ import { RadioGroup, RadioGroupItem } from "@g-spot/ui/components/radio-group";
 import { Textarea } from "@g-spot/ui/components/textarea";
 import { cn } from "@g-spot/ui/lib/utils";
 
-import { getConnectedAccountAccessToken } from "@/lib/connected-account";
+import { getGitHubOctokit } from "@/lib/github/client";
+import { getPendingCommentsKey } from "@/lib/review/pr-review-state";
 import {
   githubDetailKeys,
   type ReviewTarget,
@@ -77,16 +77,9 @@ export function ReviewForm({
   initialEvent?: ReviewEvent;
   onSubmitted?: () => void;
 }) {
-  const pending = usePendingComments({
-    owner: target.owner,
-    repo: target.repo,
-    prNumber: target.number,
-  });
-  const clearPending = useClearPendingComments({
-    owner: target.owner,
-    repo: target.repo,
-    prNumber: target.number,
-  });
+  const pendingKey = getPendingCommentsKey(target);
+  const pendingInlineComments = usePendingComments(pendingKey);
+  const clearPendingInlineComments = useClearPendingComments(pendingKey);
 
   const [event, setEvent] = useState<ReviewEvent>(initialEvent ?? "COMMENT");
   useEffect(() => {
@@ -97,15 +90,14 @@ export function ReviewForm({
 
   const submit = useMutation({
     mutationFn: async () => {
-      const accessToken = await getConnectedAccountAccessToken(account);
-      const kit = new Octokit({ auth: accessToken });
+      const kit = await getGitHubOctokit(account);
       const { data } = await kit.rest.pulls.createReview({
         owner: target.owner,
         repo: target.repo,
         pull_number: target.number,
         event,
         body: body.trim() || undefined,
-        comments: pending.map(toOctokitComment),
+        comments: pendingInlineComments.map(toOctokitComment),
       });
       return data;
     },
@@ -124,7 +116,7 @@ export function ReviewForm({
           ),
         }),
       ]);
-      clearPending();
+      clearPendingInlineComments();
       setBody("");
       setEvent("COMMENT");
       onSubmitted?.();
@@ -132,7 +124,8 @@ export function ReviewForm({
   });
 
   const canSubmit =
-    !submit.isPending && (pending.length > 0 || body.trim().length > 0);
+    !submit.isPending &&
+    (pendingInlineComments.length > 0 || body.trim().length > 0);
 
   return (
     <div className="flex w-[420px] flex-col gap-3">

@@ -67,24 +67,7 @@ export function IssueReviewView({
   );
 
   const sidebar = issue ? (
-    <IssueSidebar
-      state={issue.state as "open" | "closed"}
-      stateReason={issue.state_reason ?? null}
-      author={
-        issue.user
-          ? { login: issue.user.login, avatarUrl: issue.user.avatar_url }
-          : null
-      }
-      assignees={(issue.assignees ?? []).map((a) => ({
-        login: a.login,
-        avatarUrl: a.avatar_url,
-      }))}
-      labels={issue.labels.map((l) => {
-        if (typeof l === "string") return { name: l, color: "aeaeb8" };
-        return { name: l.name ?? "", color: l.color ?? "aeaeb8" };
-      })}
-      milestone={issue.milestone?.title ?? null}
-    />
+    <IssueSidebar issue={issue} target={target} account={account} />
   ) : (
     <div className="space-y-3">
       {[0, 1, 2].map((i) => (

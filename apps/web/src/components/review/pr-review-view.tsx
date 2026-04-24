@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { OAuthConnection } from "@stackframe/react";
 import { Button } from "@g-spot/ui/components/button";
 import { Kbd } from "@g-spot/ui/components/kbd";
@@ -8,9 +14,18 @@ import {
   HoverCardContent,
   HoverCardTrigger,
 } from "@g-spot/ui/components/hover-card";
-import { AlertTriangle, ArrowDown, ArrowUp, FileText, MessageSquare, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowDown,
+  ArrowUp,
+  FileText,
+  MessageSquare,
+  PanelLeftClose,
+  PanelLeftOpen,
+} from "lucide-react";
 import { cn } from "@g-spot/ui/lib/utils";
 import { useHotkeys } from "@tanstack/react-hotkeys";
+import { useVirtualizer } from "@tanstack/react-virtual";
 
 import type { ReviewTarget } from "@/hooks/use-github-detail";
 import {
@@ -27,7 +42,14 @@ import { useSetAllFiles } from "./diff-collapse-state";
 import { DiffCustomizerMenu } from "./diff-customizer";
 
 import { usePendingComments } from "@/hooks/use-pending-comments";
-import { useLocalStorageState } from "@/lib/use-local-storage-state";
+import {
+  getPendingCommentsKey,
+  getPRReviewState,
+} from "@/lib/review/pr-review-state";
+import {
+  useReviewDiffMode,
+  useReviewTreeOpen,
+} from "@/lib/review/review-preferences";
 
 // Sticky top strip (48px) + files toolbar (48px). Crossing this means the
 // Files section is pinned; switch the floating pill from "skip to code" to
@@ -42,7 +64,6 @@ import {
   DiffSkeleton,
   FileDiffCard,
   FileTreePanel,
-  type DiffMode,
   type PRFile,
 } from "./diff-viewer";
 import { PRCondensedHeader, PRFullHeader } from "./pr-header";
@@ -52,45 +73,6 @@ import { Timeline, TimelineSkeleton } from "./timeline";
 
 const FILE_EXPAND_LIMIT = 50;
 const EMPTY_COMMENTS: never[] = [];
-
-// Mount the heavy <FileDiffCard> only when its placeholder is within ~2
-// viewports of the visible area. Once mounted, stays mounted so inline
-// composer/thread state isn't lost on scroll.
-function LazyFileMount({
-  estimatedHeight,
-  children,
-}: {
-  estimatedHeight: number;
-  children: React.ReactNode;
-}) {
-  const ref = useRef<HTMLDivElement | null>(null);
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    if (mounted) return;
-    const el = ref.current;
-    if (!el) return;
-    if (typeof IntersectionObserver === "undefined") {
-      setMounted(true);
-      return;
-    }
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((e) => e.isIntersecting)) {
-          setMounted(true);
-          observer.disconnect();
-        }
-      },
-      { rootMargin: "200% 0px 200% 0px" },
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [mounted]);
-  return (
-    <div ref={ref} style={mounted ? undefined : { minHeight: estimatedHeight }}>
-      {mounted ? children : null}
-    </div>
-  );
-}
 
 // Rough px guess: header (~36) + per-line (~18) capped so an enormous file
 // doesn't reserve a screen-and-a-half of empty space.
@@ -211,38 +193,31 @@ export function PRReviewView({
   const stack = useGitHubPRStack(target, account, detail.data);
   const reviewComments = useGitHubPRReviewComments(target, account);
 
-  const pending = usePendingComments({
-    owner: target.owner,
-    repo: target.repo,
-    prNumber: target.number,
-  });
+  const pendingKey = useMemo(
+    () => getPendingCommentsKey(target),
+    [target.owner, target.repo, target.number],
+  );
+  const pendingInlineComments = usePendingComments(pendingKey);
 
-  const [diffMode, setDiffMode] = useLocalStorageState<DiffMode>(
-    "gspot:review:diff-mode",
-    "split",
-    (raw) => (raw === "unified" ? "unified" : "split"),
-  );
-  const [treeOpen, setTreeOpen] = useLocalStorageState<boolean>(
-    "gspot:review:tree-open",
-    true,
-    (raw) => raw !== "false",
-  );
+  const [diffMode, setDiffMode] = useReviewDiffMode();
+  const [treeOpen, setTreeOpen] = useReviewTreeOpen();
   const [commentsOpen, setCommentsOpen] = useState(false);
 
-  const isLoading = detail.isLoading || files.isLoading || timeline.isLoading;
   const pr = detail.data;
 
-  // GitHub occasionally returns duplicate entries for the same filename
-  // (renames, symlinks like CLAUDE.md → AGENTS.md). Keep the last one so the
-  // file appears once with final stats.
   const fileList = useMemo(() => {
-    const raw = (files.data ?? []) as unknown as PRFile[];
-    const byName = new Map<string, PRFile>();
-    for (const f of raw) byName.set(f.filename, f);
-    return Array.from(byName.values());
+    return (files.data ?? []) as unknown as PRFile[];
   }, [files.data]);
-  const fileRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const reviewState = getPRReviewState({
+    detailLoading: detail.isLoading,
+    filesLoading: files.isLoading,
+    timelineLoading: timeline.isLoading,
+    reviewComments: reviewComments.data,
+  });
+  const virtualListRef = useRef<HTMLDivElement | null>(null);
   const [activeFile, setActiveFile] = useState<string | null>(null);
+  const [scrollElement, setScrollElement] = useState<HTMLElement | null>(null);
+  const [virtualScrollMargin, setVirtualScrollMargin] = useState(0);
 
   const setAllFiles = useSetAllFiles();
   useEffect(() => {
@@ -253,6 +228,62 @@ export function PRReviewView({
   }, [fileList, setAllFiles]);
   const filesSectionRef = useRef<HTMLDivElement | null>(null);
   const [floatingState, setFloatingState] = useState<"skip" | "top">("skip");
+
+  useEffect(() => {
+    const nextScrollElement = filesSectionRef.current?.closest(
+      ".overflow-y-auto",
+    ) as HTMLElement | null;
+    setScrollElement(nextScrollElement);
+  }, [fileList.length]);
+
+  useEffect(() => {
+    if (!scrollElement) return;
+
+    const updateScrollMargin = () => {
+      const list = virtualListRef.current;
+      if (!list) return;
+
+      const listRect = list.getBoundingClientRect();
+      const scrollRect = scrollElement.getBoundingClientRect();
+      setVirtualScrollMargin(
+        listRect.top - scrollRect.top + scrollElement.scrollTop,
+      );
+    };
+
+    updateScrollMargin();
+    window.addEventListener("resize", updateScrollMargin);
+
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(updateScrollMargin);
+    if (filesSectionRef.current) observer?.observe(filesSectionRef.current);
+
+    return () => {
+      window.removeEventListener("resize", updateScrollMargin);
+      observer?.disconnect();
+    };
+  }, [scrollElement, fileList.length]);
+
+  const fileVirtualizer = useVirtualizer({
+    count: fileList.length,
+    getItemKey: (index) => fileList[index]?.filename ?? index,
+    getScrollElement: () => scrollElement,
+    estimateSize: (index) => estimateDiffHeight(fileList[index]!) + 12,
+    onChange: (instance) => {
+      const virtualFiles = instance.getVirtualItems();
+      const visibleTop = (scrollElement?.scrollTop ?? 0) + 56;
+      const firstVisible =
+        virtualFiles.find((item) => item.end > visibleTop) ?? virtualFiles[0];
+      const filename = firstVisible
+        ? fileList[firstVisible.index]?.filename
+        : null;
+      if (!filename) return;
+      setActiveFile((prev) => (prev === filename ? prev : filename));
+    },
+    overscan: 4,
+    scrollMargin: virtualScrollMargin,
+  });
 
   useEffect(() => {
     const el = filesSectionRef.current;
@@ -275,7 +306,10 @@ export function PRReviewView({
   }, [fileList.length]);
 
   const scrollToFiles = useCallback(() => {
-    filesSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    filesSectionRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
   }, []);
   const scrollToTop = useCallback(() => {
     const el = filesSectionRef.current?.closest(
@@ -291,12 +325,19 @@ export function PRReviewView({
     }
   }, [fileList, activeFile]);
 
-  const scrollToFile = useCallback((filename: string) => {
-    const el = fileRefs.current.get(filename);
-    if (!el) return;
-    el.scrollIntoView({ behavior: "smooth", block: "start" });
-    setActiveFile(filename);
-  }, []);
+  const scrollToFile = useCallback(
+    (filename: string) => {
+      const index = fileList.findIndex((f) => f.filename === filename);
+      if (index === -1) return;
+
+      setActiveFile(filename);
+      fileVirtualizer.scrollToIndex(index, {
+        align: "start",
+        behavior: "auto",
+      });
+    },
+    [fileList, fileVirtualizer],
+  );
 
   // composedPath reaches into shadow DOM. Pierre's file tree and diff viewer
   // render their inputs inside shadow roots, so the window-level target is
@@ -341,28 +382,7 @@ export function PRReviewView({
     },
   ]);
 
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visible = entries
-          .filter((e) => e.isIntersecting)
-          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
-        const first = visible[0]?.target as HTMLElement | undefined;
-        if (first?.dataset.filename) setActiveFile(first.dataset.filename);
-      },
-      { rootMargin: "-15% 0px -70% 0px", threshold: 0 },
-    );
-    for (const el of fileRefs.current.values()) observer.observe(el);
-    return () => observer.disconnect();
-  }, [fileList]);
-
   const repoLabel = `${target.owner}/${target.repo}`;
-
-  const commentCount = useMemo(() => {
-    let n = 0;
-    for (const list of Object.values(reviewComments.data ?? {})) n += list.length;
-    return n;
-  }, [reviewComments.data]);
 
   const fullHeader = pr ? (
     <PRFullHeader
@@ -382,6 +402,9 @@ export function PRReviewView({
       deletions={pr.deletions ?? 0}
       updatedAgo={relativeTime(pr.updated_at)}
       stack={stack.data ?? []}
+      target={target}
+      account={account}
+      canChangeBase={pr.state === "open" && !pr.merged}
     />
   ) : (
     <HeaderSkeleton />
@@ -395,36 +418,17 @@ export function PRReviewView({
 
   const sidebar = pr ? (
     <PRSidebar
-      state={pr.state as "open" | "closed"}
-      isDraft={pr.draft ?? false}
-      merged={pr.merged ?? false}
-      mergeable={pr.mergeable ?? null}
+      pr={pr}
+      target={target}
+      account={account}
       checks={checks.data ?? []}
       checksLoading={checks.isLoading}
-      author={
-        pr.user
-          ? { login: pr.user.login, avatarUrl: pr.user.avatar_url }
-          : null
-      }
-      reviewers={(pr.requested_reviewers ?? [])
-        .filter((r): r is NonNullable<typeof r> => r != null)
-        .map((r) => ({
-          login: r.login,
-          avatarUrl: r.avatar_url,
-        }))}
-      labels={(pr.labels ?? []).map((l) => ({
-        name: l.name,
-        color: l.color,
-      }))}
-      assignees={(pr.assignees ?? []).map((a) => ({
-        login: a.login,
-        avatarUrl: a.avatar_url,
-      }))}
-      milestone={pr.milestone?.title ?? null}
     />
   ) : (
     <SidebarSkeleton />
   );
+  const virtualFiles = fileVirtualizer.getVirtualItems();
+  const virtualTotalSize = fileVirtualizer.getTotalSize();
 
   const main = (
     <div className="space-y-8">
@@ -490,7 +494,7 @@ export function PRReviewView({
               title="View comments"
             >
               <MessageSquare />
-              {commentCount}
+              {reviewState.inlineCommentCount}
             </Button>
             <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground/70">
               Press <Kbd>j</Kbd>/<Kbd>k</Kbd>
@@ -530,44 +534,57 @@ export function PRReviewView({
                 onSelect={scrollToFile}
               />
             )}
-            <div className="min-w-0 space-y-3 py-3 pl-3">
+            <div className="min-w-0 py-3 pl-3">
               {fileList.length > FILE_EXPAND_LIMIT ? (
-                <div className="flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12px] text-muted-foreground">
+                <div className="mb-3 flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12px] text-muted-foreground">
                   <AlertTriangle className="size-3.5 shrink-0 text-amber-500" />
                   This PR has {fileList.length} files. To improve performance,
                   only the first {FILE_EXPAND_LIMIT} files are expanded by
                   default — the rest are collapsed.
                 </div>
               ) : null}
-              {fileList.map((f) => (
-                <div
-                  key={f.filename}
-                  data-filename={f.filename}
-                  ref={(el) => {
-                    if (el) fileRefs.current.set(f.filename, el);
-                    else fileRefs.current.delete(f.filename);
-                  }}
-                >
-                  <LazyFileMount estimatedHeight={estimateDiffHeight(f)}>
-                    <FileDiffCard
-                      file={f}
-                      isActive={activeFile === f.filename}
-                      mode={diffMode}
-                      comments={reviewComments.data?.[f.filename] ?? EMPTY_COMMENTS}
-                      target={target}
-                      account={account}
-                      baseSha={pr?.base.sha}
-                      headSha={pr?.head.sha}
-                      headRef={pr?.head.ref}
-                      pendingKey={{
-                        owner: target.owner,
-                        repo: target.repo,
-                        prNumber: target.number,
+              <div
+                ref={virtualListRef}
+                className="relative"
+                style={{ height: virtualTotalSize }}
+              >
+                {virtualFiles.map((virtualFile) => {
+                  const f = fileList[virtualFile.index]!;
+                  return (
+                    <div
+                      key={virtualFile.key}
+                      data-index={virtualFile.index}
+                      data-filename={f.filename}
+                      ref={(el) => {
+                        if (el) {
+                          fileVirtualizer.measureElement(el);
+                        }
                       }}
-                    />
-                  </LazyFileMount>
-                </div>
-              ))}
+                      className="absolute left-0 top-0 w-full pb-3"
+                      style={{
+                        transform: `translateY(${
+                          virtualFile.start - virtualScrollMargin
+                        }px)`,
+                      }}
+                    >
+                      <FileDiffCard
+                        file={f}
+                        isActive={activeFile === f.filename}
+                        mode={diffMode}
+                        comments={
+                          reviewComments.data?.[f.filename] ?? EMPTY_COMMENTS
+                        }
+                        target={target}
+                        account={account}
+                        baseSha={pr?.base.sha}
+                        headSha={pr?.head.sha}
+                        headRef={pr?.head.ref}
+                        pendingKey={pendingKey}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
         )}
@@ -614,7 +631,7 @@ export function PRReviewView({
 
   return (
     <ReviewShell
-      isLoading={isLoading}
+      isLoading={reviewState.isLoading}
       fullHeader={fullHeader}
       condensedHeader={condensedHeader}
       main={main}
@@ -625,7 +642,7 @@ export function PRReviewView({
             pr={pr}
             account={account}
             target={target}
-            pendingReviewCount={pending.length}
+            pendingInlineCommentCount={pendingInlineComments.length}
           />
         ) : null
       }

@@ -18,11 +18,8 @@ import { piAgentConfigSchema } from "@g-spot/types";
 
 import { publicProcedure, router } from "../index";
 import {
-  markChatRuntimeRead,
   resolveChatToolApproval,
-  snapshotChatRuntimeStatuses,
 } from "../chat-runtime";
-import { deserializePiMessages } from "../lib/pi-chat-messages";
 import {
   getPiAgentDefaults,
   normalizePiAgentConfig,
@@ -30,7 +27,7 @@ import {
   normalizeStoredProjectAgentConfig,
 } from "../lib/pi";
 
-function withParsedAgentConfig<T extends { agentConfig?: string | null; model?: string }>(
+function withParsedAgentConfig<T extends { agentConfig?: string | null }>(
   chat: T,
 ) {
   return {
@@ -74,7 +71,6 @@ export const chatRouter = router({
       z.object({
         projectId: z.string().min(1),
         title: z.string().optional(),
-        model: z.string().min(1).optional(),
         agentConfig: piAgentConfigSchema.optional(),
       }),
     )
@@ -101,7 +97,6 @@ export const chatRouter = router({
       return createChat({
         projectId: input.projectId,
         title: input.title,
-        model: agentConfig?.modelId ?? input.model,
         agentConfig: agentConfig ? JSON.stringify(agentConfig) : undefined,
       });
     }),
@@ -112,26 +107,6 @@ export const chatRouter = router({
       await updateChatTitle(input.chatId, input.title);
     }),
 
-  updateModel: publicProcedure
-    .input(z.object({ chatId: z.string(), model: z.string().min(1) }))
-    .mutation(async ({ input }) => {
-      const chat = await getChat(input.chatId);
-      if (!chat) throw new Error("Chat not found");
-
-      const currentAgentConfig = withParsedAgentConfig(chat).agentConfig;
-      const nextAgentConfig = normalizePiAgentConfig(
-        Object.assign({}, currentAgentConfig, {
-          modelId: input.model,
-        }),
-      );
-
-      await updateChatAgentConfig(
-        input.chatId,
-        JSON.stringify(nextAgentConfig),
-        nextAgentConfig.modelId,
-      );
-    }),
-
   updateAgentConfig: publicProcedure
     .input(z.object({ chatId: z.string(), agentConfig: piAgentConfigSchema }))
     .mutation(async ({ input }) => {
@@ -139,7 +114,6 @@ export const chatRouter = router({
       await updateChatAgentConfig(
         input.chatId,
         JSON.stringify(nextAgentConfig),
-        nextAgentConfig.modelId,
       );
     }),
 
@@ -156,13 +130,23 @@ export const chatRouter = router({
       const chat = await getChat(input.chatId);
       if (!chat) return [];
       const rows = await getChatMessages(input.chatId);
-      const messages = await deserializePiMessages(rows);
-      const history: PiChatHistoryMessage[] = messages.map((row) => ({
-        ...row.parsedMessage,
-        id: row.id,
-        createdAt: row.createdAt,
-      }));
-      return history;
+      return rows.flatMap((row): PiChatHistoryMessage[] => {
+        try {
+          const parsed = JSON.parse(row.message) as object;
+          return [{
+            ...parsed,
+            id: row.id,
+            createdAt: row.createdAt,
+          } as PiChatHistoryMessage];
+        } catch (error) {
+          console.error("[chat.messages] failed to parse stored message", {
+            chatId: input.chatId,
+            messageId: row.id,
+            error,
+          });
+          return [];
+        }
+      });
     }),
 
   replaceMessages: publicProcedure
@@ -202,7 +186,6 @@ export const chatRouter = router({
       return forkChat(
         sourceChat.projectId,
         `${sourceChat.title} (fork)`,
-        sourceChat.model,
         sourceChat.agentConfig,
         input.messages,
       );
@@ -212,31 +195,6 @@ export const chatRouter = router({
     .input(z.object({ messageId: z.string() }))
     .mutation(async ({ input }) => {
       await deleteChatMessage(input.messageId);
-    }),
-
-  /**
-   * Snapshot of which of the user's chats currently have an active runtime.
-   * Used by the sidebar to show a per-chat status dot (running / pending
-   * approval / finished-unread). Chats absent from the map are
-   * idle-and-acknowledged.
-   *
-   * The web polls this at a low frequency — don't do anything expensive
-   * here.
-   */
-  runtimeStatuses: publicProcedure.query(() => {
-    return snapshotChatRuntimeStatuses();
-  }),
-
-  /**
-   * Clear the "finished-unread" dot for a chat. Called by the web when the
-   * user opens the chat (so visiting a chat always acts as an ack) and
-   * again when a stream finishes while the chat is already visible.
-   */
-  markChatRead: publicProcedure
-    .input(z.object({ chatId: z.string().min(1) }))
-    .mutation(({ input }) => {
-      const cleared = markChatRuntimeRead(input.chatId);
-      return { cleared };
     }),
 
   /**

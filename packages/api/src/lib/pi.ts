@@ -315,7 +315,6 @@ export function normalizePiAgentConfig(
 
 export function normalizeStoredChatAgentConfig(chat: {
   agentConfig?: string | null;
-  model?: string | null;
 }) {
   let parsedAgentConfig: unknown = {};
 
@@ -328,7 +327,6 @@ export function normalizeStoredChatAgentConfig(chat: {
   }
 
   return normalizePiAgentConfig({
-    ...(chat.model ? { modelId: chat.model } : {}),
     ...(parsedAgentConfig && typeof parsedAgentConfig === "object"
       ? parsedAgentConfig
       : {}),
@@ -392,23 +390,23 @@ export async function createPiAgentSession(args: {
    */
   customTools?: ToolDefinition[];
 }) {
-  const { authStorage, modelRegistry } = await createPiModelRegistry();
-  const resolved = resolvePiModel(modelRegistry, args.config);
-
-  const toolNames = args.activeToolNames ?? resolved.config.activeToolNames;
-  const tools = toolNames.map((toolName) => BUILTIN_TOOL_REGISTRY[toolName]);
-
-  const settingsManager = SettingsManager.inMemory({
-    defaultProvider: resolved.config.provider,
-    defaultModel: resolved.config.modelId,
-    defaultThinkingLevel: resolved.config.thinkingLevel as ThinkingLevel,
-    transport: resolved.config.transport as Transport,
-    steeringMode: resolved.config.steeringMode,
-    followUpMode: resolved.config.followUpMode,
-  });
-
   const cwd = args.project?.path ?? process.cwd();
   const disableExtras = args.disableProjectResources === true;
+
+  const settingsOverrides = {
+    defaultProvider: args.config.provider,
+    defaultModel: args.config.modelId,
+    defaultThinkingLevel: args.config.thinkingLevel as ThinkingLevel,
+    transport: args.config.transport as Transport,
+    steeringMode: args.config.steeringMode,
+    followUpMode: args.config.followUpMode,
+  };
+  const settingsManager = disableExtras
+    ? SettingsManager.inMemory(settingsOverrides)
+    : SettingsManager.create(cwd);
+  if (!disableExtras) {
+    settingsManager.applyOverrides(settingsOverrides);
+  }
 
   const resourceLoader = new DefaultResourceLoader({
     cwd,
@@ -421,6 +419,18 @@ export async function createPiAgentSession(args: {
     noThemes: disableExtras,
   });
   await resourceLoader.reload();
+
+  const { authStorage, modelRegistry } = await createPiModelRegistry();
+  const extensionsResult = resourceLoader.getExtensions();
+  for (const { name, config: providerConfig } of extensionsResult.runtime
+    .pendingProviderRegistrations) {
+    modelRegistry.registerProvider(name, providerConfig);
+  }
+  extensionsResult.runtime.pendingProviderRegistrations = [];
+
+  const resolved = resolvePiModel(modelRegistry, args.config);
+  const toolNames = args.activeToolNames ?? resolved.config.activeToolNames;
+  const tools = toolNames.map((toolName) => BUILTIN_TOOL_REGISTRY[toolName]);
 
   const { session } = await createAgentSession({
     cwd,

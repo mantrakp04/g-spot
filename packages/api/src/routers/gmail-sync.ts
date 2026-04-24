@@ -15,7 +15,101 @@ import {
   startSync,
 } from "../lib/gmail-sync";
 import { getProfile } from "../lib/gmail-client";
-import { getStackConnectedAccountAccessToken } from "../lib/stack-server";
+import {
+  getStackConnectedAccountAccessToken,
+  type StackAuthHeaders,
+} from "../lib/stack-server";
+
+type SyncProgressResponse = {
+  status: "idle" | "running" | "paused" | "interrupted" | "completed" | "error";
+  phase: "fetching" | "extracting" | null;
+  mode: "full" | "incremental" | null;
+  mail: {
+    totalThreads: number;
+    syncedThreads: number;
+    failedThreads: number;
+  };
+  extraction: {
+    totalInboxThreads: number;
+    analyzedInboxThreads: number;
+    failedInboxThreads: number;
+  };
+  startedAt: string | null;
+  error: string | null;
+};
+
+async function getOwnedGoogleAccessToken(
+  authHeaders: StackAuthHeaders,
+  providerAccountId: string,
+): Promise<string> {
+  return getStackConnectedAccountAccessToken(
+    authHeaders,
+    "google",
+    providerAccountId,
+  );
+}
+
+async function getOwnedGmailAccount(
+  authHeaders: StackAuthHeaders,
+  providerAccountId: string,
+) {
+  await getOwnedGoogleAccessToken(authHeaders, providerAccountId);
+  return getGmailAccount(providerAccountId);
+}
+
+function toSyncProgressResponse(input: {
+  status: string;
+  mode: string | null;
+  totalThreads: number;
+  fetchedThreads: number;
+  processableThreads: number;
+  processedThreads: number;
+  failedThreads: number;
+  startedAt: string | null;
+  error: string | null;
+}): SyncProgressResponse {
+  const status = isSyncStatus(input.status) ? input.status : "idle";
+  const fetchFailed = Math.max(
+    0,
+    input.failedThreads - Math.max(0, input.processableThreads - input.processedThreads),
+  );
+  const failedInboxThreads = Math.max(0, input.failedThreads - fetchFailed);
+  const phase =
+    status === "running"
+      ? input.fetchedThreads < input.totalThreads
+        ? "fetching"
+        : "extracting"
+      : null;
+
+  return {
+    status,
+    phase,
+    mode: input.mode === "full" || input.mode === "incremental" ? input.mode : null,
+    mail: {
+      totalThreads: input.totalThreads,
+      syncedThreads: input.fetchedThreads,
+      failedThreads: fetchFailed,
+    },
+    extraction: {
+      totalInboxThreads: input.processableThreads,
+      analyzedInboxThreads: input.processedThreads,
+      failedInboxThreads,
+    },
+    startedAt: input.startedAt,
+    error: input.error,
+  };
+}
+
+function isSyncStatus(value: string): value is SyncProgressResponse["status"] {
+  return (
+    value === "idle"
+    || value === "running"
+    || value === "paused"
+    || value === "interrupted"
+    || value === "completed"
+    || value === "error"
+  );
+}
 
 export const gmailSyncRouter = router({
   /**
@@ -29,9 +123,8 @@ export const gmailSyncRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const accessToken = await getStackConnectedAccountAccessToken(
+      const accessToken = await getOwnedGoogleAccessToken(
         ctx.stackAuthHeaders,
-        "google",
         input.providerAccountId,
       );
 
@@ -57,7 +150,10 @@ export const gmailSyncRouter = router({
         input.intent,
       );
 
-      return { accountId, progress: orch.getProgress() };
+      return {
+        accountId,
+        progress: toSyncProgressResponse(orch.getProgress()),
+      };
     }),
 
   /**
@@ -65,21 +161,22 @@ export const gmailSyncRouter = router({
    */
   getSyncProgress: publicProcedure
     .input(z.object({ providerAccountId: z.string() }))
-    .query(async ({ input }) => {
-      const account = await getGmailAccount(
+    .query(async ({ ctx, input }) => {
+      const account = await getOwnedGmailAccount(
+        ctx.stackAuthHeaders,
         input.providerAccountId,
       );
       if (!account) return null;
 
       // Try in-memory first (active sync)
       const active = getActiveSync(account.id);
-      if (active) return active.getProgress();
+      if (active) return toSyncProgressResponse(active.getProgress());
 
       // Fall back to DB state
       const dbState = await getSyncState(account.id);
       if (!dbState) return null;
 
-      return {
+      return toSyncProgressResponse({
         status: dbState.status,
         mode: dbState.mode,
         totalThreads: dbState.totalThreads,
@@ -89,7 +186,7 @@ export const gmailSyncRouter = router({
         failedThreads: dbState.failedThreads,
         startedAt: dbState.startedAt,
         error: dbState.lastError,
-      };
+      });
     }),
 
   /**
@@ -97,8 +194,9 @@ export const gmailSyncRouter = router({
    */
   cancelSync: publicProcedure
     .input(z.object({ providerAccountId: z.string() }))
-    .mutation(async ({ input }) => {
-      const account = await getGmailAccount(
+    .mutation(async ({ ctx, input }) => {
+      const account = await getOwnedGmailAccount(
+        ctx.stackAuthHeaders,
         input.providerAccountId,
       );
       if (!account) return { cancelled: false };
@@ -110,8 +208,9 @@ export const gmailSyncRouter = router({
    */
   getFailures: publicProcedure
     .input(z.object({ providerAccountId: z.string() }))
-    .query(async ({ input }) => {
-      const account = await getGmailAccount(
+    .query(async ({ ctx, input }) => {
+      const account = await getOwnedGmailAccount(
+        ctx.stackAuthHeaders,
         input.providerAccountId,
       );
       if (!account) return [];

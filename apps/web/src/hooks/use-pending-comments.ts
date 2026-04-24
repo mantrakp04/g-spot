@@ -1,5 +1,5 @@
 import { atom, useAtom, useAtomValue, useSetAtom } from "jotai";
-import { atomFamily } from "jotai/utils";
+import { atomFamily, atomWithStorage } from "jotai/utils";
 import { nanoid } from "nanoid";
 import { useCallback } from "react";
 
@@ -22,8 +22,62 @@ function keyString(k: PendingCommentsKey) {
   return `${k.owner}/${k.repo}/${k.prNumber}`;
 }
 
+function storageKey(k: string) {
+  return `gspot:review:pending-comments:${k}`;
+}
+
+function parsePendingComments(raw: string | null): PendingComment[] {
+  if (!raw) return [];
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (!Array.isArray(value)) return [];
+    return value.filter((item): item is PendingComment => {
+      if (!item || typeof item !== "object") return false;
+      const record = item as Record<string, unknown>;
+      return (
+        typeof record.id === "string" &&
+        typeof record.path === "string" &&
+        (record.side === "LEFT" || record.side === "RIGHT") &&
+        typeof record.line === "number" &&
+        typeof record.body === "string" &&
+        (record.startLine == null || typeof record.startLine === "number")
+      );
+    });
+  } catch (error) {
+    if (import.meta.env.DEV) {
+      console.warn("[review] failed to parse pending comments", error);
+    }
+    return [];
+  }
+}
+
+const pendingCommentsStorage = {
+  getItem(key: string, initialValue: PendingComment[]) {
+    if (typeof window === "undefined") return initialValue;
+    return parsePendingComments(window.localStorage.getItem(key));
+  },
+  setItem(key: string, pending: PendingComment[]) {
+    if (typeof window === "undefined") return;
+    if (pending.length === 0) {
+      window.localStorage.removeItem(key);
+      return;
+    }
+    window.localStorage.setItem(key, JSON.stringify(pending));
+  },
+  removeItem(key: string) {
+    if (typeof window === "undefined") return;
+    window.localStorage.removeItem(key);
+  },
+};
+
 const pendingCommentsFamily = atomFamily(
-  (_k: string) => atom<PendingComment[]>([]),
+  (k: string) =>
+    atomWithStorage<PendingComment[]>(
+      storageKey(k),
+      [],
+      pendingCommentsStorage,
+      { getOnInit: true },
+    ),
 );
 
 export type ActiveCompose = {
@@ -42,7 +96,8 @@ export function usePendingComments(key: PendingCommentsKey) {
 }
 
 export function useAddPendingComment(key: PendingCommentsKey) {
-  const setPending = useSetAtom(pendingCommentsFamily(keyString(key)));
+  const k = keyString(key);
+  const setPending = useSetAtom(pendingCommentsFamily(k));
   return useCallback(
     (c: Omit<PendingComment, "id">) => {
       const full: PendingComment = { ...c, id: nanoid(8) };
@@ -54,7 +109,8 @@ export function useAddPendingComment(key: PendingCommentsKey) {
 }
 
 export function useRemovePendingComment(key: PendingCommentsKey) {
-  const setPending = useSetAtom(pendingCommentsFamily(keyString(key)));
+  const k = keyString(key);
+  const setPending = useSetAtom(pendingCommentsFamily(k));
   return useCallback(
     (id: string) => setPending((prev) => prev.filter((p) => p.id !== id)),
     [setPending],
@@ -62,8 +118,11 @@ export function useRemovePendingComment(key: PendingCommentsKey) {
 }
 
 export function useClearPendingComments(key: PendingCommentsKey) {
-  const setPending = useSetAtom(pendingCommentsFamily(keyString(key)));
-  return useCallback(() => setPending([]), [setPending]);
+  const k = keyString(key);
+  const setPending = useSetAtom(pendingCommentsFamily(k));
+  return useCallback(() => {
+    setPending([]);
+  }, [setPending]);
 }
 
 export function useActiveCompose(key: PendingCommentsKey) {

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { ArrowUpDown, MessageSquare } from "lucide-react";
+import { ArrowUpDown, Copy, MessageSquare } from "lucide-react";
+import { toast } from "sonner";
 
 import { Button } from "@g-spot/ui/components/button";
 import {
@@ -14,6 +15,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@g-spot/ui/components/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@g-spot/ui/components/tooltip";
 import { cn } from "@g-spot/ui/lib/utils";
 
 import type { ReviewComment } from "@/hooks/use-github-detail";
@@ -31,6 +37,21 @@ function relTime(iso: string) {
   const d = Math.round(h / 24);
   if (d < 30) return `${d}d`;
   return new Date(iso).toLocaleDateString();
+}
+
+async function copyCommentLinks(links: string[], successMessage: string) {
+  const uniqueLinks = Array.from(new Set(links.filter(Boolean)));
+  if (uniqueLinks.length === 0) {
+    toast.error("No comment links to copy");
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(uniqueLinks.join("\n"));
+    toast.success(successMessage);
+  } catch {
+    toast.error("Failed to copy comment link");
+  }
 }
 
 export function CommentsDrawer({
@@ -90,6 +111,10 @@ export function CommentsDrawer({
   }, [allRoots, reviewer, status, sort]);
 
   const hiddenCount = allRoots.length - filtered.length;
+  const visibleCommentLinks = useMemo(
+    () => filtered.map(({ root }) => root.htmlUrl),
+    [filtered],
+  );
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -99,6 +124,25 @@ export function CommentsDrawer({
       >
         <SheetHeader className="flex-row items-center justify-between border-b border-border/50 p-4">
           <SheetTitle className="text-[15px]">Comments</SheetTitle>
+          <div className="mr-9">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={visibleCommentLinks.length === 0}
+              onClick={() =>
+                copyCommentLinks(
+                  visibleCommentLinks,
+                  visibleCommentLinks.length === 1
+                    ? "Comment link copied"
+                    : "Comment links copied",
+                )
+              }
+            >
+              <Copy />
+              Copy all
+            </Button>
+          </div>
         </SheetHeader>
 
         <div className="flex items-center gap-2 border-b border-border/50 px-4 py-2 text-[12px]">
@@ -206,12 +250,12 @@ export function CommentsDrawer({
               {filtered.map(({ path, root, replies }) => (
                 <li
                   key={root.id}
-                  className="border-b border-border/40 last:border-b-0"
+                  className="group/comment flex items-start border-b border-border/40 hover:bg-muted/50 last:border-b-0"
                 >
                   <button
                     type="button"
                     onClick={() => onJumpTo?.(path)}
-                    className="block w-full cursor-pointer px-4 py-3 text-left hover:bg-muted/50"
+                    className="min-w-0 flex-1 cursor-pointer py-3 pr-2 pl-4 text-left"
                   >
                     <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground/80">
                       <span className="truncate font-mono">
@@ -257,6 +301,28 @@ export function CommentsDrawer({
                       </div>
                     ) : null}
                   </button>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          className="mt-2.5 mr-3 text-muted-foreground/70 hover:text-foreground"
+                          aria-label="Copy comment link"
+                          onClick={() =>
+                            copyCommentLinks(
+                              [root.htmlUrl],
+                              "Comment link copied",
+                            )
+                          }
+                        />
+                      }
+                    >
+                      <Copy />
+                    </TooltipTrigger>
+                    <TooltipContent side="left">Copy comment link</TooltipContent>
+                  </Tooltip>
                 </li>
               ))}
             </ul>

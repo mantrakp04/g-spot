@@ -3,7 +3,6 @@ import { env } from "@g-spot/env/web";
 import type {
   PiAgentConfig,
   PiChatHistoryMessage,
-  PiSdkMessage,
 } from "@g-spot/types";
 import {
   PaperclipIcon,
@@ -54,7 +53,6 @@ import {
   useChatMessages,
   useCreateChatMutation,
   useForkChatMutation,
-  useMarkChatReadMutation,
   useReplaceChatMessagesMutation,
   useUpdateChatAgentConfigMutation,
 } from "@/hooks/use-chat-data";
@@ -83,6 +81,7 @@ import {
   setStreamingMessage,
 } from "@/lib/streaming-message-store";
 import { perfCount } from "@/lib/chat-perf-log";
+import { splitActiveChatTurn } from "@/lib/chat-active-turn";
 
 const STARTER_PROMPTS = [
   "Brainstorm ideas for a weekend project I could ship in a day",
@@ -95,13 +94,11 @@ import {
   type ChatStreamEvent,
   type UIMessage,
   type UIMessagePart,
-  applyPiToolResultToMessages,
-  applyToolApprovalRequestToMessages,
-  applyToolApprovalResolvedToMessages,
-  getMessageText,
-  piHistoryToUiMessages,
-  piMessageToUiMessage,
 } from "@/lib/chat-ui";
+import {
+  reduceChatHistory,
+  reduceChatStreamEvent,
+} from "@/lib/chat-reducer";
 import { trpcClient } from "@/utils/trpc";
 import { usePiChatStream } from "@/hooks/use-pi-chat-stream";
 import {
@@ -185,7 +182,26 @@ interface ChatViewProps {
 
 type ChatUiMessage = UIMessage;
 
-function stripHistoryMessage(message: PiChatHistoryMessage): PiSdkMessage {
+function getLastAssistantTurnStartIndex(messages: ChatUiMessage[]) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]?.role !== "assistant") {
+      continue;
+    }
+
+    let startIndex = index;
+    while (startIndex > 0 && messages[startIndex - 1]?.role === "assistant") {
+      startIndex -= 1;
+    }
+    return startIndex;
+  }
+
+  return -1;
+}
+
+function stripHistoryMessage(message: PiChatHistoryMessage): Omit<
+  PiChatHistoryMessage,
+  "id" | "createdAt"
+> {
   const { id: _id, createdAt: _createdAt, ...persistedMessage } = message;
   return persistedMessage;
 }
@@ -194,50 +210,6 @@ function serializeHistoryMessage(message: PiChatHistoryMessage) {
   return {
     id: message.id,
     message: JSON.stringify(stripHistoryMessage(message)),
-  };
-}
-
-function updatePersistedUserMessageText(
-  message: PiChatHistoryMessage,
-  newText: string,
-): PiChatHistoryMessage {
-  if (message.role !== "user") {
-    throw new Error("Only user messages can be edited");
-  }
-
-  const originalContent: Array<
-    | { type: "text"; text: string }
-    | { type: "image"; data: string; mimeType: string }
-  > = Array.isArray(message.content)
-    ? message.content
-    : typeof message.content === "string" && message.content.trim().length > 0
-      ? [{ type: "text", text: message.content }]
-      : [];
-
-  let replaced = false;
-  const nextContent: typeof originalContent = [];
-
-  for (const part of originalContent) {
-    if (part.type !== "text") {
-      nextContent.push(part);
-      continue;
-    }
-
-    if (replaced) {
-      continue;
-    }
-
-    replaced = true;
-    nextContent.push({ type: "text", text: newText });
-  }
-
-  if (!replaced) {
-    nextContent.unshift({ type: "text" as const, text: newText });
-  }
-
-  return {
-    ...message,
-    content: nextContent,
   };
 }
 
@@ -327,7 +299,6 @@ function ChatViewInner({
   const updateProjectAgentConfig = useUpdateProjectAgentConfigMutation();
   const replaceMessages = useReplaceChatMessagesMutation();
   const forkChat = useForkChatMutation();
-  const markChatRead = useMarkChatReadMutation();
   const isDraft = chatId === null;
   const allModels = piCatalog.data?.models ?? [];
   const configuredProviders = useMemo(
@@ -407,7 +378,7 @@ function ChatViewInner({
   );
 
   const initialMessages = useMemo<ChatUiMessage[]>(
-    () => piHistoryToUiMessages(dbMessages),
+    () => reduceChatHistory(dbMessages),
     [dbMessages],
   );
   const persistedMessagesById = useMemo(
@@ -415,6 +386,8 @@ function ChatViewInner({
     [dbMessages],
   );
   const [messages, setMessages] = useState<ChatUiMessage[]>(initialMessages);
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
   /**
    * Buffer of the in-flight assistant message's raw parts during a turn.
    * Accumulated across `message_start` → `message_update` and flushed into
@@ -438,122 +411,51 @@ function ChatViewInner({
         event,
       });
 
-      if (event.type === "tool_approval_request") {
-        setMessages((current) =>
-          applyToolApprovalRequestToMessages(current, event),
-        );
-        return;
-      }
-
-      if (event.type === "tool_approval_resolved") {
-        setMessages((current) =>
-          applyToolApprovalResolvedToMessages(current, event),
-        );
-        return;
-      }
-
-      if (
-        event.type !== "message_start" &&
-        event.type !== "message_update" &&
-        event.type !== "message_end"
-      ) {
-        return;
-      }
-
-      const streamMessage = event.message as PiSdkMessage;
-
-      if (streamMessage.role === "user") {
-        // POST path adds the user bubble optimistically before the stream
-        // starts, so buffered user events would be duplicates. On reconnect
-        // there is no optimistic add, so we materialize them on message_end
-        // and dedupe by text content against current state.
-        if (!ctx.isReconnect || event.type !== "message_end") {
-          return;
-        }
-
-        const replayedUi = piMessageToUiMessage(streamMessage, nanoid());
-        if (!replayedUi) {
-          return;
-        }
-
-        const replayedText = getMessageText(replayedUi);
-        setMessages((current) => {
-          const alreadyPresent = current.some(
-            (m) => m.role === "user" && getMessageText(m) === replayedText,
-          );
-          if (alreadyPresent) {
-            return current;
-          }
-          return [...current, replayedUi];
-        });
-        return;
-      }
-
-      if (streamMessage.role === "toolResult") {
-        // Tool results never become their own bubble — fold them into the
-        // matching tool call on the prior assistant message. Only act on
-        // message_end so we don't thrash on partials.
-        if (event.type !== "message_end") {
-          return;
-        }
-
-        logChatDebug("tool-result-applied", {
-          chatId,
-          toolCallId: streamMessage.toolCallId,
-          toolName: streamMessage.toolName,
-          isError: streamMessage.isError,
-        });
-
-        setMessages((current) =>
-          applyPiToolResultToMessages(current, streamMessage),
-        );
-        return;
-      }
-
       const streamingId =
         streamingBufferRef.current?.id ??
         `${chatId ?? "draft"}-stream-${Date.now()}`;
 
-      const assistantMessage = piMessageToUiMessage(
-        streamMessage,
+      const reduction = reduceChatStreamEvent({
+        messages: messagesRef.current,
+        streamingMessage: streamingBufferRef.current,
+        event,
         streamingId,
-        { streaming: event.type !== "message_end" },
-      );
-
-      if (!assistantMessage) {
-        return;
-      }
-
-      if (event.type === "message_end") {
-        logChatDebug("assistant-message-produced", {
-          chatId,
-          assistantMessage: summarizeUiMessage(assistantMessage),
-        });
-
-        streamingBufferRef.current = null;
-
-        // Flush the list commit synchronously so the finalized bubble paints
-        // before we tear the streaming overlay down. Without flushSync, the
-        // overlay clear races the setMessages batch and users see a one-
-        // frame gap between "streaming" and "finalized".
-        flushSync(() => {
-          setMessages((current) => [...current, assistantMessage]);
-        });
-        if (chatId) clearStreamingMessage(chatId);
-        return;
-      }
-
-      // Streaming update: buffer + publish to the streaming overlay, but do
-      // NOT touch `messages`. This is the hot path — one RAF-batched notify
-      // per frame, no ChatMessageList re-render.
-      logChatDebug("assistant-message-streaming", {
-        chatId,
-        eventType: event.type,
-        assistantMessage: summarizeUiMessage(assistantMessage),
       });
 
-      streamingBufferRef.current = assistantMessage;
-      if (chatId) setStreamingMessage(chatId, assistantMessage);
+      if (!reduction.messagesChanged && !reduction.streamingChanged) {
+        return;
+      }
+
+      if (reduction.messagesChanged) {
+        const commit = () => {
+          messagesRef.current = reduction.messages;
+          setMessages(reduction.messages);
+        };
+        if (event.type === "message_end") {
+          flushSync(commit);
+        } else {
+          commit();
+        }
+      }
+
+      if (reduction.streamingChanged) {
+        streamingBufferRef.current = reduction.streamingMessage;
+        if (chatId) {
+          if (reduction.streamingMessage) {
+            setStreamingMessage(chatId, reduction.streamingMessage);
+          } else {
+            clearStreamingMessage(chatId);
+          }
+        }
+      }
+
+      if (reduction.streamingMessage) {
+        logChatDebug("assistant-message-streaming", {
+          chatId,
+          eventType: event.type,
+          assistantMessage: summarizeUiMessage(reduction.streamingMessage),
+        });
+      }
     },
     [chatId],
   );
@@ -566,6 +468,7 @@ function ChatViewInner({
     status,
     isActive: isStreamActive,
     startStream: hookStartStream,
+    attachToExistingStream,
     stopEverywhere,
   } = usePiChatStream({
     chatId,
@@ -587,17 +490,32 @@ function ChatViewInner({
         queryKey: chatKeys.detail(id),
       });
       void queryClient.invalidateQueries({
+        queryKey: chatKeys.list(),
+      });
+      void queryClient.invalidateQueries({
         queryKey: trpc.git.listWorkspaces.queryKey({ projectId }),
       });
-      // The user is currently viewing this chat (the stream is bound to
-      // this view), so the run shouldn't show up as a green "unread"
-      // dot in the sidebar. Ack it immediately.
-      markChatRead.mutate(id);
+
+      for (const delayMs of [1000, 3000, 6000]) {
+        window.setTimeout(() => {
+          void queryClient.invalidateQueries({
+            queryKey: chatKeys.detail(id),
+          });
+          void queryClient.invalidateQueries({
+            queryKey: chatKeys.list(),
+          });
+        }, delayMs);
+      }
     },
   });
+  const { visibleMessages, activeAssistantMessages } = useMemo(
+    () => splitActiveChatTurn(messages, isStreamActive),
+    [messages, isStreamActive],
+  );
 
   const isStreamActiveRef = useRef(isStreamActive);
   isStreamActiveRef.current = isStreamActive;
+  const pendingSubmissionStartedChatIdRef = useRef<string | null>(null);
 
   const invalidateGitBranches = useCallback(() => {
     if (!projectId) return;
@@ -716,19 +634,6 @@ function ChatViewInner({
     void startStream(userMsg);
   }, [agentConfig.followUpMode, chatId, startStream, status]);
 
-  // Whenever a chat is mounted (or the URL switches to a new chat id),
-  // tell the server to clear any "finished-unread" dot for that chat.
-  // Visiting a chat counts as acknowledging it. We only need this once per
-  // chat-id mount; the `onStreamComplete` callback handles "ack on
-  // completion while already viewing".
-  useEffect(() => {
-    if (!chatId) return;
-    markChatRead.mutate(chatId);
-    // markChatRead is a mutation hook, omitted from deps to keep this
-    // firing exactly once per chat-id change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chatId]);
-
   // Pending submission: if we navigated here from a draft submit, kick off
   // the POST. Runs before the reconnect probe via effect ordering.
   useEffect(() => {
@@ -746,6 +651,7 @@ function ChatViewInner({
       pendingSubmission,
     });
 
+    pendingSubmissionStartedChatIdRef.current = chatId;
     invalidateGitBranches();
     void startStream({
       id: pendingSubmission.messageId,
@@ -754,6 +660,19 @@ function ChatViewInner({
       createdAt: new Date().toISOString(),
     });
   }, [chatId, invalidateGitBranches, startStream]);
+
+  useEffect(() => {
+    if (!chatId) {
+      return;
+    }
+
+    if (pendingSubmissionStartedChatIdRef.current === chatId) {
+      pendingSubmissionStartedChatIdRef.current = null;
+      return;
+    }
+
+    void attachToExistingStream();
+  }, [attachToExistingStream, chatId]);
 
   const handleSubmit = useCallback(
     async (message: PromptInputMessage) => {
@@ -875,33 +794,17 @@ function ChatViewInner({
         nextParts.unshift({ type: "text" as const, text: newText });
       }
 
-      const nextMessages = messages
-        .slice(0, index + 1)
-        .map((message, messageIndex) =>
-          messageIndex === index
-            ? {
-                ...message,
-                parts: nextParts,
-              }
-            : message,
-        );
-
-      const persistedMessage = persistedMessagesById.get(messageToEdit.id);
-      if (!persistedMessage) {
-        toast.error("Chat history is still syncing. Try again.");
-        return;
-      }
+      const retainedMessages = messages.slice(0, index);
+      const editedMessage = {
+        ...messageToEdit,
+        parts: nextParts,
+      };
+      const nextMessages = [...retainedMessages, editedMessage];
 
       try {
         await replaceMessages.mutateAsync({
           chatId,
-          messages: nextMessages.map((message) => {
-            if (message.id === messageToEdit.id) {
-              return serializeHistoryMessage(
-                updatePersistedUserMessageText(persistedMessage, newText),
-              );
-            }
-
+          messages: retainedMessages.map((message) => {
             const persisted = persistedMessagesById.get(message.id);
             if (!persisted) {
               throw new Error(`Missing persisted message ${message.id}`);
@@ -923,7 +826,9 @@ function ChatViewInner({
         nextMessages: nextMessages.map(summarizeUiMessage),
       });
 
-      setMessages(nextMessages);
+      flushSync(() => {
+        setMessages(nextMessages);
+      });
       await startStream({
         ...messageToEdit,
         parts: nextParts,
@@ -932,22 +837,38 @@ function ChatViewInner({
     [chatId, messages, persistedMessagesById, replaceMessages, startStream],
   );
 
-  /** Regenerate any assistant message by its id */
+  /** Regenerate an assistant turn from its first message index. */
   const handleRegenerate = useCallback(
-    async (messageId: string) => {
+    async (messageIndex: number) => {
       if (!chatId) {
         return;
       }
 
-      const messageIndex = messages.findIndex((message) => message.id === messageId);
-      if (messageIndex === -1) {
+      const messageToRegenerate = messages[messageIndex];
+      if (!messageToRegenerate || messageToRegenerate.role !== "assistant") {
         return;
       }
+
+      const nextMessages = messages.slice(0, messageIndex);
+      const triggerIndex = (() => {
+        for (let index = nextMessages.length - 1; index >= 0; index -= 1) {
+          if (nextMessages[index]?.role === "user") {
+            return index;
+          }
+        }
+        return -1;
+      })();
+      if (triggerIndex === -1) {
+        return;
+      }
+
+      const triggerMessage = nextMessages[triggerIndex]!;
+      const retainedMessages = nextMessages.slice(0, triggerIndex);
 
       try {
         await replaceMessages.mutateAsync({
           chatId,
-          messages: messages.slice(0, messageIndex).map((message) => {
+          messages: retainedMessages.map((message) => {
             const persisted = persistedMessagesById.get(message.id);
             if (!persisted) {
               throw new Error(`Missing persisted message ${message.id}`);
@@ -965,19 +886,13 @@ function ChatViewInner({
 
       logChatDebug("message-regenerated", {
         chatId,
-        messageId,
+        messageId: messageToRegenerate.id,
         retainedMessageCount: messageIndex,
       });
 
-      const nextMessages = messages.slice(0, messageIndex);
-      const triggerMessage = [...nextMessages]
-        .reverse()
-        .find((message) => message.role === "user");
-      if (!triggerMessage) {
-        return;
-      }
-
-      setMessages(nextMessages);
+      flushSync(() => {
+        setMessages(nextMessages);
+      });
       await startStream(triggerMessage);
     },
     [chatId, messages, persistedMessagesById, replaceMessages, startStream],
@@ -1247,15 +1162,33 @@ function ChatViewInner({
         return;
       }
 
-      setMessages((current) =>
-        applyToolApprovalResolvedToMessages(current, {
+      const reduction = reduceChatStreamEvent({
+        messages: messagesRef.current,
+        streamingMessage: streamingBufferRef.current,
+        event: {
           type: "tool_approval_resolved",
           toolCallId,
           toolName: "",
           approved,
           reason,
-        }),
-      );
+        },
+        streamingId:
+          streamingBufferRef.current?.id ??
+          `${chatId ?? "draft"}-stream-${Date.now()}`,
+      });
+
+      if (reduction.messagesChanged) {
+        messagesRef.current = reduction.messages;
+        setMessages(reduction.messages);
+      }
+      if (reduction.streamingChanged) {
+        streamingBufferRef.current = reduction.streamingMessage;
+        if (reduction.streamingMessage) {
+          setStreamingMessage(chatId, reduction.streamingMessage);
+        } else {
+          clearStreamingMessage(chatId);
+        }
+      }
 
       try {
         await trpcClient.chat.resolveToolApproval.mutate({
@@ -1272,7 +1205,7 @@ function ChatViewInner({
         );
       }
     },
-    [chatId, projectId, queryClient],
+    [chatId],
   );
 
   /**
@@ -1297,8 +1230,8 @@ function ChatViewInner({
   };
   const listHandlers = useMemo(
     () => ({
-      onRegenerate: (messageId: string) => {
-        void latestHandlersRef.current.handleRegenerate(messageId);
+      onRegenerate: (index: number) => {
+        void latestHandlersRef.current.handleRegenerate(index);
       },
       onEdit: (index: number, newText: string) => {
         void latestHandlersRef.current.handleEdit(index, newText);
@@ -1367,11 +1300,10 @@ function ChatViewInner({
                         }
                       },
                       onRegenerate: () => {
-                        const lastAssistant = [...messages]
-                          .reverse()
-                          .find((m) => m.role === "assistant");
-                        if (lastAssistant) {
-                          void handleRegenerate(lastAssistant.id);
+                        const turnStartIndex =
+                          getLastAssistantTurnStartIndex(messages);
+                        if (turnStartIndex !== -1) {
+                          void handleRegenerate(turnStartIndex);
                         }
                       },
                       onHelp: () => {
@@ -1405,8 +1337,16 @@ function ChatViewInner({
             </div>
           )}
 
-          <ChatMessageList messages={messages} handlers={listHandlers} />
-          {chatId ? <StreamingMessage chatId={chatId} /> : null}
+          <ChatMessageList
+            messages={visibleMessages}
+            handlers={listHandlers}
+          />
+          {chatId ? (
+            <StreamingMessage
+              chatId={chatId}
+              activeMessages={activeAssistantMessages}
+            />
+          ) : null}
         </ConversationContent>
 
         <ConversationScrollButton />
@@ -1414,16 +1354,17 @@ function ChatViewInner({
 
       {messages.length > 0 ? (
         <div className="bg-background">
-          <div className="mx-auto w-full max-w-2xl px-3 pt-2">
-            <ChatQueuedMessages chatId={chatId} />
-          </div>
-          <div className="mx-auto w-full max-w-2xl px-3 pt-2">
-            <ChatPendingApprovals
-              chatId={chatId}
-              messages={messages}
-              onResolveApproval={listHandlers.onResolveApproval}
-            />
-          </div>
+          <ChatQueuedMessages
+            chatId={chatId}
+            className="px-3 pt-2"
+          />
+          <ChatPendingApprovals
+            chatId={chatId}
+            className="px-3 pt-2"
+            messages={visibleMessages}
+            activeMessages={activeAssistantMessages}
+            onResolveApproval={listHandlers.onResolveApproval}
+          />
           <div className="mx-auto w-full max-w-2xl px-3 py-2">
             <PromptInputProvider>
               <ChatPromptInputArea
@@ -1448,11 +1389,10 @@ function ChatViewInner({
                     }
                   },
                   onRegenerate: () => {
-                    const lastAssistant = [...messages]
-                      .reverse()
-                      .find((m) => m.role === "assistant");
-                    if (lastAssistant) {
-                      void handleRegenerate(lastAssistant.id);
+                    const turnStartIndex =
+                      getLastAssistantTurnStartIndex(messages);
+                    if (turnStartIndex !== -1) {
+                      void handleRegenerate(turnStartIndex);
                     }
                   },
                   onHelp: () => {

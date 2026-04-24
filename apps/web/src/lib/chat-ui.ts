@@ -1,6 +1,4 @@
-import { env } from "@g-spot/env/web";
 import type {
-  PiChatHistoryMessage,
   PiSdkMessage,
   PiSdkSessionEvent,
 } from "@g-spot/types";
@@ -24,10 +22,8 @@ export type FileUIPart = {
   filename?: string;
   /** Content-addressed file id, when the part originated from a server upload. */
   fileId?: string;
-  /** Populated for non-image documents (PDF/DOCX/XLSX/PPTX/text) whose body
-   * was extracted server-side. When present, renderers show the chip in
-   * collapsed form with a disclosure; the raw text stays in the message so
-   * the model still sees it. */
+  /** Populated only for on-demand document previews. Model-facing extracted
+   * text is not part of persisted UI messages. */
   extractedText?: string;
 };
 
@@ -179,78 +175,12 @@ function base64ImageUrl(data: string, mimeType: string) {
   return `data:${mimeType};base64,${data}`;
 }
 
-const GS_ATTACHMENT_TAG_RE =
-  /<gs-attachment([^>]*)>([\s\S]*?)<\/gs-attachment>/g;
-
-function unescapeXmlAttr(value: string) {
-  return value
-    .replaceAll("&quot;", '"')
-    .replaceAll("&lt;", "<")
-    .replaceAll("&gt;", ">")
-    .replaceAll("&amp;", "&");
-}
-
-function parseGsAttachmentAttrs(attrsString: string) {
-  const out: { filename?: string; fileId?: string; mediaType?: string } = {};
-  for (const m of attrsString.matchAll(/(\w+)="([^"]*)"/g)) {
-    const key = m[1];
-    const raw = m[2] ?? "";
-    const value = unescapeXmlAttr(raw);
-    if (key === "filename") out.filename = value;
-    else if (key === "fileId") out.fileId = value;
-    else if (key === "mediaType") out.mediaType = value;
-  }
-  return out;
-}
-
-/**
- * Pull `<gs-attachment …>…</gs-attachment>` envelopes out of a joined text
- * block and emit them as synthetic FileUIPart entries. Any prose left over
- * after the attachments is returned as `residualText` (empty → drop).
- *
- * The server emits envelopes at the top of the user message so in practice
- * `residualText` is just the user's typed input.
- */
-function splitAttachmentsFromText(
-  text: string,
-  serverOrigin: string | undefined,
-): { attachments: FileUIPart[]; residualText: string } {
-  const attachments: FileUIPart[] = [];
-  let lastIndex = 0;
-  const remaining: string[] = [];
-
-  for (const match of text.matchAll(GS_ATTACHMENT_TAG_RE)) {
-    const [full, attrsString, body] = match;
-    const start = match.index ?? 0;
-    remaining.push(text.slice(lastIndex, start));
-    lastIndex = start + (full?.length ?? 0);
-
-    const { filename, fileId, mediaType } = parseGsAttachmentAttrs(
-      attrsString ?? "",
-    );
-    const url =
-      fileId && serverOrigin
-        ? `${serverOrigin}/api/files/${fileId}`
-        : fileId
-          ? `/api/files/${fileId}`
-          : "";
-
-    attachments.push({
-      type: "file",
-      url,
-      mediaType,
-      filename,
-      fileId,
-      extractedText: (body ?? "").trim(),
-    });
+function warnUnsupportedPiContentPart(part: unknown) {
+  if (!import.meta.env.DEV) {
+    return;
   }
 
-  if (attachments.length === 0) {
-    return { attachments, residualText: text };
-  }
-
-  remaining.push(text.slice(lastIndex));
-  return { attachments, residualText: remaining.join("").trim() };
+  console.warn("[chat-ui] unsupported Pi content part", part);
 }
 
 function partsFromValue(
@@ -266,10 +196,9 @@ function partsFromValue(
   }
 
   const parts: UIMessagePart[] = [];
-  const serverOrigin = env.VITE_SERVER_URL;
-
   for (const item of value) {
     if (!item || typeof item !== "object") {
+      warnUnsupportedPiContentPart(item);
       continue;
     }
 
@@ -286,16 +215,7 @@ function partsFromValue(
     };
 
     if (contentPart.type === "text" && typeof contentPart.text === "string") {
-      const { attachments, residualText } = splitAttachmentsFromText(
-        contentPart.text,
-        serverOrigin,
-      );
-      for (const attachment of attachments) {
-        parts.push(attachment);
-      }
-      if (residualText.length > 0) {
-        parts.push({ type: "text", text: residualText });
-      }
+      parts.push({ type: "text", text: contentPart.text });
       continue;
     }
 
@@ -342,10 +262,24 @@ function partsFromValue(
         toolName: contentPart.name,
         input: contentPart.arguments,
       });
+      continue;
     }
+
+    warnUnsupportedPiContentPart(item);
   }
 
   return parts;
+}
+
+function isModelAttachmentText(text: string) {
+  return text.trimStart().startsWith("<gs-attachment");
+}
+
+function userPartsFromPiValue(value: unknown): UIMessagePart[] {
+  const parts = partsFromValue(value);
+  return parts.filter(
+    (part) => part.type !== "text" || !isModelAttachmentText(part.text),
+  );
 }
 
 function stringifyUnknown(value: unknown) {
@@ -372,7 +306,7 @@ export function piMessageToUiMessage(
     return {
       id,
       role: "user",
-      parts: partsFromValue(message.content, { streaming: options.streaming }),
+      parts: userPartsFromPiValue(message.content),
       createdAt,
     };
   }
@@ -580,36 +514,6 @@ export function applyToolApprovalResolvedToMessages(
   }));
 }
 
-/**
- * Build a list of UI messages from a chat history, folding toolResult
- * messages into the matching tool call on a prior assistant message.
- */
-export function piHistoryToUiMessages(
-  history: PiChatHistoryMessage[],
-): UIMessage[] {
-  const result: UIMessage[] = [];
-
-  for (const message of history) {
-    if (isToolResultMessage(message)) {
-      const folded = applyPiToolResultToMessages(result, message);
-      if (folded !== result) {
-        result.length = 0;
-        result.push(...folded);
-      }
-      continue;
-    }
-
-    const ui = piMessageToUiMessage(message, message.id, {
-      createdAt: message.createdAt,
-    });
-    if (ui) {
-      result.push(ui);
-    }
-  }
-
-  return result;
-}
-
 export function isGSpotErrorEvent(event: ChatStreamEvent): event is GSpotErrorEvent {
   return event.type === "gspot_error";
 }
@@ -628,11 +532,4 @@ export function isChatSocketStateEvent(
     event.type === "socket_missing" ||
     event.type === "stream_finished"
   );
-}
-
-export function getMessageText(message: UIMessage) {
-  return message.parts
-    .filter((part): part is TextUIPart => part.type === "text")
-    .map((part) => part.text)
-    .join("");
 }

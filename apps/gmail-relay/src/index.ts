@@ -1,5 +1,11 @@
 import type { ServerWebSocket } from "bun";
 import { createHash } from "node:crypto";
+import {
+  decodeGmailPushPayload,
+  gmailPubSubEnvelopeSchema,
+  type GmailPubSubEnvelope,
+  type GmailPushPayload,
+} from "@g-spot/chat-adapter-gmail";
 import { env, relayDatabaseFilePath } from "@g-spot/env/relay";
 import { createSqliteState } from "@g-spot/chat-state-sqlite";
 import { StackServerApp } from "@stackframe/react";
@@ -36,19 +42,6 @@ const PENDING_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 const INFLIGHT_TTL_MS = 10 * 60 * 1000; // 10min
 const DEDUPE_TTL_MS = 5 * 60 * 1000; // 5min
 
-const pubSubPushEnvelopeSchema = z.object({
-  message: z
-    .object({
-      data: z.string().optional(),
-      messageId: z.string().optional(),
-      publishTime: z.string().optional(),
-    })
-    .optional(),
-});
-const gmailPushPayloadSchema = z.object({
-  emailAddress: z.string().min(1),
-  historyId: z.coerce.string().min(1),
-});
 const gmailProfileSchema = z.object({
   emailAddress: z.string().min(1),
 });
@@ -61,8 +54,6 @@ const relayAckMessageSchema = z.object({
   id: z.string().min(1),
 });
 
-type PubSubPushEnvelope = z.infer<typeof pubSubPushEnvelopeSchema>;
-type GmailPushPayload = z.infer<typeof gmailPushPayloadSchema>;
 type RelayAckMessage = z.infer<typeof relayAckMessageSchema>;
 
 const stackServerApp = new StackServerApp({
@@ -83,11 +74,17 @@ const userIdsByEmail = new Map<string, Set<string>>();
 function userThreadId(userId: string): string {
   return `relay:user:${userId}`;
 }
+function emailThreadId(email: string): string {
+  return `relay:email:${normalizeEmail(email)}`;
+}
 function inflightKey(userId: string): string {
   return `inflight:${userId}`;
 }
 function dedupeKey(userId: string, messageId: string): string {
   return `dedupe:${userId}:${messageId}`;
+}
+function emailDedupeKey(email: string, messageId: string): string {
+  return `dedupe:email:${normalizeEmail(email)}:${messageId}`;
 }
 
 function normalizeEmail(email: string): string {
@@ -208,46 +205,76 @@ function verifyPushRequest(request: Request): boolean {
   return getWebhookVerificationToken(request) === env.GMAIL_PUBSUB_VERIFICATION_TOKEN;
 }
 
-function decodePushPayload(data: string): GmailPushPayload {
-  const json = Buffer.from(data, "base64url").toString("utf-8");
-  return gmailPushPayloadSchema.parse(JSON.parse(json));
-}
-
-async function enqueueEventForUser(
-  userId: string,
-  envelope: PubSubPushEnvelope,
+function eventFromPush(
+  envelope: GmailPubSubEnvelope,
   payload: GmailPushPayload,
   receivedAt: string,
-) {
-  const pubsubMessageId = envelope.message?.messageId ?? null;
-
-  if (pubsubMessageId) {
-    const fresh = await state.setIfNotExists(
-      dedupeKey(userId, pubsubMessageId),
-      true,
-      DEDUPE_TTL_MS,
-    );
-    if (!fresh) return;
-  }
-
-  const event: RelayEventPayload = {
+): RelayEventPayload {
+  return {
     id: crypto.randomUUID(),
-    messageId: pubsubMessageId,
+    messageId: envelope.message?.messageId ?? null,
     emailAddress: payload.emailAddress,
     historyId: payload.historyId,
     publishTime: envelope.message?.publishTime ?? null,
     receivedAt,
   };
+}
 
-  const entry: QueueEntry = {
+function queueEntryForEvent(event: RelayEventPayload): QueueEntry {
+  return {
     enqueuedAt: Date.now(),
     expiresAt: Date.now() + PENDING_TTL_MS,
     // chat-sdk's QueueEntry.message is typed `Message`; we stash our relay payload
     // in the `raw` slot since the relay is not itself a chat-sdk runtime.
     message: { raw: event } as unknown as QueueEntry["message"],
   };
+}
 
-  await state.enqueue(userThreadId(userId), entry, PENDING_QUEUE_MAX);
+async function enqueueRelayEventForUser(
+  userId: string,
+  event: RelayEventPayload,
+): Promise<void> {
+  if (event.messageId) {
+    const fresh = await state.setIfNotExists(
+      dedupeKey(userId, event.messageId),
+      true,
+      DEDUPE_TTL_MS,
+    );
+    if (!fresh) return;
+  }
+
+  await state.enqueue(userThreadId(userId), queueEntryForEvent(event), PENDING_QUEUE_MAX);
+}
+
+async function enqueueEventForEmail(event: RelayEventPayload): Promise<void> {
+  const email = normalizeEmail(event.emailAddress);
+  if (event.messageId) {
+    const fresh = await state.setIfNotExists(
+      emailDedupeKey(email, event.messageId),
+      true,
+      DEDUPE_TTL_MS,
+    );
+    if (!fresh) return;
+  }
+
+  await state.enqueue(emailThreadId(email), queueEntryForEvent(event), PENDING_QUEUE_MAX);
+}
+
+async function transferEmailQueueToUser(userId: string, email: string): Promise<void> {
+  for (;;) {
+    const entry = await state.dequeue(emailThreadId(email));
+    if (!entry) return;
+    const event = extractRelayEvent(entry);
+    if (!event) continue;
+    await enqueueRelayEventForUser(userId, event);
+  }
+}
+
+async function enqueueEventForUser(
+  userId: string,
+  event: RelayEventPayload,
+) {
+  await enqueueRelayEventForUser(userId, event);
 }
 
 async function drainQueue(userId: string) {
@@ -331,9 +358,9 @@ async function handlePushWebhook(request: Request): Promise<Response> {
     return new Response("Unauthorized", { status: 401 });
   }
 
-  let envelope: PubSubPushEnvelope;
+  let envelope: GmailPubSubEnvelope;
   try {
-    envelope = pubSubPushEnvelopeSchema.parse(await request.json());
+    envelope = gmailPubSubEnvelopeSchema.parse(await request.json());
   } catch {
     return new Response("Invalid JSON", { status: 400 });
   }
@@ -342,17 +369,22 @@ async function handlePushWebhook(request: Request): Promise<Response> {
 
   let payload: GmailPushPayload;
   try {
-    payload = decodePushPayload(envelope.message.data);
+    payload = decodeGmailPushPayload(envelope.message.data);
   } catch {
     return new Response("Invalid Pub/Sub payload", { status: 400 });
   }
 
   const userIds = [...(userIdsByEmail.get(normalizeEmail(payload.emailAddress)) ?? [])];
-  if (userIds.length === 0) return new Response(null, { status: 204 });
-
   const receivedAt = envelope.message.publishTime ?? new Date().toISOString();
+  const event = eventFromPush(envelope, payload, receivedAt);
+
+  if (userIds.length === 0) {
+    await enqueueEventForEmail(event);
+    return new Response(null, { status: 204 });
+  }
+
   for (const userId of userIds) {
-    await enqueueEventForUser(userId, envelope, payload, receivedAt);
+    await enqueueEventForUser(userId, event);
     await drainQueue(userId);
   }
 
@@ -396,6 +428,9 @@ Bun.serve<RelaySocketData>({
       activeSockets.set(userId, ws);
 
       void (async () => {
+        for (const account of gmailAccounts) {
+          await transferEmailQueueToUser(userId, account.email);
+        }
         const inflight = await state.get<RelayEventPayload>(inflightKey(userId));
         ws.send(JSON.stringify({ type: "relay.hello", gmailAccounts }));
         if (inflight) {

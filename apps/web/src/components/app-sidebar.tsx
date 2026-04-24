@@ -25,13 +25,12 @@ import {
 import { useDrafts } from "@/contexts/drafts-context";
 import { useSectionCounts } from "@/contexts/section-counts-context";
 import {
-  useChatRuntimeStatuses,
   useDeleteChatMutation,
 } from "@/hooks/use-chat-data";
 import { usePreferredComposeGoogleAccount } from "@/hooks/use-preferred-compose-google-account";
 import { useProjects } from "@/hooks/use-projects";
 import { SidebarProjectItem } from "@/components/projects/sidebar-project-item";
-import { getLastProjectId, setLastProjectId } from "@/lib/active-project";
+import { useLastProjectId, useSetLastProjectId } from "@/lib/active-project";
 import {
   DndContext,
   closestCenter,
@@ -53,6 +52,7 @@ import { ThemePicker } from "./tweakcn-theme-picker";
 import { SectionBuilder } from "./inbox/section-builder";
 import { useReorderSectionsMutation, useSections } from "@/hooks/use-sections";
 import { SidebarSetupChecklist } from "./sidebar-setup-checklist";
+import { useChatRuntimeStatuses } from "@/lib/chat-runtime-statuses";
 
 type AppSidebarProps = {
   onToggleCollapse?: ComponentProps<typeof Button>["onClick"];
@@ -147,8 +147,8 @@ export function AppSidebar({ onToggleCollapse }: AppSidebarProps) {
   // the matching project row.
   const projectsQuery = useProjects();
   const projects = projectsQuery.data ?? [];
-  const lastProjectId =
-    typeof window !== "undefined" ? getLastProjectId() : null;
+  const lastProjectId = useLastProjectId();
+  const setLastProjectId = useSetLastProjectId();
   const activeProjectId =
     params.projectId ??
     (lastProjectId && projects.find((p) => p.id === lastProjectId)?.id) ??
@@ -187,8 +187,7 @@ export function AppSidebar({ onToggleCollapse }: AppSidebarProps) {
   }, []);
 
   const deleteChat = useDeleteChatMutation();
-  const runtimeStatusesQuery = useChatRuntimeStatuses();
-  const runtimeStatuses = runtimeStatusesQuery.data ?? {};
+  const runtimeStatuses = useChatRuntimeStatuses(activeChatId ?? null);
 
   useEffect(() => {
     if (isOnChat) {

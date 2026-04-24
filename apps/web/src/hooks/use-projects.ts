@@ -6,7 +6,7 @@ import type {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { chatKeys, projectKeys } from "@/lib/query-keys";
-import { setLastProjectId } from "@/lib/active-project";
+import { useLastProjectId, useSetLastProjectId } from "@/lib/active-project";
 import { trpcClient } from "@/utils/trpc";
 
 export function useProjects() {
@@ -34,6 +34,7 @@ export function useProjectChatCount(projectId: string | null) {
 
 export function useCreateProjectMutation() {
   const queryClient = useQueryClient();
+  const setLastProjectId = useSetLastProjectId();
 
   return useMutation({
     mutationFn: (input: CreateProjectInput) =>
@@ -77,6 +78,8 @@ export function useUpdateProjectAgentConfigMutation() {
 
 export function useDeleteProjectMutation() {
   const queryClient = useQueryClient();
+  const lastProjectId = useLastProjectId();
+  const setLastProjectId = useSetLastProjectId();
 
   return useMutation({
     mutationFn: (input: { id: string; force?: boolean }) =>
@@ -84,11 +87,7 @@ export function useDeleteProjectMutation() {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: projectKeys.list() });
       queryClient.invalidateQueries({ queryKey: chatKeys.list() });
-      // Best-effort: clear the last-used pointer if we just deleted it.
-      if (typeof window !== "undefined") {
-        const last = window.localStorage.getItem("gspot.lastProjectId");
-        if (last === variables.id) setLastProjectId(null);
-      }
+      if (lastProjectId === variables.id) setLastProjectId(null);
     },
   });
 }

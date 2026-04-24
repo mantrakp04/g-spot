@@ -77,7 +77,7 @@ export interface GmailAdapterOptions {
   name?: string;
 }
 
-const pubSubEnvelopeSchema = z.object({
+export const gmailPubSubEnvelopeSchema = z.object({
   message: z
     .object({
       data: z.string().optional(),
@@ -87,10 +87,17 @@ const pubSubEnvelopeSchema = z.object({
     .optional(),
 });
 
-const gmailPushPayloadSchema = z.object({
+export const gmailPushPayloadSchema = z.object({
   emailAddress: z.string().min(1),
   historyId: z.coerce.string().min(1),
 });
+
+export type GmailPubSubEnvelope = z.infer<typeof gmailPubSubEnvelopeSchema>;
+
+export function decodeGmailPushPayload(data: string): GmailPushPayload {
+  const decoded = Buffer.from(data, "base64url").toString("utf-8");
+  return gmailPushPayloadSchema.parse(JSON.parse(decoded));
+}
 
 export function createGmailAdapter(
   options: GmailAdapterOptions,
@@ -138,9 +145,9 @@ export function createGmailAdapter(
         }
       }
 
-      let envelope: z.infer<typeof pubSubEnvelopeSchema>;
+      let envelope: GmailPubSubEnvelope;
       try {
-        envelope = pubSubEnvelopeSchema.parse(await request.json());
+        envelope = gmailPubSubEnvelopeSchema.parse(await request.json());
       } catch {
         return new Response("Invalid JSON", { status: 400 });
       }
@@ -150,8 +157,7 @@ export function createGmailAdapter(
 
       let payload: GmailPushPayload;
       try {
-        const decoded = Buffer.from(data, "base64url").toString("utf-8");
-        payload = gmailPushPayloadSchema.parse(JSON.parse(decoded));
+        payload = decodeGmailPushPayload(data);
       } catch {
         return new Response("Invalid pub/sub payload", { status: 400 });
       }

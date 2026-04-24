@@ -6,10 +6,6 @@ export const sectionsKeys = {
   list: () => trpc.sections.list.queryOptions().queryKey,
 };
 
-export const sidebarKeys = {
-  setupChecklistDismissed: () => ["sidebar", "setup-checklist-dismissed"] as const,
-};
-
 export const piKeys = {
   catalog: () => ["pi", "catalog"] as const,
   defaults: () => ["pi", "defaults"] as const,
@@ -29,7 +25,6 @@ export const chatKeys = {
     input ? (["chat", "list", input] as const) : (["chat", "list"] as const),
   detail: (chatId: string) => ["chat", "detail", chatId] as const,
   messages: (chatId: string) => ["chat", "messages", chatId] as const,
-  runtimeStatuses: () => ["chat", "runtime-statuses"] as const,
 };
 
 export const projectKeys = {
@@ -97,7 +92,6 @@ export const githubKeys = {
 
 export const gmailKeys = {
   root: () => ["gmail"] as const,
-  composePreferredAccount: () => ["gmail", "compose", "preferred-account"] as const,
   threadsRoot: () => ["gmail", "threads"] as const,
   threadsSection: (sectionId: string) => ["gmail", "threads", sectionId] as const,
   threads: (

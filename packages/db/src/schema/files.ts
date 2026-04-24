@@ -29,3 +29,18 @@ export const fileMetadata = sqliteTable(
   },
   (table) => [index("file_metadata_hash_idx").on(table.hash)],
 );
+
+/** Cached extracted text metadata; one row per unique file content hash. */
+export const fileExtractions = sqliteTable("file_extractions", {
+  hash: text("hash")
+    .primaryKey()
+    .references(() => fileHashes.hash),
+  extractorVersion: integer("extractor_version").notNull(),
+  filename: text("filename").notNull(),
+  mimeType: text("mime_type").notNull(),
+  textS3Key: text("text_s3_key").notNull(),
+  charCount: integer("char_count").notNull(),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`(current_timestamp)`),
+});

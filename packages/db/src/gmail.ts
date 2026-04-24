@@ -254,6 +254,7 @@ export async function upsertThread(
         messageCount: data.messageCount,
         labels: JSON.stringify(data.labels),
         historyId: data.historyId ?? existing.historyId,
+        isProcessed: data.labels.includes("INBOX") ? false : existing.isProcessed,
         updatedAt: now,
       })
       .where(eq(gmailThreads.id, existing.id));

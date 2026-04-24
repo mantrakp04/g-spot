@@ -72,7 +72,7 @@ export type SyncStartIntent = (typeof syncStartIntents)[number];
 type CircuitState = "closed" | "open";
 
 export interface SyncProgress {
-  status: "idle" | "running" | "paused" | "completed" | "error";
+  status: "idle" | "running" | "paused" | "interrupted" | "completed" | "error";
   mode: SyncMode | null;
   totalThreads: number;
   fetchedThreads: number;
@@ -213,8 +213,14 @@ export function resolveSyncStartPlan(
 
   if (
     intent === "resume"
-    || (intent === "auto" && input.syncState?.status === "paused")
-    || (intent === "retry_failed" && input.syncState?.status === "paused")
+    || (intent === "auto" && (
+      input.syncState?.status === "paused"
+      || input.syncState?.status === "interrupted"
+    ))
+    || (intent === "retry_failed" && (
+      input.syncState?.status === "paused"
+      || input.syncState?.status === "interrupted"
+    ))
   ) {
     const mode = resolveModeFromSyncState(input.syncState);
     return {
@@ -835,7 +841,12 @@ export class GmailSyncOrchestrator {
     amount = 1,
   ): void {
     this.progress[field] = Math.max(0, this.progress[field] + amount);
-    incrementSyncProgress(this.accountId, field, amount).catch(() => {});
+    incrementSyncProgress(this.accountId, field, amount).catch((error) => {
+      console.error(
+        `[gmail-sync] Failed to persist ${field} progress for account ${this.accountId}:`,
+        error,
+      );
+    });
   }
 
   private handleStageSuccess(
@@ -871,7 +882,12 @@ export class GmailSyncOrchestrator {
           this.bumpProgress("failedThreads");
         }
       })
-      .catch(() => {});
+      .catch((error) => {
+        console.error(
+          `[gmail-sync] Failed to record ${data.stage} failure for ${item.gmailThreadId}:`,
+          error,
+        );
+      });
 
     console.error(
       `[gmail-sync] ${data.logLabel} failed for ${item.gmailThreadId}:`,
@@ -999,6 +1015,25 @@ export class GmailSyncOrchestrator {
 // ---------------------------------------------------------------------------
 
 const activeSyncs = new Map<string, GmailSyncOrchestrator>();
+const syncFinishedHandlers = new Map<string, () => void | Promise<void>>();
+
+export function runAfterActiveGmailSync(
+  accountId: string,
+  handler: () => void | Promise<void>,
+): boolean {
+  if (!activeSyncs.has(accountId)) return false;
+  syncFinishedHandlers.set(accountId, handler);
+  return true;
+}
+
+function notifyGmailSyncFinished(accountId: string): void {
+  const handler = syncFinishedHandlers.get(accountId);
+  if (!handler) return;
+  syncFinishedHandlers.delete(accountId);
+  Promise.resolve(handler()).catch((error) => {
+    console.error("[gmail-sync] Sync finished handler failed:", error);
+  });
+}
 
 export async function startSync(
   accountId: string,
@@ -1006,7 +1041,7 @@ export async function startSync(
   intent: SyncStartIntent,
 ): Promise<GmailSyncOrchestrator> {
   const existing = activeSyncs.get(accountId);
-  if (existing && existing.getProgress().status === "running") {
+  if (existing) {
     throw new Error("Sync already in progress for this account");
   }
 
@@ -1017,7 +1052,10 @@ export async function startSync(
     const plan = await resolveSyncExecutionPlan(accountId, intent);
     void orch.startSync(plan).finally(() => {
       const current = activeSyncs.get(accountId);
-      if (current === orch) activeSyncs.delete(accountId);
+      if (current === orch) {
+        activeSyncs.delete(accountId);
+        notifyGmailSyncFinished(accountId);
+      }
     });
     return orch;
   } catch (error) {
@@ -1043,7 +1081,14 @@ export async function cancelSync(accountId: string): Promise<boolean> {
   // Orphaned "running" state in DB (likely from a previous server process).
   // Force-reconcile so the UI stops showing it as active.
   const state = await getSyncState(accountId);
-  if (state && (state.status === "running" || state.status === "paused")) {
+  if (
+    state
+    && (
+      state.status === "running"
+      || state.status === "paused"
+      || state.status === "interrupted"
+    )
+  ) {
     await upsertSyncState(accountId, {
       status: "paused",
       completedAt: null,
@@ -1065,7 +1110,7 @@ async function reconcileOrphanedSyncs(): Promise<void> {
     if (stuck.length === 0) return;
     for (const state of stuck) {
       await upsertSyncState(state.accountId, {
-        status: "paused",
+        status: "interrupted",
         completedAt: null,
         lastError: null,
       });

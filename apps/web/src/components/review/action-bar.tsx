@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useMemo, useState, type KeyboardEvent } from "react";
 import {
   CheckCircle2,
   ChevronDown,
   CircleDot,
   ExternalLink,
+  FilePen,
   Loader2,
   MoreHorizontal,
   Users,
@@ -14,6 +15,7 @@ import type { OAuthConnection } from "@stackframe/react";
 import { Avatar, AvatarFallback, AvatarImage } from "@g-spot/ui/components/avatar";
 import { Button } from "@g-spot/ui/components/button";
 import { Checkbox } from "@g-spot/ui/components/checkbox";
+import { Input } from "@g-spot/ui/components/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -44,11 +46,48 @@ import {
   useIssueLabelsMutation,
   useIssueMilestoneMutation,
   useIssueStateMutation,
+  usePRDraftMutation,
   useRequestReviewersMutation,
 } from "@/hooks/use-github-detail";
 
 type PR = NonNullable<ReturnType<typeof useGitHubPRDetail>["data"]>;
 type Issue = NonNullable<ReturnType<typeof useGitHubIssueDetail>["data"]>;
+
+function DropdownSearch({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+}) {
+  // Stop keyboard nav from reaching the menu while typing in the search box.
+  const stop = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (
+      e.key === "ArrowDown" ||
+      e.key === "ArrowUp" ||
+      e.key === "Enter" ||
+      e.key === "Home" ||
+      e.key === "End"
+    ) {
+      return;
+    }
+    e.stopPropagation();
+  };
+  return (
+    <div className="px-1.5 pb-1.5">
+      <Input
+        autoFocus
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={stop}
+        placeholder={placeholder}
+        className="h-7 text-[12px]"
+      />
+    </div>
+  );
+}
 
 type Labelable = {
   labels: ReadonlyArray<string | { name?: string | null; color?: string | null }>;
@@ -64,24 +103,15 @@ function copy(text: string) {
 
 function ActionButton({
   children,
-  onClick,
   variant = "outline",
-  "aria-label": ariaLabel,
+  ...props
 }: {
   children: React.ReactNode;
-  onClick?: () => void;
   variant?: "outline" | "primary" | "ghost";
-  "aria-label"?: string;
-}) {
+} & Omit<React.ComponentProps<typeof Button>, "variant" | "size" | "children">) {
   const mapped = variant === "primary" ? "default" : variant;
   return (
-    <Button
-      type="button"
-      variant={mapped}
-      size="default"
-      onClick={onClick}
-      aria-label={ariaLabel}
-    >
+    <Button type="button" variant={mapped} size="default" {...props}>
       {children}
     </Button>
   );
@@ -206,12 +236,12 @@ export function PRActionBar({
   pr,
   account,
   target,
-  pendingReviewCount = 0,
+  pendingInlineCommentCount = 0,
 }: {
   pr: PR;
   account?: OAuthConnection | null;
   target?: ReviewTarget;
-  pendingReviewCount?: number;
+  pendingInlineCommentCount?: number;
 }) {
   const [reviewOpen, setReviewOpen] = useState(false);
   const branchName = pr.head.ref;
@@ -220,20 +250,6 @@ export function PRActionBar({
 
   return (
     <div className="flex items-center gap-1.5">
-      {account && target ? (
-        <>
-          <LabelEditor target={target} account={account} item={pr} />
-          <AssigneePicker target={target} account={account} item={pr} />
-          <ReviewersPicker target={target} account={account} pr={pr} />
-          <MilestonePicker target={target} account={account} item={pr} />
-          <CloseReopenButton
-            target={target}
-            account={account}
-            state={pr.state as "open" | "closed"}
-            stateReason={null}
-          />
-        </>
-      ) : null}
       {account && target ? (
         <PreviewDeploysDropdown
           target={target}
@@ -263,7 +279,7 @@ export function PRActionBar({
             render={
               <ActionButton variant="primary">
                 <span className="inline-flex size-4 items-center justify-center rounded-md bg-white/20 text-[10px] font-semibold">
-                  {pendingReviewCount}
+                  {pendingInlineCommentCount}
                 </span>
                 Finish review
                 <ChevronDown className="size-3" />
@@ -281,7 +297,7 @@ export function PRActionBar({
       ) : (
         <ActionButton variant="primary">
           <span className="inline-flex size-4 items-center justify-center rounded-md bg-white/20 text-[10px] font-semibold">
-            {pendingReviewCount}
+            {pendingInlineCommentCount}
           </span>
           Finish review
         </ActionButton>
@@ -331,47 +347,60 @@ export function PRActionBar({
   );
 }
 
-function ReviewersPicker({
+export function ReviewersPicker({
   target,
   account,
   pr,
+  trigger,
 }: {
   target: ReviewTarget;
   account: OAuthConnection;
   pr: PR;
+  trigger?: React.ReactElement;
 }) {
   const candidates = useGitHubRepoAssignees(target, account);
   const mutate = useRequestReviewersMutation(target, account);
+  const [query, setQuery] = useState("");
   const reviewers = (pr.requested_reviewers ?? []) as Array<{
     login: string;
     avatar_url: string;
   }>;
   const current = new Set(reviewers.map((r) => r.login));
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const all = candidates.data ?? [];
+    if (!q) return all;
+    return all.filter((a) => a.login.toLowerCase().includes(q));
+  }, [candidates.data, query]);
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
         render={
-          <ActionButton>
-            <Users className="size-3" />
-            {reviewers.length > 0 ? reviewers.length : null}
-            <ChevronDown className="size-3" />
-          </ActionButton>
+          trigger ?? (
+            <ActionButton>
+              <Users className="size-3" />
+              {reviewers.length > 0 ? reviewers.length : null}
+              <ChevronDown className="size-3" />
+            </ActionButton>
+          )
         }
       />
-      <DropdownMenuContent align="end" className="min-w-[240px]">
-        <div className="px-2 py-1.5 text-[11px] uppercase tracking-wide text-muted-foreground/70">
-          Reviewers
-        </div>
+      <DropdownMenuContent align="end" className="min-w-[260px]">
+        <DropdownSearch
+          value={query}
+          onChange={setQuery}
+          placeholder="Filter reviewers..."
+        />
         {candidates.isLoading ? (
           <div className="px-2 py-2 text-[12px] text-muted-foreground/70">
             Loading...
           </div>
-        ) : (candidates.data ?? []).length === 0 ? (
+        ) : filtered.length === 0 ? (
           <div className="px-2 py-2 text-[12px] text-muted-foreground/70">
             No suggestions
           </div>
         ) : (
-          (candidates.data ?? []).map((a) => {
+          filtered.map((a) => {
             const active = current.has(a.login);
             return (
               <DropdownMenuItem
@@ -397,43 +426,60 @@ function ReviewersPicker({
   );
 }
 
-function LabelEditor({
+export function LabelEditor({
   target,
   account,
   item,
+  trigger,
 }: {
   target: ReviewTarget;
   account: OAuthConnection;
   item: Labelable;
+  trigger?: React.ReactElement;
 }) {
   const labels = useGitHubRepoLabels(target, account);
   const mutate = useIssueLabelsMutation(target, account);
+  const [query, setQuery] = useState("");
   const current = new Set(
     item.labels.map((l) => (typeof l === "string" ? l : (l.name ?? ""))),
   );
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const all = labels.data ?? [];
+    if (!q) return all;
+    return all.filter(
+      (l) =>
+        l.name.toLowerCase().includes(q) ||
+        (l.description ?? "").toLowerCase().includes(q),
+    );
+  }, [labels.data, query]);
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
         render={
-          <ActionButton>
-            Labels <ChevronDown className="size-3" />
-          </ActionButton>
+          trigger ?? (
+            <ActionButton>
+              Labels <ChevronDown className="size-3" />
+            </ActionButton>
+          )
         }
       />
-      <DropdownMenuContent align="end" className="min-w-[240px]">
-        <div className="px-2 py-1.5 text-[11px] uppercase tracking-wide text-muted-foreground/70">
-          Labels
-        </div>
+      <DropdownMenuContent align="end" className="min-w-[260px]">
+        <DropdownSearch
+          value={query}
+          onChange={setQuery}
+          placeholder="Filter labels..."
+        />
         {labels.isLoading ? (
           <div className="px-2 py-2 text-[12px] text-muted-foreground/70">
             Loading...
           </div>
-        ) : (labels.data ?? []).length === 0 ? (
+        ) : filtered.length === 0 ? (
           <div className="px-2 py-2 text-[12px] text-muted-foreground/70">
             No labels
           </div>
         ) : (
-          (labels.data ?? []).map((l) => {
+          filtered.map((l) => {
             const active = current.has(l.name);
             return (
               <DropdownMenuItem
@@ -459,41 +505,54 @@ function LabelEditor({
   );
 }
 
-function AssigneePicker({
+export function AssigneePicker({
   target,
   account,
   item,
+  trigger,
 }: {
   target: ReviewTarget;
   account: OAuthConnection;
   item: Labelable;
+  trigger?: React.ReactElement;
 }) {
   const assignees = useGitHubRepoAssignees(target, account);
   const mutate = useIssueAssigneesMutation(target, account);
+  const [query, setQuery] = useState("");
   const current = new Set((item.assignees ?? []).map((a) => a.login));
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const all = assignees.data ?? [];
+    if (!q) return all;
+    return all.filter((a) => a.login.toLowerCase().includes(q));
+  }, [assignees.data, query]);
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
         render={
-          <ActionButton>
-            Assignees <ChevronDown className="size-3" />
-          </ActionButton>
+          trigger ?? (
+            <ActionButton>
+              Assignees <ChevronDown className="size-3" />
+            </ActionButton>
+          )
         }
       />
-      <DropdownMenuContent align="end" className="min-w-[240px]">
-        <div className="px-2 py-1.5 text-[11px] uppercase tracking-wide text-muted-foreground/70">
-          Assign up to 10 users
-        </div>
+      <DropdownMenuContent align="end" className="min-w-[260px]">
+        <DropdownSearch
+          value={query}
+          onChange={setQuery}
+          placeholder="Filter users..."
+        />
         {assignees.isLoading ? (
           <div className="px-2 py-2 text-[12px] text-muted-foreground/70">
             Loading...
           </div>
-        ) : (assignees.data ?? []).length === 0 ? (
+        ) : filtered.length === 0 ? (
           <div className="px-2 py-2 text-[12px] text-muted-foreground/70">
             No suggested assignees
           </div>
         ) : (
-          (assignees.data ?? []).map((a) => {
+          filtered.map((a) => {
             const active = current.has(a.login);
             return (
               <DropdownMenuItem
@@ -519,31 +578,44 @@ function AssigneePicker({
   );
 }
 
-function MilestonePicker({
+export function MilestonePicker({
   target,
   account,
   item,
+  trigger,
 }: {
   target: ReviewTarget;
   account: OAuthConnection;
   item: Labelable;
+  trigger?: React.ReactElement;
 }) {
   const milestones = useGitHubRepoMilestones(target, account);
   const mutate = useIssueMilestoneMutation(target, account);
+  const [query, setQuery] = useState("");
   const currentId = item.milestone?.id ?? null;
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const all = milestones.data ?? [];
+    if (!q) return all;
+    return all.filter((m) => m.title.toLowerCase().includes(q));
+  }, [milestones.data, query]);
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
         render={
-          <ActionButton>
-            Milestone <ChevronDown className="size-3" />
-          </ActionButton>
+          trigger ?? (
+            <ActionButton>
+              Milestone <ChevronDown className="size-3" />
+            </ActionButton>
+          )
         }
       />
-      <DropdownMenuContent align="end" className="min-w-[240px]">
-        <div className="px-2 py-1.5 text-[11px] uppercase tracking-wide text-muted-foreground/70">
-          Milestone
-        </div>
+      <DropdownMenuContent align="end" className="min-w-[260px]">
+        <DropdownSearch
+          value={query}
+          onChange={setQuery}
+          placeholder="Filter milestones..."
+        />
         <DropdownMenuItem
           onClick={() => mutate.mutate({ milestone: null })}
           className="text-[12px]"
@@ -555,8 +627,12 @@ function MilestonePicker({
           <div className="px-2 py-2 text-[12px] text-muted-foreground/70">
             Loading...
           </div>
+        ) : filtered.length === 0 ? (
+          <div className="px-2 py-2 text-[12px] text-muted-foreground/70">
+            No milestones
+          </div>
         ) : (
-          (milestones.data ?? []).map((m) => (
+          filtered.map((m) => (
             <DropdownMenuItem
               key={m.id}
               onClick={() => mutate.mutate({ milestone: m.number })}
@@ -612,6 +688,39 @@ export function CloseReopenButton({
   );
 }
 
+export function DraftToggleButton({
+  target,
+  account,
+  isDraft,
+  nodeId,
+}: {
+  target: ReviewTarget;
+  account: OAuthConnection;
+  isDraft: boolean;
+  nodeId: string;
+}) {
+  const mutate = usePRDraftMutation(target, account);
+  const [pending, setPending] = useState(false);
+  return (
+    <ActionButton
+      onClick={() => {
+        setPending(true);
+        mutate.mutate(
+          { draft: !isDraft, nodeId },
+          { onSettled: () => setPending(false) },
+        );
+      }}
+    >
+      {pending ? (
+        <Loader2 className="size-3 animate-spin" />
+      ) : (
+        <FilePen className="size-3" />
+      )}
+      {isDraft ? "Ready for review" : "Mark as draft"}
+    </ActionButton>
+  );
+}
+
 export function IssueActionBar({
   issue,
   target,
@@ -623,15 +732,6 @@ export function IssueActionBar({
 }) {
   return (
     <div className="flex items-center gap-1.5">
-      <LabelEditor target={target} account={account} item={issue} />
-      <AssigneePicker target={target} account={account} item={issue} />
-      <MilestonePicker target={target} account={account} item={issue} />
-      <CloseReopenButton
-        target={target}
-        account={account}
-        state={issue.state as "open" | "closed"}
-        stateReason={issue.state_reason ?? null}
-      />
       <DropdownMenu>
         <DropdownMenuTrigger
           render={

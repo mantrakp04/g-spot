@@ -5,6 +5,7 @@ import {
   HeadObjectCommand,
 } from "@aws-sdk/client-s3";
 import { createS3Client } from "mock-aws-s3-v3";
+import path from "node:path";
 
 const BUCKET = "file-storage";
 const LOCAL_STORAGE_PATH = "./local-storage";
@@ -13,6 +14,10 @@ const s3 = createS3Client({
   localDirectory: LOCAL_STORAGE_PATH,
   bucket: BUCKET,
 });
+
+export function getLocalObjectPath(key: string): string {
+  return path.resolve(LOCAL_STORAGE_PATH, BUCKET, key);
+}
 
 export async function putObject(
   key: string,

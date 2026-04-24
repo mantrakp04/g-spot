@@ -2,7 +2,7 @@ import { eq, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { db } from "./index";
-import { fileHashes, fileMetadata } from "./schema";
+import { fileExtractions, fileHashes, fileMetadata } from "./schema";
 
 /** Ensure a hash row exists; if it already exists, bump refCount. Returns the s3Key. */
 export async function ensureFileHash(
@@ -53,6 +53,35 @@ export async function getFileById(fileId: string) {
     .innerJoin(fileHashes, eq(fileMetadata.hash, fileHashes.hash))
     .where(eq(fileMetadata.id, fileId));
   return row ?? null;
+}
+
+export async function getFileExtractionByHash(hash: string) {
+  const [row] = await db
+    .select({
+      hash: fileExtractions.hash,
+      extractorVersion: fileExtractions.extractorVersion,
+      filename: fileExtractions.filename,
+      mimeType: fileExtractions.mimeType,
+      textS3Key: fileExtractions.textS3Key,
+      charCount: fileExtractions.charCount,
+    })
+    .from(fileExtractions)
+    .where(eq(fileExtractions.hash, hash));
+  return row ?? null;
+}
+
+export async function createFileExtraction(input: {
+  hash: string;
+  extractorVersion: number;
+  filename: string;
+  mimeType: string;
+  textS3Key: string;
+  charCount: number;
+}) {
+  await db
+    .insert(fileExtractions)
+    .values(input)
+    .onConflictDoNothing({ target: fileExtractions.hash });
 }
 
 /** Delete a file metadata record and handle hash ref counting.

@@ -1,46 +1,65 @@
 import { useState } from "react";
-import { AlertTriangle, ChevronDown, ChevronRight, GitMerge } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight, GitMerge, Plus } from "lucide-react";
+import type { OAuthConnection } from "@stackframe/react";
 
 import { Button } from "@g-spot/ui/components/button";
 
-import type { CheckItem } from "@/hooks/use-github-detail";
+import type { ReviewTarget } from "@/hooks/use-github-detail";
+import { useGitHubPRDetail } from "@/hooks/use-github-detail";
 
+import {
+  AssigneePicker,
+  CloseReopenButton,
+  DraftToggleButton,
+  LabelEditor,
+  MilestonePicker,
+  ReviewersPicker,
+} from "./action-bar";
 import { ChecksPanel } from "./checks-panel";
 import {
-  SidebarAddButton,
   SidebarEmpty,
   SidebarSection,
 } from "./sidebar-section";
 import { PRStateBadge } from "./state-badge";
 
+type PR = NonNullable<ReturnType<typeof useGitHubPRDetail>["data"]>;
 type Actor = { login: string; avatarUrl: string };
+type ChecksLike = Parameters<typeof ChecksPanel>[0]["checks"];
 
 /** Right sidebar for PR view. Mirrors Graphite's grouped metadata. */
 export function PRSidebar({
-  state,
-  isDraft,
-  merged,
-  mergeable,
+  pr,
+  target,
+  account,
   checks,
   checksLoading,
-  author,
-  reviewers,
-  labels,
-  assignees,
-  milestone,
 }: {
-  state: "open" | "closed";
-  isDraft: boolean;
-  merged: boolean;
-  mergeable: boolean | null;
-  checks: CheckItem[];
+  pr: PR;
+  target: ReviewTarget;
+  account: OAuthConnection | null;
+  checks: ChecksLike;
   checksLoading: boolean;
-  author: Actor | null;
-  reviewers: Actor[];
-  labels: Array<{ name: string; color: string }>;
-  assignees: Actor[];
-  milestone: string | null;
 }) {
+  const state = pr.state as "open" | "closed";
+  const isDraft = pr.draft ?? false;
+  const merged = pr.merged ?? false;
+  const mergeable = pr.mergeable ?? null;
+  const author: Actor | null = pr.user
+    ? { login: pr.user.login, avatarUrl: pr.user.avatar_url }
+    : null;
+  const reviewers: Actor[] = (pr.requested_reviewers ?? [])
+    .filter((r): r is NonNullable<typeof r> => r != null)
+    .map((r) => ({ login: r.login, avatarUrl: r.avatar_url }));
+  const labels = (pr.labels ?? []).map((l) => ({
+    name: l.name,
+    color: l.color,
+  }));
+  const assignees: Actor[] = (pr.assignees ?? []).map((a) => ({
+    login: a.login,
+    avatarUrl: a.avatar_url,
+  }));
+  const milestone = pr.milestone?.title ?? null;
+
   const requiredFailed = checks.some(
     (c) =>
       c.status === "completed" &&
@@ -56,6 +75,26 @@ export function PRSidebar({
         isDraft={isDraft}
         merged={merged}
         mergeable={mergeable}
+        controls={
+          account && !merged ? (
+            <div className="flex items-center gap-1.5">
+              {state === "open" ? (
+                <DraftToggleButton
+                  target={target}
+                  account={account}
+                  isDraft={isDraft}
+                  nodeId={pr.node_id}
+                />
+              ) : null}
+              <CloseReopenButton
+                target={target}
+                account={account}
+                state={state}
+                stateReason={null}
+              />
+            </div>
+          ) : null
+        }
       />
       {requiredFailed ? <RequiredChecksCallout /> : null}
 
@@ -70,11 +109,28 @@ export function PRSidebar({
             ))}
           </div>
         ) : (
-          <ChecksPanel checks={checks} />
+          <ChecksPanel
+            checks={checks}
+            target={target}
+            account={account}
+            headSha={pr.head.sha}
+          />
         )}
       </SidebarSection>
 
-      <SidebarSection label="Reviewers" action={<SidebarAddButton />}>
+      <SidebarSection
+        label="Reviewers"
+        action={
+          account ? (
+            <ReviewersPicker
+              target={target}
+              account={account}
+              pr={pr}
+              trigger={<SidebarIconTrigger label="Edit reviewers" />}
+            />
+          ) : null
+        }
+      >
         {reviewers.length > 0 ? (
           <ul className="space-y-1">
             {reviewers.map((r) => (
@@ -86,7 +142,19 @@ export function PRSidebar({
         )}
       </SidebarSection>
 
-      <SidebarSection label="Assignees" action={<SidebarAddButton />}>
+      <SidebarSection
+        label="Assignees"
+        action={
+          account ? (
+            <AssigneePicker
+              target={target}
+              account={account}
+              item={pr}
+              trigger={<SidebarIconTrigger label="Edit assignees" />}
+            />
+          ) : null
+        }
+      >
         {assignees.length > 0 ? (
           <ul className="space-y-1">
             {assignees.map((a) => (
@@ -102,7 +170,19 @@ export function PRSidebar({
         )}
       </SidebarSection>
 
-      <SidebarSection label="Labels" action={<SidebarAddButton />}>
+      <SidebarSection
+        label="Labels"
+        action={
+          account ? (
+            <LabelEditor
+              target={target}
+              account={account}
+              item={pr}
+              trigger={<SidebarIconTrigger label="Edit labels" />}
+            />
+          ) : null
+        }
+      >
         {labels.length > 0 ? (
           <div className="flex flex-wrap gap-1.5">
             {labels.map((l) => (
@@ -123,12 +203,43 @@ export function PRSidebar({
         )}
       </SidebarSection>
 
-      {milestone ? (
-        <SidebarSection label="Milestone">
+      <SidebarSection
+        label="Milestone"
+        action={
+          account ? (
+            <MilestonePicker
+              target={target}
+              account={account}
+              item={pr}
+              trigger={<SidebarIconTrigger label="Edit milestone" />}
+            />
+          ) : null
+        }
+      >
+        {milestone ? (
           <div className="text-[12px]">{milestone}</div>
-        </SidebarSection>
-      ) : null}
+        ) : (
+          <SidebarEmpty>No milestone</SidebarEmpty>
+        )}
+      </SidebarSection>
     </div>
+  );
+}
+
+function SidebarIconTrigger({
+  label,
+  ...props
+}: { label: string } & React.ComponentProps<typeof Button>) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-sm"
+      aria-label={label}
+      {...props}
+    >
+      <Plus />
+    </Button>
   );
 }
 
@@ -137,23 +248,27 @@ function StateCard({
   isDraft,
   merged,
   mergeable,
+  controls,
 }: {
   state: "open" | "closed";
   isDraft: boolean;
   merged: boolean;
   mergeable: boolean | null;
+  controls?: React.ReactNode;
 }) {
+  const showMergeHint = state === "open" && !merged;
   return (
-    <div className="mb-3 rounded-md border border-border/50 bg-card p-3">
-      <div className="flex items-center justify-between">
+    <div className="mb-3 rounded-md border border-border/50 bg-card px-3 py-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
         <PRStateBadge state={state} isDraft={isDraft} merged={merged} />
-        {state === "open" && !merged ? (
-          <span className="inline-flex items-center gap-1 text-[12px] text-muted-foreground/70">
-            <GitMerge className="size-3.5" />
-            {mergeable === false ? "Conflicts" : "Merge when ready"}
-          </span>
-        ) : null}
+        {controls}
       </div>
+      {showMergeHint ? (
+        <div className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-muted-foreground/70">
+          <GitMerge className="size-3" />
+          {mergeable === false ? "Conflicts" : "Merge when ready"}
+        </div>
+      ) : null}
     </div>
   );
 }

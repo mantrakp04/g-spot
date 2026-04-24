@@ -1,4 +1,5 @@
 import { ListOrderedIcon, SparklesIcon, XIcon } from "lucide-react";
+import { cn } from "@g-spot/ui/lib/utils";
 
 import {
   Queue,
@@ -24,6 +25,7 @@ import {
 
 type ChatQueuedMessagesProps = {
   chatId: string | null;
+  className?: string;
 };
 
 function queueItemText(item: QueueItemModel): string {
@@ -81,49 +83,51 @@ function QueueItemRow({
   );
 }
 
-export function ChatQueuedMessages({ chatId }: ChatQueuedMessagesProps) {
+export function ChatQueuedMessages({ chatId, className }: ChatQueuedMessagesProps) {
   const queue = useChatQueue(chatId);
   if (!chatId) return null;
   if (queue.steer.length === 0 && queue.followup.length === 0) return null;
 
   return (
-    <Queue className="mx-auto w-full max-w-2xl">
-      {queue.steer.length > 0 && (
-        <QueueSection>
-          <QueueSectionTrigger>
-            <QueueSectionLabel
-              count={queue.steer.length}
-              label={queue.steer.length === 1 ? "steering message" : "steering messages"}
-              icon={<SparklesIcon className="size-3.5" />}
-            />
-          </QueueSectionTrigger>
-          <QueueSectionContent>
-            <QueueList>
-              {queue.steer.map((item) => (
-                <QueueItemRow key={item.id} chatId={chatId} item={item} />
-              ))}
-            </QueueList>
-          </QueueSectionContent>
-        </QueueSection>
-      )}
-      {queue.followup.length > 0 && (
-        <QueueSection>
-          <QueueSectionTrigger>
-            <QueueSectionLabel
-              count={queue.followup.length}
-              label={queue.followup.length === 1 ? "queued message" : "queued messages"}
-              icon={<ListOrderedIcon className="size-3.5" />}
-            />
-          </QueueSectionTrigger>
-          <QueueSectionContent>
-            <QueueList>
-              {queue.followup.map((item) => (
-                <QueueItemRow key={item.id} chatId={chatId} item={item} />
-              ))}
-            </QueueList>
-          </QueueSectionContent>
-        </QueueSection>
-      )}
-    </Queue>
+    <div className={cn("mx-auto w-full max-w-2xl", className)}>
+      <Queue>
+        {queue.steer.length > 0 && (
+          <QueueSection>
+            <QueueSectionTrigger>
+              <QueueSectionLabel
+                count={queue.steer.length}
+                label={queue.steer.length === 1 ? "steering message" : "steering messages"}
+                icon={<SparklesIcon className="size-3.5" />}
+              />
+            </QueueSectionTrigger>
+            <QueueSectionContent>
+              <QueueList>
+                {queue.steer.map((item) => (
+                  <QueueItemRow key={item.id} chatId={chatId} item={item} />
+                ))}
+              </QueueList>
+            </QueueSectionContent>
+          </QueueSection>
+        )}
+        {queue.followup.length > 0 && (
+          <QueueSection>
+            <QueueSectionTrigger>
+              <QueueSectionLabel
+                count={queue.followup.length}
+                label={queue.followup.length === 1 ? "queued message" : "queued messages"}
+                icon={<ListOrderedIcon className="size-3.5" />}
+              />
+            </QueueSectionTrigger>
+            <QueueSectionContent>
+              <QueueList>
+                {queue.followup.map((item) => (
+                  <QueueItemRow key={item.id} chatId={chatId} item={item} />
+                ))}
+              </QueueList>
+            </QueueSectionContent>
+          </QueueSection>
+        )}
+      </Queue>
+    </div>
   );
 }

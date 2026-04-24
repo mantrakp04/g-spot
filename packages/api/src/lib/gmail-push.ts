@@ -1,10 +1,11 @@
 import {
+  getGmailAccountById,
   listGmailAccountsByEmail,
   recordGmailPushNotification,
   upsertSyncState,
 } from "@g-spot/db/gmail";
 
-import { getActiveSync, startSync } from "./gmail-sync";
+import { getActiveSync, runAfterActiveGmailSync, startSync } from "./gmail-sync";
 import type { StackAuthHeaders } from "./stack-server";
 import { getStackConnectedAccountAccessToken } from "./stack-server";
 
@@ -25,6 +26,8 @@ function compareHistoryIds(a: string, b: string): number {
   }
 }
 
+const pendingPushSyncs = new Map<string, { authHeaders: StackAuthHeaders }>();
+
 async function triggerSyncFromNotification(account: {
   id: string;
   providerAccountId: string;
@@ -32,8 +35,25 @@ async function triggerSyncFromNotification(account: {
   historyId: string | null;
   needsFullResync: boolean;
 }, authHeaders: StackAuthHeaders) {
-  if (getActiveSync(account.id)) return;
+  if (getActiveSync(account.id)) {
+    pendingPushSyncs.set(account.id, { authHeaders });
+    const scheduled = runAfterActiveGmailSync(account.id, () =>
+      flushPendingPushSync(account.id)
+    );
+    if (!scheduled) {
+      await flushPendingPushSync(account.id);
+    }
+    return;
+  }
 
+  await startPushSync(account, authHeaders);
+}
+
+async function startPushSync(account: {
+  id: string;
+  providerAccountId: string;
+  email: string;
+}, authHeaders: StackAuthHeaders) {
   try {
     const accessToken = await getStackConnectedAccountAccessToken(
       authHeaders,
@@ -53,6 +73,32 @@ async function triggerSyncFromNotification(account: {
       error,
     );
   }
+}
+
+async function flushPendingPushSync(accountId: string): Promise<void> {
+  const pending = pendingPushSyncs.get(accountId);
+  if (!pending) return;
+
+  const account = await getGmailAccountById(accountId);
+  if (!account) {
+    pendingPushSyncs.delete(accountId);
+    return;
+  }
+
+  if (!account.needsFullResync && account.historyId && account.lastNotificationHistoryId) {
+    if (compareHistoryIds(account.lastNotificationHistoryId, account.historyId) <= 0) {
+      pendingPushSyncs.delete(accountId);
+      return;
+    }
+  }
+
+  pendingPushSyncs.delete(accountId);
+  if (getActiveSync(account.id)) {
+    pendingPushSyncs.set(account.id, pending);
+    return;
+  }
+
+  await startPushSync(account, pending.authHeaders);
 }
 
 export async function processGmailPushNotification(

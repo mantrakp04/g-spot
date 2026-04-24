@@ -4,7 +4,15 @@ import {
   getFileById,
 } from "@g-spot/db/files";
 
-import { getObject, getObjectSize, objectExists, putObject } from "./lib/storage";
+import { detectDocumentKind, extractDocumentText } from "./lib/extract-document";
+import { getOrCreateFileExtraction } from "./lib/file-extraction-cache";
+import {
+  getLocalObjectPath,
+  getObject,
+  getObjectSize,
+  objectExists,
+  putObject,
+} from "./lib/storage";
 
 async function sha256(buffer: ArrayBuffer): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", buffer);
@@ -100,4 +108,37 @@ export async function handleFileDownload(fileId: string): Promise<Response> {
       "cache-control": "public, max-age=31536000, immutable",
     },
   });
+}
+
+/** GET /api/files/:fileId/extracted-text — extracts preview text on demand. */
+export async function handleFileExtractedText(fileId: string): Promise<Response> {
+  const file = await getFileById(fileId);
+  if (!file) return new Response("Not found", { status: 404 });
+
+  const kind = detectDocumentKind(file.mimeType, file.filename);
+  if (!kind) {
+    return new Response(
+      JSON.stringify({ error: "No text extractor for this file type" }),
+      { status: 415, headers: { "content-type": "application/json" } },
+    );
+  }
+
+  const { body } = await getObject(file.s3Key);
+  const stream = await toDownloadStream(body as DownloadBody);
+  const extraction = await getOrCreateFileExtraction(file, async () => {
+    const buffer = await new Response(stream).arrayBuffer();
+    return extractDocumentText(buffer, kind, file.filename);
+  });
+
+  return new Response(
+    JSON.stringify({
+      fileId,
+      filename: file.filename,
+      mediaType: file.mimeType,
+      localPath: getLocalObjectPath(file.s3Key),
+      extractedTextPath: extraction.localPath,
+      text: extraction.text,
+    }),
+    { headers: { "content-type": "application/json" } },
+  );
 }

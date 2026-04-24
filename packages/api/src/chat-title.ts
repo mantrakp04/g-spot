@@ -54,6 +54,10 @@ function sanitizeGeneratedTitle(text: string) {
     .slice(0, 80);
 }
 
+function countUserMessages(messages: Message[]) {
+  return messages.filter((message) => message.role === "user").length;
+}
+
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -92,6 +96,10 @@ export async function refreshChatTitle(args: {
    */
   project?: PiAgentSessionProject;
 }) {
+  if (countUserMessages(args.messages) !== 1) {
+    return;
+  }
+
   const triggerMessage = [...args.messages].reverse().find((message) => message.role === "user");
   if (!triggerMessage) {
     return;

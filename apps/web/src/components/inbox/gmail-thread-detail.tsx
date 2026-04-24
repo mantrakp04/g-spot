@@ -1,4 +1,11 @@
-import { memo, useRef, useEffect, useCallback, useMemo, useState } from "react";
+import {
+  memo,
+  useRef,
+  useEffect,
+  useCallback,
+  useMemo,
+  useState,
+} from "react";
 
 import {
   AlertDialog,
@@ -55,14 +62,23 @@ import type {
 import type { GmailThreadDetail as GmailThreadDetailType } from "@/lib/gmail/types";
 
 const SANITIZED_HTML_CACHE_LIMIT = 100;
+const SANITIZED_HTML_CACHE_VERSION = 5;
 const EMAIL_DOCUMENT_BACKGROUND = "rgb(255, 255, 255)";
 const EMAIL_DOCUMENT_FOREGROUND = "rgb(17, 24, 39)";
 const EMAIL_BLOCKQUOTE_BORDER = "rgb(226, 232, 240)";
 const EMAIL_BLOCKQUOTE_FOREGROUND = "rgb(100, 116, 139)";
+const EXECUTABLE_EMAIL_MARKUP_PATTERN = /<script\b[\s\S]*?(?:<\/script>|$)|<\/script>/gi;
+const DANGEROUS_STYLE_PATTERN =
+  /@import\b|expression\s*\(|url\s*\(\s*['"]?\s*(?:javascript|vbscript|cid):/i;
+const STYLE_TAG_BREAKOUT_PATTERN = /[<>]/;
 const sanitizedEmailHtmlCache = new Map<
   string,
   ReturnType<typeof sanitizeEmailHtml>
 >();
+
+function getSanitizedHtmlCacheKey(html: string): string {
+  return `${SANITIZED_HTML_CACHE_VERSION}:${html}`;
+}
 
 function formatFullDate(date: string): string {
   const d = new Date(date);
@@ -175,10 +191,31 @@ function isLikelyTrackingImage(image: HTMLImageElement): boolean {
   );
 }
 
-function sanitizeEmailHtml(html: string) {
-  const doc = new DOMParser().parseFromString(html, "text/html");
+function isSafeEmailUrl(value: string, kind: "link" | "resource"): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (trimmed.startsWith("#")) return kind === "link";
 
-  for (const element of doc.querySelectorAll("script, noscript, iframe, object, embed")) {
+  try {
+    const url = new URL(trimmed, window.location.href);
+    if (kind === "link") {
+      return ["http:", "https:", "mailto:", "tel:"].includes(url.protocol);
+    }
+    return ["http:", "https:"].includes(url.protocol);
+  } catch {
+    return false;
+  }
+}
+
+function sanitizeEmailHtml(html: string) {
+  const doc = new DOMParser().parseFromString(
+    html.replace(EXECUTABLE_EMAIL_MARKUP_PATTERN, ""),
+    "text/html",
+  );
+
+  for (const element of doc.querySelectorAll(
+    "applet, audio, base, embed, form, iframe, link, math, meta, noscript, object, picture, script, source, svg, video",
+  )) {
     element.remove();
   }
 
@@ -191,6 +228,11 @@ function sanitizeEmailHtml(html: string) {
     image.removeAttribute("srcset");
     image.removeAttribute("loading");
     image.removeAttribute("decoding");
+
+    const src = image.getAttribute("src");
+    if (src && !isSafeEmailUrl(src, "resource")) {
+      image.removeAttribute("src");
+    }
   }
 
   const elements = [
@@ -209,21 +251,21 @@ function sanitizeEmailHtml(html: string) {
         continue;
       }
       if (URL_ATTRS.has(name)) {
-        const trimmed = attribute.value.trim().toLowerCase();
-        if (trimmed.startsWith("javascript:") || trimmed.startsWith("vbscript:")) {
+        const kind = name === "href" || name === "xlink:href" ? "link" : "resource";
+        if (!isSafeEmailUrl(attribute.value, kind)) {
           element.removeAttribute(attribute.name);
         }
+      }
+      if (name === "style" && DANGEROUS_STYLE_PATTERN.test(attribute.value)) {
+        element.removeAttribute(attribute.name);
       }
     }
   }
 
-  for (const meta of Array.from(doc.querySelectorAll("meta"))) {
-    const httpEquiv = meta.getAttribute("http-equiv")?.toLowerCase();
-    if (httpEquiv === "refresh") meta.remove();
-  }
-
   const styles = Array.from(doc.querySelectorAll("style"))
     .map((style) => style.textContent?.trim() ?? "")
+    .filter((style) => !DANGEROUS_STYLE_PATTERN.test(style))
+    .filter((style) => !STYLE_TAG_BREAKOUT_PATTERN.test(style))
     .filter(Boolean)
     .join("\n");
 
@@ -231,18 +273,19 @@ function sanitizeEmailHtml(html: string) {
     style.remove();
   }
 
+  const bodyHtml = doc.body.innerHTML.replace(EXECUTABLE_EMAIL_MARKUP_PATTERN, "");
+
   return {
     bodyAttributes: Array.from(doc.body.attributes).map(({ name, value }) => ({
       name,
       value,
     })),
-    bodyHtml: doc.body.innerHTML,
+    bodyHtml,
     styles,
   };
 }
 
 function MessageBody({
-
   html,
   text,
 }: {
@@ -257,7 +300,7 @@ function MessageBody({
   dismissedRef.current = dismissed;
   const [sanitizedHtml, setSanitizedHtml] = useState(() => {
     if (!html) return null;
-    return sanitizedEmailHtmlCache.get(html) ?? null;
+    return sanitizedEmailHtmlCache.get(getSanitizedHtmlCacheKey(html)) ?? null;
   });
 
   useEffect(() => {
@@ -266,7 +309,8 @@ function MessageBody({
       return;
     }
 
-    const cached = sanitizedEmailHtmlCache.get(html);
+    const cacheKey = getSanitizedHtmlCacheKey(html);
+    const cached = sanitizedEmailHtmlCache.get(cacheKey);
     if (cached) {
       setSanitizedHtml(cached);
       return;
@@ -275,7 +319,7 @@ function MessageBody({
     // Run DOMParser off the render path
     const id = requestAnimationFrame(() => {
       const sanitized = sanitizeEmailHtml(html);
-      sanitizedEmailHtmlCache.set(html, sanitized);
+      sanitizedEmailHtmlCache.set(cacheKey, sanitized);
 
       if (sanitizedEmailHtmlCache.size > SANITIZED_HTML_CACHE_LIMIT) {
         const oldestKey = sanitizedEmailHtmlCache.keys().next().value;
@@ -290,13 +334,8 @@ function MessageBody({
 
   const srcdoc = useMemo(() => {
     if (!sanitizedHtml) return null;
-
-    const bodyAttrs = sanitizedHtml.bodyAttributes
-      .map((a) => `${a.name}="${a.value.replace(/"/g, "&quot;")}"`)
-      .join(" ");
-
     return `<!DOCTYPE html>
-<html>
+<html data-gspot-email-shell="true">
 <head>
 <meta name="color-scheme" content="light">
 <style>
@@ -332,9 +371,8 @@ blockquote {
   color: ${EMAIL_BLOCKQUOTE_FOREGROUND};
 }
 </style>
-${sanitizedHtml.styles ? `<style>${sanitizedHtml.styles}</style>` : ""}
 </head>
-<body ${bodyAttrs}>${sanitizedHtml.bodyHtml}</body>
+<body></body>
 </html>`;
   }, [sanitizedHtml]);
 
@@ -348,6 +386,8 @@ ${sanitizedHtml.styles ? `<style>${sanitizedHtml.styles}</style>` : ""}
     let idleHandle: number | null = null;
     let scheduleResizeRef: (() => void) | null = null;
     let loadedDoc: Document | null = null;
+    let lastHeight = 0;
+    let initialized = false;
 
     const handleLinkClick = (e: MouseEvent) => {
       const anchor = (e.target as HTMLElement).closest?.("a");
@@ -367,16 +407,34 @@ ${sanitizedHtml.styles ? `<style>${sanitizedHtml.styles}</style>` : ""}
       if (cancelled) return;
       const doc = iframe.contentDocument;
       if (!doc?.body) return;
+      if (doc.documentElement.dataset.gspotEmailShell !== "true") return;
+      if (initialized) return;
+      initialized = true;
       loadedDoc = doc;
+
+      for (const { name, value } of sanitizedHtml?.bodyAttributes ?? []) {
+        doc.body.setAttribute(name, value);
+      }
+
+      if (sanitizedHtml?.styles) {
+        const style = doc.createElement("style");
+        style.textContent = sanitizedHtml.styles;
+        doc.head.appendChild(style);
+      }
+
+      doc.body.innerHTML = sanitizedHtml?.bodyHtml ?? "";
 
       const resize = () => {
         if (!doc.body || !doc.documentElement) return;
-        iframe.style.height = `${Math.max(
-          doc.body.scrollHeight,
+        const nextHeight = Math.max(
           doc.documentElement.scrollHeight,
-          doc.body.offsetHeight,
-          doc.documentElement.offsetHeight,
-        )}px`;
+          doc.body.scrollHeight,
+        );
+
+        if (nextHeight !== lastHeight) {
+          lastHeight = nextHeight;
+          iframe.style.height = `${nextHeight}px`;
+        }
       };
 
       const scheduleResize = () => {
@@ -431,6 +489,7 @@ ${sanitizedHtml.styles ? `<style>${sanitizedHtml.styles}</style>` : ""}
     };
 
     iframe.addEventListener("load", handleLoad);
+    handleLoad();
 
     return () => {
       cancelled = true;
@@ -510,6 +569,53 @@ ${sanitizedHtml.styles ? `<style>${sanitizedHtml.styles}</style>` : ""}
         </AlertDialogContent>
       </AlertDialog>
     </>
+  );
+}
+
+function LazyMessageBody({
+  html,
+  text,
+}: {
+  html: string | null;
+  text: string | null;
+}) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [shouldRender, setShouldRender] = useState(false);
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root || shouldRender) return;
+
+    if (typeof IntersectionObserver === "undefined") {
+      const id = requestAnimationFrame(() => setShouldRender(true));
+      return () => cancelAnimationFrame(id);
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry?.isIntersecting) return;
+        setShouldRender(true);
+        observer.disconnect();
+      },
+      { rootMargin: "900px 0px" },
+    );
+
+    observer.observe(root);
+    return () => observer.disconnect();
+  }, [shouldRender]);
+
+  return (
+    <div ref={rootRef}>
+      {shouldRender ? (
+        <MessageBody html={html} text={text} />
+      ) : (
+        <div className="space-y-2 py-1">
+          <Skeleton className="h-3 w-full" />
+          <Skeleton className="h-3 w-4/5" />
+          <Skeleton className="h-3 w-2/3" />
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -623,7 +729,10 @@ const ThreadMessageRow = memo(function ThreadMessageRow({
         </div>
         {!isEditingDraft && isExpanded && (
           <div className="mt-4">
-            <MessageBody html={msg.bodyHtml} text={msg.bodyText} />
+            <LazyMessageBody
+              html={msg.bodyHtml}
+              text={msg.bodyText}
+            />
           </div>
         )}
         {!isEditingDraft && !isExpanded && previewText && (

@@ -876,8 +876,10 @@ export const PromptInput = ({
               const uploaded = await uploadFile(file);
               return {
                 ...item,
+                fileId: uploaded.fileId,
                 url: uploaded.url,
                 filename: uploaded.filename,
+                mediaType: uploaded.mimeType,
               };
             }
             return item;

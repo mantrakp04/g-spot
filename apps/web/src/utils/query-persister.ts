@@ -13,8 +13,3 @@ export const queryPersister = createIdbQueryPersister(
   "gspot-",
   1000 * 60 * 60 * 24,
 );
-
-export const preferenceQueryPersister = createIdbQueryPersister(
-  "gspot-pref-",
-  1000 * 60 * 60 * 24 * 365 * 10,
-);

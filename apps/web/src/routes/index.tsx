@@ -1,12 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo, useTransition, startTransition as reactStartTransition, memo, type Dispatch, type SetStateAction } from "react";
 
 import type { FilterCondition, SectionSource, ColumnConfig } from "@g-spot/types/filters";
-import {
-  Drawer,
-  DrawerContent,
-  DrawerDescription,
-  DrawerTitle,
-} from "@g-spot/ui/components/drawer";
 import { Skeleton } from "@g-spot/ui/components/skeleton";
 import { useUser } from "@stackframe/react";
 import { useHotkeys } from "@tanstack/react-hotkeys";
@@ -26,6 +20,7 @@ import { useGmailThread } from "@/hooks/use-gmail-thread";
 import { useSections, useUpdateSectionMutation } from "@/hooks/use-sections";
 import { useSectionCounts } from "@/contexts/section-counts-context";
 import type { GmailThread } from "@/lib/gmail/types";
+import { useEmailDrawerWidth } from "@/lib/inbox/inbox-preferences";
 import { gmailKeys, githubKeys } from "@/lib/query-keys";
 
 export const Route = createFileRoute("/")({
@@ -344,15 +339,7 @@ function InboxPage() {
     selectedThread?.accountId ?? null,
   );
 
-  // Resizable drawer width (persisted to localStorage)
-  const [drawerWidth, setDrawerWidth] = useState(() => {
-    try {
-      const saved = localStorage.getItem("email-drawer-width");
-      return saved ? Number(saved) : 45;
-    } catch {
-      return 45;
-    }
-  });
+  const [drawerWidth, setDrawerWidth] = useEmailDrawerWidth();
   const drawerWidthRef = useRef(drawerWidth);
   drawerWidthRef.current = drawerWidth;
 
@@ -373,12 +360,6 @@ function InboxPage() {
         el.releasePointerCapture(ev.pointerId);
         el.removeEventListener("pointermove", onPointerMove);
         el.removeEventListener("pointerup", onPointerUp);
-        try {
-          localStorage.setItem(
-            "email-drawer-width",
-            String(drawerWidthRef.current),
-          );
-        } catch {}
       };
 
       el.addEventListener("pointermove", onPointerMove);
@@ -390,6 +371,24 @@ function InboxPage() {
   // Keep stale content ref so the drawer doesn't flash empty during close animation
   const drawerThreadRef = useRef(selectedThread);
   if (selectedThread) drawerThreadRef.current = selectedThread;
+
+  useEffect(() => {
+    if (!selectedThread) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (
+        event.target instanceof Element
+        && !event.target.closest("[data-email-drawer-content]")
+      ) {
+        handleCloseThread();
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown, { capture: true });
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, { capture: true });
+    };
+  }, [handleCloseThread, selectedThread]);
 
   if (isLoading) {
     return (
@@ -452,25 +451,22 @@ function InboxPage() {
       </div>
 
       {/* Email detail drawer */}
-      <Drawer
-        direction="right"
-        open={!!selectedThread}
-        onOpenChange={(open) => {
-          if (!open) handleCloseThread();
-        }}
-        handleOnly
-      >
-        <DrawerContent
+      {selectedThread && (
+        <aside
+          aria-describedby="email-drawer-description"
+          aria-labelledby="email-drawer-title"
+          aria-modal="false"
+          data-email-drawer-content
+          role="dialog"
           style={{ width: `${drawerWidth}vw`, maxWidth: "none" }}
-          className="h-full p-0 before:inset-0"
-          overlayClassName="!bg-transparent !backdrop-blur-none"
+          className="fixed inset-y-0 right-0 z-50 flex h-full flex-col bg-transparent p-0 text-xs/relaxed text-popover-foreground outline-none before:absolute before:inset-0 before:-z-10 before:rounded-xl before:border before:border-border before:bg-popover"
         >
-          <DrawerTitle className="sr-only">
+          <h2 id="email-drawer-title" className="sr-only">
             {(selectedThread ?? drawerThreadRef.current)?.thread.subject ?? "Email thread"}
-          </DrawerTitle>
-          <DrawerDescription className="sr-only">
+          </h2>
+          <p id="email-drawer-description" className="sr-only">
             Read an email thread, navigate between nearby threads, and take mailbox actions.
-          </DrawerDescription>
+          </p>
           {/* Resize handle */}
           <div
             onPointerDown={handleResizePointerDown}
@@ -490,8 +486,8 @@ function InboxPage() {
               onNext={() => handleNavigateThread(1)}
             />
           )}
-        </DrawerContent>
-      </Drawer>
+        </aside>
+      )}
     </>
   );
 }

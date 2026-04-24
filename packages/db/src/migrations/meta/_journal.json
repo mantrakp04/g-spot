@@ -15,6 +15,13 @@
       "when": 1776657956805,
       "tag": "0001_acoustic_blindfold",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1777004588960,
+      "tag": "0003_thin_catseye",
+      "breakpoints": true
     }
   ]
 }

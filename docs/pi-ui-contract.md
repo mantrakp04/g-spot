@@ -109,20 +109,7 @@ Each chat/default uses this shape:
   - `chatId`
   - `agentConfig`
 
-- `chat.updateModel`
-  Still exists for compatibility, but `chat.updateAgentConfig` is the real path.
-
 ## Chat Streaming
-
-POST [chat stream endpoint](/Users/barreloflube/Desktop/g-spot/packages/api/src/chat-stream.ts):
-
-- `POST /api/chat`
-- body:
-  - `chatId`
-  - `prompt?`
-  - `message?`
-
-The server accepts the existing message-style payload for compatibility.
 
 WebSocket endpoint:
 
@@ -138,6 +125,15 @@ Server messages:
 - `{ "type": "socket_attached" }`
 - `{ "type": "socket_missing" }`
 - raw Pi `AgentSessionEvent` JSON objects
+
+Runtime status WebSocket endpoint:
+
+- `GET /api/chat/status/socket`
+
+Status messages:
+
+- server: `{ "type": "runtime_statuses", "statuses": { [chatId]: status } }`
+- client: `{ "type": "mark_read", "chatId": "..." }`
 
 There is also a non-SDK error payload shaped like:
 

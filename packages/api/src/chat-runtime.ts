@@ -7,6 +7,9 @@ type PendingApproval = {
 };
 
 type ChatRuntimeSubscriber = (event: unknown) => void;
+type ChatRuntimeStatusSubscriber = (
+  statuses: Record<string, ChatRuntimeStatus>,
+) => void;
 
 type ChatRuntime = {
   configKey: string;
@@ -18,6 +21,7 @@ type ChatRuntime = {
 };
 
 const chatRuntimes = new Map<string, ChatRuntime>();
+const statusSubscribers = new Set<ChatRuntimeStatusSubscriber>();
 
 function cleanupChatRuntimes() {
   const now = Date.now();
@@ -30,6 +34,13 @@ function cleanupChatRuntimes() {
     if (now - runtime.touchedAt > CHAT_RUNTIME_TTL_MS) {
       chatRuntimes.delete(chatId);
     }
+  }
+}
+
+function publishRuntimeStatuses() {
+  const snapshot = snapshotChatRuntimeStatuses();
+  for (const subscriber of statusSubscribers) {
+    subscriber(snapshot);
   }
 }
 
@@ -123,6 +134,7 @@ export async function getChatRuntime(
   };
 
   chatRuntimes.set(chatId, nextRuntime);
+  publishRuntimeStatuses();
   return nextRuntime;
 }
 
@@ -145,6 +157,8 @@ export function startChatRuntimeStream(
   runtime.finishedUnread = false;
   runtime.touchedAt = Date.now();
 
+  publishRuntimeStatuses();
+
   return {
     stream: activeStream,
   };
@@ -161,6 +175,7 @@ export function finishChatRuntimeStream(chatId: string) {
   runtime.abortCurrentRun = null;
   runtime.finishedUnread = true;
   runtime.touchedAt = Date.now();
+  publishRuntimeStatuses();
 }
 
 export function subscribeToChatRuntimeStream(
@@ -214,6 +229,7 @@ export function awaitChatToolApproval(
       args: context.args,
       resolve,
     });
+    publishRuntimeStatuses();
   });
 }
 
@@ -233,6 +249,7 @@ export function resolveChatToolApproval(
 
   runtime.pendingApprovals.delete(input.toolCallId);
   pending.resolve({ approved: input.approved, reason: input.reason });
+  publishRuntimeStatuses();
   return true;
 }
 
@@ -271,7 +288,20 @@ export function markChatRuntimeRead(chatId: string): boolean {
 
   runtime.finishedUnread = false;
   runtime.touchedAt = Date.now();
+  publishRuntimeStatuses();
   return true;
+}
+
+export function subscribeToChatRuntimeStatuses(
+  subscriber: ChatRuntimeStatusSubscriber,
+) {
+  cleanupChatRuntimes();
+  statusSubscribers.add(subscriber);
+  subscriber(snapshotChatRuntimeStatuses());
+
+  return () => {
+    statusSubscribers.delete(subscriber);
+  };
 }
 
 export type ChatRuntimeStatus =

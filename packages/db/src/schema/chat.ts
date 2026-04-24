@@ -11,7 +11,6 @@ export const chats = sqliteTable(
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
     title: text("title").notNull().default("New Chat"),
-    model: text("model").notNull().default("gpt-5.4-mini"),
     agentConfig: text("agent_config").notNull().default("{}"),
     createdAt: text("created_at")
       .notNull()

@@ -10,6 +10,7 @@
     "start": "bun run dist/index.js"
   },
   "dependencies": {
+    "@g-spot/chat-adapter-gmail": "workspace:*",
     "@g-spot/chat-state-sqlite": "workspace:*",
     "@g-spot/env": "workspace:*",
     "@stackframe/react": "^2.8.78",

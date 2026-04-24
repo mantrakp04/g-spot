@@ -31,11 +31,11 @@ export const env = createEnv({
     GMAIL_SYNC_CONCURRENCY: z.coerce.number().int().min(1).max(50).default(20),
     GMAIL_PUSH_RELAY_URL: z.string().min(1).default(
       process.env.NODE_ENV === "production"
-        ? "ws://gmail-relay.g-spot.app"
+        ? "ws://gmail-relay.g-spot.dev"
         : process.env.NODE_ENV === "test"
-          ? "ws://gmail-relay-test.g-spot.app"
+          ? "ws://gmail-relay-test.g-spot.dev"
           : process.env.NODE_ENV === "preview"
-            ? "ws://gmail-relay-preview.g-spot.app"
+            ? "ws://gmail-relay-preview.g-spot.dev"
           : "ws://dev-proxy.g-spot.dev"
     ),
     MEMORY_WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(20).default(8),

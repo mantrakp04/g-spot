@@ -6,18 +6,32 @@ WORKDIR /app
 
 FROM base AS deps
 COPY package.json bun.lock bunfig.toml ./
+COPY apps/desktop/package.json apps/desktop/package.json
 COPY apps/gmail-relay/package.json apps/gmail-relay/package.json
+COPY apps/landing/package.json apps/landing/package.json
+COPY apps/server/package.json apps/server/package.json
+COPY apps/web/package.json apps/web/package.json
+COPY packages/api/package.json packages/api/package.json
+COPY packages/chat-adapter-gmail/package.json packages/chat-adapter-gmail/package.json
+COPY packages/chat-state-sqlite/package.json packages/chat-state-sqlite/package.json
 COPY packages/config/package.json packages/config/package.json
 COPY packages/db/package.json packages/db/package.json
 COPY packages/env/package.json packages/env/package.json
-COPY packages/relay-db/package.json packages/relay-db/package.json
-RUN bun install --filter gmail-relay --filter '@g-spot/*' --frozen-lockfile
+COPY packages/types/package.json packages/types/package.json
+COPY packages/ui/package.json packages/ui/package.json
+RUN bun install \
+  --filter gmail-relay \
+  --filter @g-spot/chat-adapter-gmail \
+  --filter @g-spot/chat-state-sqlite \
+  --filter @g-spot/env \
+  --filter @g-spot/config \
+  --frozen-lockfile
 
 FROM deps AS build
+COPY packages/chat-adapter-gmail packages/chat-adapter-gmail
+COPY packages/chat-state-sqlite packages/chat-state-sqlite
 COPY packages/config packages/config
-COPY packages/db packages/db
 COPY packages/env packages/env
-COPY packages/relay-db packages/relay-db
 COPY apps/gmail-relay apps/gmail-relay
 WORKDIR /app/apps/gmail-relay
 RUN bun build ./src/index.ts --outdir ./dist --target bun

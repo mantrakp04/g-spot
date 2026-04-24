@@ -2,7 +2,7 @@ app = "g-spot-relay"
 primary_region = "iad"
 
 [build]
-  dockerfile = "apps/gmail-relay/Dockerfile"
+  dockerfile = "../../apps/gmail-relay/Dockerfile"
 
 [env]
   RELAY_HOST = "0.0.0.0"

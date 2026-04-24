@@ -7,8 +7,11 @@
 .github
 tmp
 apps/web
+!apps/web/package.json
 apps/desktop
+!apps/desktop/package.json
 apps/server
+!apps/server/package.json
 apps/gmail-relay/relay.db
 apps/gmail-relay/relay.db-*
 **/*.log

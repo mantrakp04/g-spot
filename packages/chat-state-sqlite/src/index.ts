@@ -50,6 +50,98 @@ type PreparedStatements = {
   queueDequeue: Statement;
 };
 
+const CURRENT_SCHEMA_VERSION = 1;
+
+const schemaMigrations: Record<number, string> = {
+  1: `
+    CREATE TABLE IF NOT EXISTS chat_state_subscriptions (
+      key_prefix TEXT NOT NULL,
+      thread_id  TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (key_prefix, thread_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS chat_state_locks (
+      key_prefix TEXT NOT NULL,
+      thread_id  TEXT NOT NULL,
+      token      TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (key_prefix, thread_id)
+    );
+    CREATE INDEX IF NOT EXISTS chat_state_locks_expires_idx
+      ON chat_state_locks (expires_at);
+
+    CREATE TABLE IF NOT EXISTS chat_state_cache (
+      key_prefix TEXT NOT NULL,
+      cache_key  TEXT NOT NULL,
+      value      TEXT NOT NULL,
+      expires_at INTEGER,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (key_prefix, cache_key)
+    );
+    CREATE INDEX IF NOT EXISTS chat_state_cache_expires_idx
+      ON chat_state_cache (expires_at);
+
+    CREATE TABLE IF NOT EXISTS chat_state_lists (
+      key_prefix TEXT NOT NULL,
+      list_key   TEXT NOT NULL,
+      seq        INTEGER PRIMARY KEY AUTOINCREMENT,
+      value      TEXT NOT NULL,
+      expires_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS chat_state_lists_key_idx
+      ON chat_state_lists (key_prefix, list_key, seq);
+    CREATE INDEX IF NOT EXISTS chat_state_lists_expires_idx
+      ON chat_state_lists (expires_at);
+
+    CREATE TABLE IF NOT EXISTS chat_state_queues (
+      key_prefix TEXT NOT NULL,
+      thread_id  TEXT NOT NULL,
+      seq        INTEGER PRIMARY KEY AUTOINCREMENT,
+      value      TEXT NOT NULL,
+      expires_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS chat_state_queues_key_idx
+      ON chat_state_queues (key_prefix, thread_id, seq);
+    CREATE INDEX IF NOT EXISTS chat_state_queues_expires_idx
+      ON chat_state_queues (expires_at);
+  `,
+};
+
+export function migrateSqliteStateSchema(db: Database): void {
+  const versionRow = db.prepare("PRAGMA user_version").get() as
+    | { user_version: number }
+    | null;
+  const currentVersion = versionRow?.user_version ?? 0;
+
+  if (currentVersion > CURRENT_SCHEMA_VERSION) {
+    throw new Error(
+      `SQLite state schema version ${currentVersion} is newer than supported version ${CURRENT_SCHEMA_VERSION}`,
+    );
+  }
+
+  if (currentVersion === CURRENT_SCHEMA_VERSION) return;
+
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    for (
+      let nextVersion = currentVersion + 1;
+      nextVersion <= CURRENT_SCHEMA_VERSION;
+      nextVersion += 1
+    ) {
+      const sql = schemaMigrations[nextVersion];
+      if (!sql) throw new Error(`Missing SQLite state migration ${nextVersion}`);
+      db.exec(sql);
+      db.exec(`PRAGMA user_version = ${nextVersion}`);
+    }
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
 export class SqliteStateAdapter implements StateAdapter {
   private readonly db: Database;
   private readonly keyPrefix: string;
@@ -296,60 +388,7 @@ export class SqliteStateAdapter implements StateAdapter {
   }
 
   private ensureSchema(): void {
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS chat_state_subscriptions (
-        key_prefix TEXT NOT NULL,
-        thread_id  TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        PRIMARY KEY (key_prefix, thread_id)
-      );
-
-      CREATE TABLE IF NOT EXISTS chat_state_locks (
-        key_prefix TEXT NOT NULL,
-        thread_id  TEXT NOT NULL,
-        token      TEXT NOT NULL,
-        expires_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL,
-        PRIMARY KEY (key_prefix, thread_id)
-      );
-      CREATE INDEX IF NOT EXISTS chat_state_locks_expires_idx
-        ON chat_state_locks (expires_at);
-
-      CREATE TABLE IF NOT EXISTS chat_state_cache (
-        key_prefix TEXT NOT NULL,
-        cache_key  TEXT NOT NULL,
-        value      TEXT NOT NULL,
-        expires_at INTEGER,
-        updated_at INTEGER NOT NULL,
-        PRIMARY KEY (key_prefix, cache_key)
-      );
-      CREATE INDEX IF NOT EXISTS chat_state_cache_expires_idx
-        ON chat_state_cache (expires_at);
-
-      CREATE TABLE IF NOT EXISTS chat_state_lists (
-        key_prefix TEXT NOT NULL,
-        list_key   TEXT NOT NULL,
-        seq        INTEGER PRIMARY KEY AUTOINCREMENT,
-        value      TEXT NOT NULL,
-        expires_at INTEGER
-      );
-      CREATE INDEX IF NOT EXISTS chat_state_lists_key_idx
-        ON chat_state_lists (key_prefix, list_key, seq);
-      CREATE INDEX IF NOT EXISTS chat_state_lists_expires_idx
-        ON chat_state_lists (expires_at);
-
-      CREATE TABLE IF NOT EXISTS chat_state_queues (
-        key_prefix TEXT NOT NULL,
-        thread_id  TEXT NOT NULL,
-        seq        INTEGER PRIMARY KEY AUTOINCREMENT,
-        value      TEXT NOT NULL,
-        expires_at INTEGER NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS chat_state_queues_key_idx
-        ON chat_state_queues (key_prefix, thread_id, seq);
-      CREATE INDEX IF NOT EXISTS chat_state_queues_expires_idx
-        ON chat_state_queues (expires_at);
-    `);
+    migrateSqliteStateSchema(this.db);
   }
 
   private prepareStatements(): PreparedStatements {

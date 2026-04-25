@@ -8,7 +8,7 @@ loadEnv({ path: fileURLToPath(new URL("../../../.env", import.meta.url)) });
 
 export const relayDatabasePath = resolve(
   fileURLToPath(new URL("../../..", import.meta.url)),
-  "apps/gmail-relay/relay.db",
+  "apps/relay/relay.db",
 );
 
 export function relayDatabaseFilePath(): string {

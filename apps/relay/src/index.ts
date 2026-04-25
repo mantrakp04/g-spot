@@ -160,7 +160,7 @@ async function listConnectedGmailAccounts(user: RelayUser): Promise<ConnectedGma
       });
     } catch (error) {
       console.error(
-        `[gmail-relay] gmail.watch_failed accountRef=${opaqueRef(account.providerAccountId)}`,
+        `[relay] gmail.watch_failed accountRef=${opaqueRef(account.providerAccountId)}`,
         error,
       );
     }
@@ -299,7 +299,7 @@ async function drainQueue(userId: string) {
     const message: RelayPushMessage = { type: "gmail.push", event };
     socket.send(JSON.stringify(message));
   } catch (error) {
-    console.error(`[gmail-relay] push.dispatch_failed userRef=${userRef}`, error);
+    console.error(`[relay] push.dispatch_failed userRef=${userRef}`, error);
   } finally {
     draining.delete(userId);
   }
@@ -345,7 +345,7 @@ async function handleApiWsUpgrade(
 
   if (!upgraded) {
     console.error(
-      `[gmail-relay] ws.upgrade_failed userRef=${userRef} ms.total=${fmtMs(performance.now() - connectStartedAt)}`,
+      `[relay] ws.upgrade_failed userRef=${userRef} ms.total=${fmtMs(performance.now() - connectStartedAt)}`,
     );
     return new Response("WebSocket upgrade failed", { status: 500 });
   }
@@ -410,7 +410,7 @@ Bun.serve<RelaySocketData>({
     if (url.pathname === "/ping") {
       return Response.json({
         ok: true,
-        service: "gmail-relay",
+        service: "relay",
         now: new Date().toISOString(),
       });
     }

@@ -57,9 +57,9 @@ memory.db-shm
 relay.db
 relay.db-wal
 relay.db-shm
-apps/gmail-relay/relay.db
-apps/gmail-relay/relay.db-wal
-apps/gmail-relay/relay.db-shm
+apps/relay/relay.db
+apps/relay/relay.db-wal
+apps/relay/relay.db-shm
 extensions/
 .vercel
 .pi/

@@ -1,0 +1,39 @@
+name: Prompt request
+description: Propose a new prompt, prompt change, or prompt-tuning idea
+title: "[Prompt]: "
+labels: ["prompt"]
+body:
+  - type: input
+    id: target
+    attributes:
+      label: Target
+      description: Which agent / feature / model does this prompt apply to?
+    validations:
+      required: true
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What should the prompt achieve?
+    validations:
+      required: true
+  - type: textarea
+    id: prompt
+    attributes:
+      label: Proposed prompt
+      render: markdown
+    validations:
+      required: true
+  - type: textarea
+    id: examples
+    attributes:
+      label: Example inputs / expected outputs
+      render: markdown
+    validations:
+      required: false
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes / rationale
+    validations:
+      required: false

@@ -1,7 +1,8 @@
 import { Button } from "@g-spot/ui/components/button";
 import { Card } from "@g-spot/ui/components/card";
 import { Separator } from "@g-spot/ui/components/separator";
-import { ArrowUpRight, Download, Github } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, Download, Github, Star } from "lucide-react";
+import { useEffect, useState } from "react";
 
 const REPO = "mantrakp04/g-spot";
 const REPO_URL = `https://github.com/${REPO}`;
@@ -40,7 +41,7 @@ const FEATURES: { title: string; body: string }[] = [
   },
   {
     title: "Local-first by default",
-    body: "Ships as an Electrobun desktop app with auto-updates. Your data lives in a SQLite file you can cp. No telemetry. No cookies.",
+    body: "Ships as an Electrobun desktop app with auto-updates. Your data lives in a SQLite file you can cp. Only the Gmail relay phones home — and only for push.",
   },
 ];
 
@@ -61,7 +62,6 @@ export default function App() {
       <main className="container mx-auto max-w-3xl px-4 py-10">
         <Hero />
         <section className="mt-14 grid gap-6">
-          <Status />
           <FeaturesBlock />
           <DownloadBlock />
           <StackBlock />
@@ -101,6 +101,7 @@ function Header() {
           </a>
         </nav>
         <div className="flex items-center gap-2">
+          <StarCount />
           <Button variant="outline" size="sm" nativeButton={false}
             render={<a href={REPO_URL} target="_blank" rel="noreferrer" />}>
             <Github />
@@ -120,6 +121,10 @@ function Hero() {
         {TITLE_TEXT}
       </pre>
       <div className="mt-6 space-y-4">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+          <AlertTriangle className="size-3" />
+          alpha · expect bugs &amp; breaking changes
+        </span>
         <h1 className="text-2xl font-medium tracking-tight">
           A local-first command center for your mail, code, and memory.
         </h1>
@@ -151,25 +156,6 @@ function Hero() {
         </div>
       </div>
     </section>
-  );
-}
-
-function Status() {
-  return (
-    <Card className="p-4">
-      <div className="flex items-center justify-between gap-2 px-4 py-1">
-        <div className="flex items-center gap-2">
-          <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.15)]" />
-          <span className="text-xs">
-            <span className="text-muted-foreground">status: </span>
-            <span>local-first · no cloud · no telemetry</span>
-          </span>
-        </div>
-        <span className="font-mono text-[11px] text-muted-foreground">
-          v0.1 — built in public
-        </span>
-      </div>
-    </Card>
   );
 }
 
@@ -291,6 +277,52 @@ function CTA() {
   );
 }
 
+function StarCount() {
+  const [stars, setStars] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`https://api.github.com/repos/${REPO}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled && data && typeof data.stargazers_count === "number") {
+          setStars(data.stargazers_count);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      className="gap-1.5 text-muted-foreground"
+      nativeButton={false}
+      render={
+        <a
+          href={`${REPO_URL}/stargazers`}
+          target="_blank"
+          rel="noreferrer"
+          aria-label="Stargazers"
+        />
+      }
+    >
+      <Star className="size-3.5" />
+      <span className="font-mono tabular-nums">
+        {stars === null ? "—" : formatStars(stars)}
+      </span>
+    </Button>
+  );
+}
+
+function formatStars(n: number): string {
+  if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k`;
+  return String(n);
+}
+
 function Footer() {
   return (
     <footer>
@@ -307,7 +339,6 @@ function Footer() {
             @mantrakp04
           </a>
         </span>
-        <span>no cookies · no trackers · no telemetry</span>
       </div>
     </footer>
   );

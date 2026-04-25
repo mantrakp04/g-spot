@@ -29,13 +29,13 @@ export const env = createEnv({
     STACK_PROJECT_ID: z.string().min(1).default("528293a9-a93a-4511-92a9-0df356161cc7"),
     // Gmail sync
     GMAIL_SYNC_CONCURRENCY: z.coerce.number().int().min(1).max(50).default(20),
-    GMAIL_PUSH_RELAY_URL: z.string().min(1).default(
+    RELAY_URL: z.string().min(1).default(
       process.env.NODE_ENV === "production"
-        ? "ws://gmail-relay.g-spot.dev"
+        ? "ws://relay.g-spot.dev"
         : process.env.NODE_ENV === "test"
-          ? "ws://gmail-relay-test.g-spot.dev"
+          ? "ws://relay-test.g-spot.dev"
           : process.env.NODE_ENV === "preview"
-            ? "ws://gmail-relay-preview.g-spot.dev"
+            ? "ws://relay-preview.g-spot.dev"
           : "ws://dev-proxy.g-spot.dev"
     ),
     MEMORY_WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(20).default(8),

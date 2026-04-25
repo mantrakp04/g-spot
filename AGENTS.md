@@ -106,7 +106,7 @@ This project has no users. There's no real data yet. Make whatever changes you w
 ## Client boundary
 
 - **Treat `apps/web`, `apps/desktop`, and `apps/server` as client-facing surfaces.** They are user-reachable and must be handled with the same caution as frontend code for secrets exposure.
-- **Only `apps/gmail-relay` is non-client-facing.** Keep sensitive-only logic and truly secret environment variables there unless they are strictly required elsewhere.
+- **Only `apps/relay` is non-client-facing.** Keep sensitive-only logic and truly secret environment variables there unless they are strictly required elsewhere.
 - **Do not reveal sensitive env vars to the client side.** Never expose secrets to browser code, desktop renderer code, preload-exposed APIs, or server responses intended for client consumption.
 - **If an env var is sensitive, assume it must not be readable from `apps/web`, `apps/desktop`, or any client-consumable path in `apps/server`.** Pass derived data or server-side results instead of raw secrets.
 
@@ -133,7 +133,7 @@ Long-term maintainability matters. When adding functionality, look for shared lo
 - **`apps/server`**: Bun + **Elysia** + **tRPC** HTTP API; uses `@g-spot/api` routers and `@g-spot/db` for persistence. Treat as client-facing for data exposure and secret-handling decisions.
 - **`apps/web`**: **React / Vite** SPA; **TanStack Router** (`src/routes/`); **tRPC** + TanStack Query client; shared UI from `@g-spot/ui` (Stack Auth and other app wiring live here). Client-facing.
 - **`apps/desktop`**: **Electrobun** wraps the web build for a native shell (`dev:hmr` runs web dev + electrobun). Client-facing.
-- **`apps/gmail-relay`**: Gmail relay service for non-client-facing push/webhook and secret-bearing relay work.
+- **`apps/relay`**: Relay service for non-client-facing push/webhook and secret-bearing relay work.
 - **`packages/api`**: Shared **tRPC** router definitions and types consumed by server and web (`workspace:*`).
 - **`packages/db`**: **Drizzle** schema, migrations, and DB scripts (`db:push`, `db:studio`, etc.).
 - **`packages/ui`**: Shared **shadcn**-style components and global styles; import paths like `@g-spot/ui/...`.

@@ -1,10 +1,10 @@
 # Deployment
 
-Operational notes for publishing the Gmail relay and desktop app artifacts.
+Operational notes for publishing the relay and desktop app artifacts.
 
-## Gmail Relay
+## Relay
 
-The relay app lives in `apps/gmail-relay` and deploys to Fly as `g-spot-relay`.
+The relay app lives in `apps/relay` and deploys to Fly as `g-spot-relay`.
 
 Public Fly URL:
 
@@ -33,18 +33,18 @@ Required GitHub Actions secret:
 FLY_API_TOKEN
 ```
 
-The `Gmail relay` workflow verifies type safety and relay DB migration
+The `Relay` workflow verifies type safety and relay DB migration
 compatibility before deploying pushes to `main`.
 
 ### DNS
 
-`gmail-relay.g-spot.dev` should point at Fly.
+`relay.g-spot.dev` should point at Fly.
 
 Preferred record:
 
 ```text
 Type: CNAME
-Name: gmail-relay
+Name: relay
 Target: g-spot-relay.fly.dev
 Proxy: DNS only
 TTL: Auto
@@ -54,7 +54,7 @@ Direct records if needed:
 
 ```text
 Type: A
-Name: gmail-relay
+Name: relay
 Value: 66.241.124.231
 Proxy: DNS only
 TTL: Auto
@@ -62,7 +62,7 @@ TTL: Auto
 
 ```text
 Type: AAAA
-Name: gmail-relay
+Name: relay
 Value: 2a09:8280:1::10a:6b32:0
 Proxy: DNS only
 TTL: Auto
@@ -71,7 +71,7 @@ TTL: Auto
 After DNS is configured:
 
 ```bash
-fly certs add gmail-relay.g-spot.dev -a g-spot-relay
+fly certs add relay.g-spot.dev -a g-spot-relay
 ```
 
 ## Relay DB Migrations

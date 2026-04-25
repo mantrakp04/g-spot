@@ -1,12 +1,15 @@
 # g-spot
 
+> ⚠️ **Alpha.** Expect bugs, missing features, and breaking changes. Data
+> formats and APIs are not yet stable.
+
 A local-first desktop command center for email, code review, and an
 approval-gated AI agent — all in one quiet window.
 
 g-spot bundles a React app, local API, SQLite persistence, and an Electrobun
 desktop shell into one machine-first workspace. Your data lives in a SQLite
-file you can `cp`. The cloud piece is intentionally small: a Fly-hosted Gmail
-relay for push notifications.
+file you can `cp`. The cloud piece is intentionally small: a Fly-hosted relay
+for push notifications.
 
 ## Download
 
@@ -35,7 +38,7 @@ apply labels, handle attachments. A floating **draft dock** lets you juggle
 multiple drafts in parallel without losing your inbox view. **Inline compose**
 keeps replies in the thread.
 
-A separate `apps/gmail-relay` service receives Google Pub/Sub notifications
+A separate `apps/relay` service receives Google Pub/Sub notifications
 and pushes them over WebSocket to the desktop client for real-time sync.
 
 ### PR review at home
@@ -80,7 +83,7 @@ external-browser-paste flow. Drizzle migrations run on startup.
 - **Agent**: [Pi SDK](https://github.com/badlogic/pi) (`pi-agent-core`, `pi-ai`, `pi-coding-agent`)
 - **Auth**: Stack Auth (Gmail + GitHub OAuth)
 - **Integrations**: Gmail API, Google Pub/Sub, GitHub via Octokit
-- **Hosting**: Fly.io for the Gmail relay only
+- **Hosting**: Fly.io for the relay only
 
 ## Repo Map
 
@@ -89,7 +92,7 @@ apps/
   desktop/      Electrobun desktop shell + auto-updater
   web/          React UI (inbox, chat, review, projects, settings)
   server/       Local Elysia/tRPC API (bundled into desktop)
-  gmail-relay/  Fly-hosted Gmail Pub/Sub → WebSocket relay
+  relay/        Fly-hosted Gmail Pub/Sub → WebSocket relay
   landing/      Landing page
 packages/
   api/          tRPC routers, chat runtime, streaming, memory ingest

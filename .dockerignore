@@ -12,8 +12,8 @@ apps/desktop
 !apps/desktop/package.json
 apps/server
 !apps/server/package.json
-apps/gmail-relay/relay.db
-apps/gmail-relay/relay.db-*
+apps/relay/relay.db
+apps/relay/relay.db-*
 **/*.log
 .env
 .env.*

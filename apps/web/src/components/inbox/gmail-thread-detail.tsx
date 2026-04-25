@@ -750,6 +750,7 @@ type GmailThreadDetailProps = {
   detail: GmailThreadDetailType | undefined;
   isLoading: boolean;
   googleAccount: OAuthConnection | null;
+  accounts?: OAuthConnection[];
   onClose: () => void;
   hasPrev?: boolean;
   hasNext?: boolean;
@@ -762,6 +763,7 @@ export function GmailThreadDetail({
   detail,
   isLoading,
   googleAccount,
+  accounts,
   onClose,
   hasPrev,
   hasNext,
@@ -1180,6 +1182,7 @@ export function GmailThreadDetail({
             <ComposeInline
               draft={inlineDraft}
               googleAccount={googleAccount}
+              accounts={accounts}
             />
           )}
         </div>

@@ -1,107 +1,93 @@
 # g-spot
 
-This project was created with [Better-T-Stack](https://github.com/AmanVarshney01/create-better-t-stack), a modern TypeScript stack that combines React, TanStack Router, Elysia, TRPC, and more.
+A local-first desktop command center for email, code review, and agent-backed
+workflows.
 
-## Features
+g-spot bundles a React app, local API, SQLite persistence, and an Electrobun
+desktop shell into one machine-first workspace. The cloud piece is intentionally
+small: a Fly-hosted Gmail relay for push notifications and webhook delivery.
 
-- **TypeScript** - For type safety and improved developer experience
-- **TanStack Router** - File-based routing with full type safety
-- **TailwindCSS** - Utility-first CSS for rapid UI development
-- **Shared UI package** - shadcn/ui primitives live in `packages/ui`
-- **Elysia** - Type-safe, high-performance framework
-- **tRPC** - End-to-end type-safe APIs
-- **Bun** - Runtime environment
-- **Drizzle** - TypeScript-first ORM
-- **SQLite/Turso** - Database engine
-- **Electrobun** - Lightweight desktop shell for web frontends
-- **Turborepo** - Optimized monorepo build system
+<!-- Add product screenshots, demo videos, and launch images here. -->
 
-## Getting Started
+## What It Does
 
-First, install the dependencies:
+- Unified inbox for Gmail, GitHub pull requests, and GitHub issues
+- Custom sections and filters across connected work sources
+- Gmail thread reading, composing, drafts, labels, and push sync
+- Pull request review surfaces with diffs, timelines, checks, and inline notes
+- Agent chat tied to local projects, branches, files, and memory
+- Local SQLite storage for app state and fast desktop startup
+- Packaged desktop app through Electrobun
 
-```bash
-bun install
+## Why It Exists
+
+Most work apps split communication, code review, project context, and AI into
+separate surfaces. g-spot pulls those loops into one local workspace so the app
+can stay close to your files, your branches, your inbox, and your decisions.
+
+The default shape is not multi-tenant SaaS. It is a fast desktop app backed by a
+local server, shared TypeScript packages, and a narrow relay service for the few
+things that need to happen off-machine.
+
+## Product Surfaces
+
+### Desktop App
+
+The main ship target. Electrobun packages the local API and web UI into a native
+desktop shell.
+
+### Inbox
+
+Gmail, GitHub PRs, and GitHub issues can be organized into configurable sections
+with source-specific filters and columns.
+
+### Gmail
+
+Gmail sync supports message/thread browsing, compose flows, drafts, labels, and
+push-driven updates through the relay service.
+
+### Code Review
+
+Review views bring pull request metadata, commits, checks, diffs, timelines, and
+inline review actions into the same workspace as chat and inbox state.
+
+### Agent Workspace
+
+Project-aware chat can use local files, git context, attachments, memory, and
+permissions-aware tool execution.
+
+## Stack
+
+- Bun, TypeScript, Turborepo
+- React, Vite, TanStack Router, Tailwind CSS
+- Elysia, tRPC, Drizzle, SQLite
+- Electrobun desktop shell
+- Gmail API, Google Pub/Sub, GitHub integrations
+- Fly.io for the Gmail relay
+
+## Repo Map
+
+```text
+apps/
+  desktop/      Electrobun desktop shell
+  gmail-relay/  Fly-hosted Gmail push relay
+  landing/      Landing page
+  server/       Local Elysia/tRPC API
+  web/          React/Vite UI
+packages/
+  api/          Shared routers and API logic
+  chat-adapter-gmail/
+  chat-state-sqlite/
+  config/       Shared TypeScript config
+  db/           Drizzle schema, queries, migrations
+  env/          Zod env schemas
+  types/        Shared domain types
+  ui/           Shared UI components/styles
 ```
 
-## Database Setup
+## Development
 
-This project uses SQLite with Drizzle ORM.
+Contributor setup and local workflow live in [CONTRIBUTING.md](./CONTRIBUTING.md).
 
-1. Start the local SQLite database (optional):
-
-```bash
-bun run db:local
-```
-
-2. Update your `.env` file in the `apps/server` directory with the appropriate connection details if needed.
-
-3. Apply the schema to your database:
-
-```bash
-bun run db:push
-```
-
-Then, run the development server:
-
-```bash
-bun run dev
-```
-
-Open [http://localhost:5173](http://localhost:5173) in your browser to see the web application.
-The API is running at [http://localhost:3000](http://localhost:3000).
-
-## UI Customization
-
-React web apps in this stack share shadcn/ui primitives through `packages/ui`.
-
-- Change design tokens and global styles in `packages/ui/src/styles/globals.css`
-- Update shared primitives in `packages/ui/src/components/*`
-- Adjust shadcn aliases or style config in `packages/ui/components.json` and `apps/web/components.json`
-
-### Add more shared components
-
-Run this from the project root to add more primitives to the shared UI package:
-
-```bash
-npx shadcn@latest add accordion dialog popover sheet table -c packages/ui
-```
-
-Import shared components like this:
-
-```tsx
-import { Button } from "@g-spot/ui/components/button";
-```
-
-### Add app-specific blocks
-
-If you want to add app-specific blocks instead of shared primitives, run the shadcn CLI from `apps/web`.
-
-## Project Structure
-
-```
-g-spot/
-├── apps/
-│   ├── web/         # Frontend application (React + TanStack Router)
-│   └── server/      # Backend API (Elysia, TRPC)
-├── packages/
-│   ├── ui/          # Shared shadcn/ui components and styles
-│   ├── api/         # API layer / business logic
-│   └── db/          # Database schema & queries
-```
-
-## Available Scripts
-
-- `bun run dev`: Start all applications in development mode
-- `bun run build`: Build all applications
-- `bun run dev:web`: Start only the web application
-- `bun run dev:server`: Start only the server
-- `bun run check-types`: Check TypeScript types across all apps
-- `bun run db:push`: Push schema changes to database
-- `bun run db:generate`: Generate database client/types
-- `bun run db:migrate`: Run database migrations
-- `bun run db:studio`: Open database studio UI
-- `bun run db:local`: Start the local SQLite database
-- `bun run dev:desktop`: Start the Electrobun desktop app with HMR
-- `bun run build:desktop`: Build the stable Electrobun desktop app
-- `bun run build:desktop:canary`: Build the canary Electrobun desktop app
+Deployment, relay DNS, database migration policy, and release pipeline details
+live in [DEPLOYMENT.md](./DEPLOYMENT.md).

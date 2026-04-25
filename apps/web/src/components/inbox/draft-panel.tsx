@@ -34,6 +34,7 @@ const MODE_ICONS: Record<string, typeof Mail> = {
 type DraftPanelProps = {
   draft: DraftEntry;
   googleAccount: OAuthConnection | null;
+  accounts?: OAuthConnection[];
   onUpdateField: (id: string, field: keyof ComposeFormState, value: string) => void;
   onSetGmailDraftId: (id: string, gmailDraftId: string) => void;
   onSetAccountId: (id: string, accountId: string | null) => void;
@@ -47,6 +48,7 @@ type DraftPanelProps = {
 export function DraftPanel({
   draft,
   googleAccount,
+  accounts,
   onUpdateField,
   onSetGmailDraftId,
   onSetAccountId,
@@ -291,6 +293,7 @@ export function DraftPanel({
             onAddAttachments={(files) => onAddAttachments(draft.id, files)}
             onRemoveAttachment={(attId) => onRemoveAttachment(draft.id, attId)}
             googleAccount={googleAccount}
+            accounts={accounts}
             compact
           />
         </div>

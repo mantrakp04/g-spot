@@ -1,10 +1,49 @@
 type CronHandler = () => void | Promise<void>;
 
+type BunCronLike = {
+  cron?: {
+    parse?: (cron: string, base: number) => number | Date | null | undefined;
+  };
+};
+
 export interface ManagedCronJob {
   cron: string;
   ref(): ManagedCronJob;
   stop(): ManagedCronJob;
   unref(): ManagedCronJob;
+}
+
+function parseSimpleCron(cron: string, base: number): number | null {
+  if (cron === "@hourly" || cron === "0 * * * *") {
+    const next = new Date(base);
+    next.setMinutes(0, 0, 0);
+    next.setHours(next.getHours() + 1);
+    return next.getTime();
+  }
+
+  if (cron === "@daily" || cron === "0 0 * * *") {
+    const next = new Date(base);
+    next.setHours(0, 0, 0, 0);
+    next.setDate(next.getDate() + 1);
+    return next.getTime();
+  }
+
+  const everyMinutes = cron.match(/^\*\/(\d+) \* \* \* \*$/);
+  if (everyMinutes) {
+    const minutes = Number(everyMinutes[1]);
+    if (!Number.isInteger(minutes) || minutes <= 0) return null;
+    return base + minutes * 60 * 1000;
+  }
+
+  return null;
+}
+
+function parseNextRunAt(cron: string, base: number): number | null {
+  const bunCronParse = (globalThis.Bun as BunCronLike | undefined)?.cron?.parse;
+  const parsed = bunCronParse?.(cron, base);
+  if (parsed instanceof Date) return parsed.getTime();
+  if (typeof parsed === "number") return parsed;
+  return parseSimpleCron(cron, base);
 }
 
 export function createCronJob(options: {
@@ -23,7 +62,7 @@ export function createCronJob(options: {
     }
   };
 
-  const nextRunAt = Bun.cron.parse(cron, Date.now());
+  const nextRunAt = parseNextRunAt(cron, Date.now());
   if (!nextRunAt) {
     throw new Error(`[${name}] Invalid cron expression: ${cron}`);
   }
@@ -35,7 +74,7 @@ export function createCronJob(options: {
   const scheduleNextRun = () => {
     if (stopped) return;
 
-    const nextScheduledAt = Bun.cron.parse(cron, Date.now());
+    const nextScheduledAt = parseNextRunAt(cron, Date.now());
     if (!nextScheduledAt) {
       throw new Error(`[${name}] Invalid cron expression: ${cron}`);
     }

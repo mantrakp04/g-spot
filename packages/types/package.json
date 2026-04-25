@@ -15,6 +15,9 @@
     },
     "./github": {
       "default": "./src/github.ts"
+    },
+    "./desktop": {
+      "default": "./src/desktop.ts"
     }
   },
   "scripts": {

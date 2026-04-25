@@ -6,7 +6,6 @@ import { getGmailAccountById, listGmailAccountsByEmail } from "@g-spot/db/gmail"
 import { env } from "@g-spot/env/server";
 
 import { processGmailPushNotification } from "./gmail-push";
-import { getStackConnectedAccountAccessToken, type StackAuthHeaders } from "./stack-server";
 
 /**
  * Server-side Chat instance.
@@ -17,25 +16,11 @@ import { getStackConnectedAccountAccessToken, type StackAuthHeaders } from "./st
  *   - discord: registered if DISCORD_TOKEN + DISCORD_APPLICATION_ID + DISCORD_PUBLIC_KEY set
  *   - whatsapp: registered if WHATSAPP_ACCESS_TOKEN + WHATSAPP_APP_SECRET + WHATSAPP_PHONE_NUMBER_ID + WHATSAPP_VERIFY_TOKEN set
  *
- * Per-account OAuth for Gmail requires Stack auth headers from the active
- * relay WS session. `setChatAuthHeaders` is called on every relay message so
- * the token provider always uses the freshest creds.
+ * Per-account OAuth for Gmail is handled by the desktop client. The local
+ * server keeps Gmail reads local and does not hold Stack server auth state.
  */
 
 const STATE_PATH = env.CHAT_STATE_SQLITE_PATH ?? "./chat-state.db";
-
-let authHeadersRef: StackAuthHeaders | null = null;
-
-export function setChatAuthHeaders(headers: StackAuthHeaders): void {
-  authHeadersRef = headers;
-}
-
-function requireAuthHeaders(): StackAuthHeaders {
-  if (!authHeadersRef) {
-    throw new Error("Gmail adapter: no Stack auth headers registered yet");
-  }
-  return authHeadersRef;
-}
 
 type BaseAdapters = { gmail: ReturnType<typeof createGmailAdapter> };
 type ChatInstanceExport = Chat<BaseAdapters>;
@@ -64,18 +49,14 @@ async function buildChat(): Promise<ChatInstanceExport> {
       if (!account) {
         throw new Error(`No gmail account found for accountId=${accountId}`);
       }
-      const accessToken = await getStackConnectedAccountAccessToken(
-        requireAuthHeaders(),
-        "google",
-        account.providerAccountId,
+      throw new Error(
+        `Gmail adapter: no server-side token provider for ${account.email}`,
       );
-      return { accessToken, emailAddress: account.email };
     },
     onPush: async ({ emailAddress, historyId, receivedAt }) => {
       await processGmailPushNotification(
         { emailAddress, historyId },
         receivedAt,
-        { authHeaders: requireAuthHeaders() },
       );
     },
   });

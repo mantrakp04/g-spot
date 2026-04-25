@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from "react";
 
 import { Badge } from "@g-spot/ui/components/badge";
+import type { OAuthConnection } from "@stackframe/react";
 import { useUser } from "@stackframe/react";
 import { FileEdit } from "lucide-react";
 
@@ -10,6 +11,30 @@ import { DraftPanel } from "./draft-panel";
 const MAX_VISIBLE = 3;
 
 export function DraftDock() {
+  const user = useUser();
+
+  if (!user) {
+    return <DraftDockContent accounts={undefined} />;
+  }
+
+  return <SignedInDraftDock user={user} />;
+}
+
+function SignedInDraftDock({
+  user,
+}: {
+  user: { useConnectedAccounts: () => OAuthConnection[] | undefined };
+}) {
+  const accounts = user.useConnectedAccounts();
+
+  return <DraftDockContent accounts={accounts} />;
+}
+
+function DraftDockContent({
+  accounts,
+}: {
+  accounts: OAuthConnection[] | undefined;
+}) {
   const {
     dockDrafts,
     updateField,
@@ -21,9 +46,6 @@ export function DraftDock() {
     addAttachments,
     removeAttachment,
   } = useDrafts();
-
-  const user = useUser();
-  const accounts = user?.useConnectedAccounts();
 
   const resolveAccount = useCallback(
     (accountId: string | null) => {
@@ -70,6 +92,7 @@ export function DraftDock() {
           onClose={closeDraft}
           onAddAttachments={addAttachments}
           onRemoveAttachment={removeAttachment}
+          accounts={accounts}
         />
       ))}
     </div>

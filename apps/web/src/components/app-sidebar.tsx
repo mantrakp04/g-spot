@@ -8,8 +8,10 @@ import { ScrollArea } from "@g-spot/ui/components/scroll-area";
 import { Separator } from "@g-spot/ui/components/separator";
 import { Skeleton } from "@g-spot/ui/components/skeleton";
 import { cn } from "@g-spot/ui/lib/utils";
+import type { OAuthConnection } from "@stackframe/react";
 import { useUser } from "@stackframe/react";
 import { Link, useNavigate, useParams, useRouterState } from "@tanstack/react-router";
+import { toast } from "sonner";
 import {
   LogIn,
   Plus,
@@ -30,7 +32,9 @@ import {
 import { usePreferredComposeGoogleAccount } from "@/hooks/use-preferred-compose-google-account";
 import { useProjects } from "@/hooks/use-projects";
 import { SidebarProjectItem } from "@/components/projects/sidebar-project-item";
+import { DesktopUpdateButton } from "@/components/desktop-update-button";
 import { useLastProjectId, useSetLastProjectId } from "@/lib/active-project";
+import { signInWithExternalBrowser } from "@/lib/desktop-auth";
 import {
   DndContext,
   closestCenter,
@@ -117,12 +121,51 @@ function SortableSectionItem({
 
 export function AppSidebar({ onToggleCollapse }: AppSidebarProps) {
   const user = useUser();
+
+  if (!user) {
+    return (
+      <AppSidebarContent
+        onToggleCollapse={onToggleCollapse}
+        userSignedIn={false}
+        accounts={undefined}
+      />
+    );
+  }
+
+  return <SignedInAppSidebar onToggleCollapse={onToggleCollapse} user={user} />;
+}
+
+function SignedInAppSidebar({
+  onToggleCollapse,
+  user,
+}: AppSidebarProps & {
+  user: { useConnectedAccounts: () => OAuthConnection[] | undefined };
+}) {
+  const accounts = user.useConnectedAccounts();
+
+  return (
+    <AppSidebarContent
+      onToggleCollapse={onToggleCollapse}
+      userSignedIn
+      accounts={accounts}
+    />
+  );
+}
+
+function AppSidebarContent({
+  onToggleCollapse,
+  userSignedIn,
+  accounts,
+}: AppSidebarProps & {
+  userSignedIn: boolean;
+  accounts: OAuthConnection[] | undefined;
+}) {
   const { data: sections, isLoading } = useSections();
   const [builderOpen, setBuilderOpen] = useState(false);
+  const [signingIn, setSigningIn] = useState(false);
   const reorderMutation = useReorderSectionsMutation();
   const { drafts, openDraft } = useDrafts();
   const { counts: sectionCounts } = useSectionCounts();
-  const accounts = user?.useConnectedAccounts();
   const { preferredAccountId } = usePreferredComposeGoogleAccount(accounts);
   const accountsLoaded = accounts !== undefined;
   const githubConnected =
@@ -201,6 +244,18 @@ export function AppSidebar({ onToggleCollapse }: AppSidebarProps) {
       accountId: preferredAccountId,
     });
   }, [openDraft, preferredAccountId]);
+
+  const handleSignIn = useCallback(async () => {
+    setSigningIn(true);
+    try {
+      await signInWithExternalBrowser();
+      toast.success("Signed in");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSigningIn(false);
+    }
+  }, []);
 
   const handleDeleteChat = useCallback(
     (e: React.MouseEvent, chatId: string) => {
@@ -419,24 +474,26 @@ export function AppSidebar({ onToggleCollapse }: AppSidebarProps) {
       <div className="border-t border-sidebar-border p-2">
         <div>
           <SidebarSetupChecklist
-            enabled={Boolean(user)}
+            enabled={userSignedIn}
             accountsLoaded={accountsLoaded}
             githubConnected={githubConnected}
             gmailConnected={gmailConnected}
           />
         </div>
+        <DesktopUpdateButton />
         <ThemePicker compact side="right" sideOffset={4} />
-        {user ? (
+        {userSignedIn ? (
           <NavUser />
         ) : (
           <Button
             variant="ghost"
             size="sm"
             className="w-full justify-start gap-2"
-            render={<a href="/handler/sign-in" />}
+            disabled={signingIn}
+            onClick={handleSignIn}
           >
             <LogIn className="size-4" />
-            <span>Sign In</span>
+            <span>{signingIn ? "Waiting for browser" : "Sign In"}</span>
           </Button>
         )}
       </div>

@@ -15,10 +15,6 @@ import {
   startSync,
 } from "../lib/gmail-sync";
 import { getProfile } from "../lib/gmail-client";
-import {
-  getStackConnectedAccountAccessToken,
-  type StackAuthHeaders,
-} from "../lib/stack-server";
 
 type SyncProgressResponse = {
   status: "idle" | "running" | "paused" | "interrupted" | "completed" | "error";
@@ -37,25 +33,6 @@ type SyncProgressResponse = {
   startedAt: string | null;
   error: string | null;
 };
-
-async function getOwnedGoogleAccessToken(
-  authHeaders: StackAuthHeaders,
-  providerAccountId: string,
-): Promise<string> {
-  return getStackConnectedAccountAccessToken(
-    authHeaders,
-    "google",
-    providerAccountId,
-  );
-}
-
-async function getOwnedGmailAccount(
-  authHeaders: StackAuthHeaders,
-  providerAccountId: string,
-) {
-  await getOwnedGoogleAccessToken(authHeaders, providerAccountId);
-  return getGmailAccount(providerAccountId);
-}
 
 function toSyncProgressResponse(input: {
   status: string;
@@ -119,22 +96,18 @@ export const gmailSyncRouter = router({
     .input(
       z.object({
         providerAccountId: z.string(),
+        accessToken: z.string().min(1),
         intent: z.enum(syncStartIntents).default("auto"),
       }),
     )
-    .mutation(async ({ ctx, input }) => {
-      const accessToken = await getOwnedGoogleAccessToken(
-        ctx.stackAuthHeaders,
-        input.providerAccountId,
-      );
-
+    .mutation(async ({ input }) => {
       const existingAccount = await getGmailAccount(
         input.providerAccountId,
       );
       let accountId = existingAccount?.id;
 
       if (!accountId) {
-        const profile = await getProfile(accessToken);
+        const profile = await getProfile(input.accessToken);
         accountId = (
           await upsertGmailAccount({
             email: profile.emailAddress,
@@ -146,7 +119,7 @@ export const gmailSyncRouter = router({
 
       const orch = await startSync(
         accountId,
-        accessToken,
+        input.accessToken,
         input.intent,
       );
 
@@ -161,11 +134,8 @@ export const gmailSyncRouter = router({
    */
   getSyncProgress: publicProcedure
     .input(z.object({ providerAccountId: z.string() }))
-    .query(async ({ ctx, input }) => {
-      const account = await getOwnedGmailAccount(
-        ctx.stackAuthHeaders,
-        input.providerAccountId,
-      );
+    .query(async ({ input }) => {
+      const account = await getGmailAccount(input.providerAccountId);
       if (!account) return null;
 
       // Try in-memory first (active sync)
@@ -194,11 +164,8 @@ export const gmailSyncRouter = router({
    */
   cancelSync: publicProcedure
     .input(z.object({ providerAccountId: z.string() }))
-    .mutation(async ({ ctx, input }) => {
-      const account = await getOwnedGmailAccount(
-        ctx.stackAuthHeaders,
-        input.providerAccountId,
-      );
+    .mutation(async ({ input }) => {
+      const account = await getGmailAccount(input.providerAccountId);
       if (!account) return { cancelled: false };
       return { cancelled: await cancelSync(account.id) };
     }),
@@ -208,11 +175,8 @@ export const gmailSyncRouter = router({
    */
   getFailures: publicProcedure
     .input(z.object({ providerAccountId: z.string() }))
-    .query(async ({ ctx, input }) => {
-      const account = await getOwnedGmailAccount(
-        ctx.stackAuthHeaders,
-        input.providerAccountId,
-      );
+    .query(async ({ input }) => {
+      const account = await getGmailAccount(input.providerAccountId);
       if (!account) return [];
       return getRetryableSyncFailures(account.id);
     }),

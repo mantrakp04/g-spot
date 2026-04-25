@@ -66,6 +66,7 @@ import {
   TooltipTrigger,
 } from "@g-spot/ui/components/tooltip";
 import { cn } from "@g-spot/ui/lib/utils";
+import type { OAuthConnection } from "@stackframe/react";
 import { useUser } from "@stackframe/react";
 
 import type {
@@ -268,9 +269,49 @@ export function SectionBuilder({
   onOpenChange,
   section,
 }: SectionBuilderProps) {
-  const isEdit = !!section;
   const user = useUser();
-  const accounts = user?.useConnectedAccounts() ?? [];
+
+  if (!user) {
+    return (
+      <SectionBuilderContent
+        open={open}
+        onOpenChange={onOpenChange}
+        section={section}
+        accounts={[]}
+      />
+    );
+  }
+
+  return (
+    <SignedInSectionBuilder
+      open={open}
+      onOpenChange={onOpenChange}
+      section={section}
+      user={user}
+    />
+  );
+}
+
+function SignedInSectionBuilder({
+  user,
+  ...props
+}: SectionBuilderProps & {
+  user: { useConnectedAccounts: () => OAuthConnection[] | undefined };
+}) {
+  const accounts = user.useConnectedAccounts() ?? [];
+
+  return <SectionBuilderContent {...props} accounts={accounts} />;
+}
+
+function SectionBuilderContent({
+  open,
+  onOpenChange,
+  section,
+  accounts,
+}: SectionBuilderProps & {
+  accounts: OAuthConnection[];
+}) {
+  const isEdit = !!section;
 
   // Form state
   const [name, setName] = useState("");

@@ -1,5 +1,6 @@
 {
   "name": "desktop",
+  "version": "0.0.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,11 +9,14 @@
     "hmr": "turbo -F web dev",
     "build": "turbo -F web build && electrobun build",
     "build:stable": "turbo -F web build && electrobun build --env=stable",
+    "build:nightly": "turbo -F web build && electrobun build --env=canary",
     "build:canary": "turbo -F web build && electrobun build --env=canary",
     "check-types": "tsc --noEmit"
   },
   "dependencies": {
-    "electrobun": "^1.16.0",
+    "@g-spot/db": "workspace:*",
+    "@g-spot/types": "workspace:*",
+    "electrobun": "catalog:",
     "server": "workspace:*"
   },
   "devDependencies": {

@@ -5,7 +5,6 @@ import { Input } from "@g-spot/ui/components/input";
 import { Separator } from "@g-spot/ui/components/separator";
 import { Textarea } from "@g-spot/ui/components/textarea";
 import type { OAuthConnection } from "@stackframe/react";
-import { useUser } from "@stackframe/react";
 import { Loader2, Send, Trash2, ChevronDown, Paperclip, X as XIcon } from "lucide-react";
 
 import type { ComposeAttachment } from "@/contexts/drafts-context";
@@ -32,6 +31,7 @@ type ComposeFormProps = {
   onAddAttachments?: (files: File[]) => void;
   onRemoveAttachment?: (id: string) => void;
   googleAccount?: OAuthConnection | null;
+  accounts?: OAuthConnection[];
 };
 
 function formatSavedAt(date: Date): string {
@@ -61,9 +61,8 @@ export function ComposeForm({
   onAddAttachments,
   onRemoveAttachment,
   googleAccount,
+  accounts,
 }: ComposeFormProps) {
-  const user = useUser();
-  const accounts = user?.useConnectedAccounts();
   const { setPreferredAccountId } = usePreferredComposeGoogleAccount(accounts);
   const [showCcBcc, setShowCcBcc] = useState(!!form.cc || !!form.bcc);
   const showSubject = mode === "new" || mode === "forward";

@@ -24,7 +24,6 @@
     "@mariozechner/pi-ai": "^0.65.0",
     "@mariozechner/pi-coding-agent": "^0.65.0",
     "@sinclair/typebox": "^0.34.49",
-    "@stackframe/react": "^2.8.78",
     "@tanstack/pacer": "^0.20.1",
     "@trpc/client": "catalog:",
     "@trpc/server": "catalog:",

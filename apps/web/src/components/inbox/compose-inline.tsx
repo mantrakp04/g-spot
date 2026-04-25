@@ -19,9 +19,10 @@ import { ComposeForm } from "./compose-form";
 type ComposeInlineProps = {
   draft: DraftEntry;
   googleAccount: OAuthConnection | null;
+  accounts?: OAuthConnection[];
 };
 
-export function ComposeInline({ draft, googleAccount }: ComposeInlineProps) {
+export function ComposeInline({ draft, googleAccount, accounts }: ComposeInlineProps) {
   const { updateField, setGmailDraftId, setAccountId, closeDraft, setInlineDraft, addAttachments, removeAttachment } = useDrafts();
   const { data: profile } = useGoogleProfile(googleAccount);
   const userEmail = profile?.email ?? "";
@@ -154,6 +155,7 @@ export function ComposeInline({ draft, googleAccount }: ComposeInlineProps) {
           onAddAttachments={(files) => addAttachments(draft.id, files)}
           onRemoveAttachment={(attId) => removeAttachment(draft.id, attId)}
           googleAccount={googleAccount}
+          accounts={accounts}
         />
       </div>
     </>

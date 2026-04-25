@@ -19,6 +19,9 @@ import { env } from "@g-spot/env/server";
 import { startDecayCron } from "@g-spot/api/lib/memory-cron";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { Elysia } from "elysia";
+import { existsSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 // ── Favicon proxy (rejects Google default globe) ──
 
@@ -68,12 +71,54 @@ function buildFallbackFavicon(domain: string): string {
 </svg>`;
 }
 
+// ── Desktop-hosted web callback pages ──
+
+const webDistDir =
+  process.env.G_SPOT_WEB_DIST_DIR ??
+  fileURLToPath(new URL("../../../apps/web/dist", import.meta.url));
+
+const contentTypes: Record<string, string> = {
+  ".css": "text/css; charset=utf-8",
+  ".html": "text/html; charset=utf-8",
+  ".ico": "image/x-icon",
+  ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".png": "image/png",
+  ".svg": "image/svg+xml; charset=utf-8",
+  ".wasm": "application/wasm",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+};
+
+async function serveWebAsset(relativePath: string): Promise<Response | null> {
+  const normalizedPath = path.normalize(relativePath).replace(/^(\.\.(\/|\\|$))+/, "");
+  const filePath = path.join(webDistDir, normalizedPath);
+
+  if (!filePath.startsWith(webDistDir) || !existsSync(filePath)) {
+    return null;
+  }
+
+  const extension = path.extname(filePath);
+  return new Response(Bun.file(filePath), {
+    headers: {
+      "content-type": contentTypes[extension] ?? "application/octet-stream",
+    },
+  });
+}
+
+async function serveWebApp(): Promise<Response> {
+  return (
+    (await serveWebAsset("index.html")) ??
+    new Response("Web build not found", { status: 404 })
+  );
+}
+
 // ── Main server (port 3000) ──
 
 export const app = new Elysia()
   .use(
     cors({
-      origin: env.CORS_ORIGIN,
+      origin: "*",
       methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
       maxAge: 86400,
     }),
@@ -134,6 +179,15 @@ export const app = new Elysia()
     handleFileExtractedText(params.fileId),
   )
   .get("/api/files/:fileId", ({ params }) => handleFileDownload(params.fileId))
+  .get("/assets/*", async ({ params }) => {
+    const file = await serveWebAsset(`assets/${params["*"]}`);
+    return file ?? new Response("Not found", { status: 404 });
+  })
+  .get("/logo.png", async () => {
+    const file = await serveWebAsset("logo.png");
+    return file ?? new Response("Not found", { status: 404 });
+  })
+  .get("/handler/*", () => serveWebApp())
   .get("/", () => "OK")
   .listen(env.SERVER_PORT, () => {
     startDecayCron();

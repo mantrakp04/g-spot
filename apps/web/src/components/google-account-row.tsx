@@ -13,6 +13,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { useGoogleProfile } from "@/hooks/use-gmail-options";
+import { getGoogleAccessToken } from "@/lib/gmail/client-api";
 import { getInitials } from "@/lib/initials";
 import { trpcClient } from "@/utils/trpc";
 
@@ -59,11 +60,14 @@ export function GoogleAccountRow({
   });
 
   const startSyncMutation = useMutation({
-    mutationFn: (intent: "auto" | "retry_failed") =>
-      trpcClient.gmailSync.startSync.mutate({
+    mutationFn: async (intent: "auto" | "retry_failed") => {
+      const accessToken = await getGoogleAccessToken(account);
+      return trpcClient.gmailSync.startSync.mutate({
         providerAccountId: account.providerAccountId,
+        accessToken,
         intent,
-      }),
+      });
+    },
     onSuccess: () => {
       toast.success("Gmail sync started");
       syncProgress.refetch();

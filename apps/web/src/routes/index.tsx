@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef, useMemo, useTransition, start
 
 import type { FilterCondition, SectionSource, ColumnConfig } from "@g-spot/types/filters";
 import { Skeleton } from "@g-spot/ui/components/skeleton";
+import type { OAuthConnection } from "@stackframe/react";
 import { useUser } from "@stackframe/react";
 import { useHotkeys } from "@tanstack/react-hotkeys";
 import { useQueryClient } from "@tanstack/react-query";
@@ -85,6 +86,7 @@ type SectionRowProps = {
   }) => void;
   onCountChange: (sectionId: string, count: number, countTotalPending?: boolean) => void;
   onSelectThread: (thread: GmailThread, accountId: string | null, threads: GmailThread[]) => void;
+  accounts: OAuthConnection[] | undefined;
 };
 
 const SectionRow = memo(function SectionRow({
@@ -101,6 +103,7 @@ const SectionRow = memo(function SectionRow({
   onEdit,
   onCountChange,
   onSelectThread,
+  accounts,
 }: SectionRowProps) {
   const filters = useMemo(() => parseFilters(section.filters), [section.filters]);
   const columns = useMemo(() => parseJson<ColumnConfig[]>(section.columns, []), [section.columns]);
@@ -168,6 +171,7 @@ const SectionRow = memo(function SectionRow({
             sortAsc={sortAsc}
             onCountChange={(count) => onCountChange(section.id, count)}
             columns={columns}
+            accounts={accounts}
           />
         ) : (
           <GmailMailView
@@ -193,10 +197,35 @@ const SectionRow = memo(function SectionRow({
   && prev.itemCount === next.itemCount
   && prev.countTotalPending === next.countTotalPending
   && prev.isRefreshing === next.isRefreshing
-  && prev.selectedThreadId === next.selectedThreadId,
+  && prev.selectedThreadId === next.selectedThreadId
+  && prev.accounts === next.accounts,
 );
 
 function InboxPage() {
+  const user = useUser();
+
+  if (!user) {
+    return <InboxPageContent accounts={undefined} />;
+  }
+
+  return <SignedInInboxPage user={user} />;
+}
+
+function SignedInInboxPage({
+  user,
+}: {
+  user: { useConnectedAccounts: () => OAuthConnection[] | undefined };
+}) {
+  const accounts = user.useConnectedAccounts();
+
+  return <InboxPageContent accounts={accounts} />;
+}
+
+function InboxPageContent({
+  accounts,
+}: {
+  accounts: OAuthConnection[] | undefined;
+}) {
   const queryClient = useQueryClient();
   const { data: sections, isLoading } = useSections();
   const [refreshing, setRefreshing] = useState<Record<string, boolean>>({});
@@ -239,10 +268,6 @@ function InboxPage() {
   // Lifted selected thread state for the right detail panel
   const [selectedThread, setSelectedThread] = useState<SelectedThreadState>(null);
   const markThreadReadMutation = useMarkGmailThreadReadMutation();
-
-  // Resolve Google account for the detail panel
-  const user = useUser();
-  const accounts = user?.useConnectedAccounts();
 
   const handleSelectThread = useCallback((thread: GmailThread, accountId: string | null, threads: GmailThread[]) => {
     reactStartTransition(() => {
@@ -436,6 +461,7 @@ function InboxPage() {
               onEdit={setEditingSection}
               onCountChange={handleCountChange}
               onSelectThread={handleSelectThread}
+              accounts={accounts}
             />
           ))}
         </div>
@@ -479,6 +505,7 @@ function InboxPage() {
               detail={threadDetail ?? undefined}
               isLoading={isDetailLoading}
               googleAccount={googleAccount ?? null}
+              accounts={accounts}
               onClose={handleCloseThread}
               hasPrev={hasPrev}
               hasNext={hasNext}

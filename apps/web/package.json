@@ -36,6 +36,7 @@
     "@trpc/client": "catalog:",
     "@trpc/server": "catalog:",
     "@trpc/tanstack-react-query": "^11.16.0",
+    "electrobun": "catalog:",
     "color-string": "^2.1.4",
     "dotenv": "catalog:",
     "idb-keyval": "^6.2.2",

@@ -1,5 +1,7 @@
 import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
+import path from "node:path";
+import { arch, platform } from "node:process";
 import { getLoadablePath as getSqliteVecPath } from "sqlite-vec";
 
 /**
@@ -55,7 +57,7 @@ function ensureCustomSqlite(): void {
 }
 
 function loadVectorExtension(db: Database): void {
-  const extensionPath = getSqliteVecPath();
+  const extensionPath = resolveSqliteVecPath();
   if (!existsSync(extensionPath)) {
     throw new Error(
       `sqlite-vec loadable extension missing at ${extensionPath}. ` +
@@ -63,6 +65,34 @@ function loadVectorExtension(db: Database): void {
     );
   }
   db.loadExtension(extensionPath);
+}
+
+function sqliteVecExtensionName(): string {
+  if (platform === "win32") return "vec0.dll";
+  if (platform === "darwin") return "vec0.dylib";
+  return "vec0.so";
+}
+
+function resolveSqliteVecPath(): string {
+  const override = process.env.SQLITE_VEC_PATH;
+  if (override) return override;
+
+  const bundledPath = path.resolve(
+    import.meta.dirname,
+    "../native/sqlite-vec",
+    sqliteVecExtensionName(),
+  );
+  if (existsSync(bundledPath)) return bundledPath;
+
+  const platformPackagePath = path.resolve(
+    import.meta.dirname,
+    "../node_modules",
+    `sqlite-vec-${platform === "win32" ? "windows" : platform}-${arch}`,
+    sqliteVecExtensionName(),
+  );
+  if (existsSync(platformPackagePath)) return platformPackagePath;
+
+  return getSqliteVecPath();
 }
 
 /** Open a bun:sqlite Database with sqlite-vec loaded and WAL enabled. */

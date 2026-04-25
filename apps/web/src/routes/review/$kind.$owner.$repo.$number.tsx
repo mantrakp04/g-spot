@@ -1,4 +1,5 @@
 import { createFileRoute, useParams } from "@tanstack/react-router";
+import type { OAuthConnection } from "@stackframe/react";
 import { useUser } from "@stackframe/react";
 
 import { PRReviewView } from "@/components/review/pr-review-view";
@@ -14,9 +15,6 @@ function ReviewDetail() {
     from: "/review/$kind/$owner/$repo/$number",
   });
   const user = useUser();
-  const accounts = user?.useConnectedAccounts();
-  const account =
-    accounts?.find((a) => a.provider === "github") ?? null;
 
   if (kind !== "pr" && kind !== "issue") {
     return (
@@ -33,19 +31,40 @@ function ReviewDetail() {
     number: Number(number),
   };
 
-  if (!account) {
-    return (
-      <div className="mx-auto max-w-md p-12 text-center">
-        <div className="text-[14px] text-muted-foreground">
-          Connect a GitHub account in settings to open reviews.
-        </div>
-      </div>
-    );
+  if (!user) {
+    return <MissingGitHubAccount />;
   }
 
-  return kind === "pr" ? (
+  return <SignedInReviewDetail target={target} user={user} />;
+}
+
+function SignedInReviewDetail({
+  target,
+  user,
+}: {
+  target: ReviewTarget;
+  user: { useConnectedAccounts: () => OAuthConnection[] | undefined };
+}) {
+  const accounts = user.useConnectedAccounts();
+  const account = accounts?.find((a) => a.provider === "github") ?? null;
+
+  if (!account) {
+    return <MissingGitHubAccount />;
+  }
+
+  return target.kind === "pr" ? (
     <PRReviewView target={target} account={account} />
   ) : (
     <IssueReviewView target={target} account={account} />
+  );
+}
+
+function MissingGitHubAccount() {
+  return (
+    <div className="mx-auto max-w-md p-12 text-center">
+      <div className="text-[14px] text-muted-foreground">
+        Connect a GitHub account in settings to open reviews.
+      </div>
+    </div>
   );
 }

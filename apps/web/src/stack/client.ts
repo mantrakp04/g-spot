@@ -1,5 +1,7 @@
 import { env } from "@g-spot/env/web";
-import { StackClientApp } from "@stackframe/react";
+import { StackClientApp, stackAppInternalsSymbol } from "@stackframe/react";
+
+const DESKTOP_AUTH_STORAGE_KEY = "g-spot.stack-auth";
 
 const githubOAuthScopes = [
   "repo",
@@ -18,7 +20,7 @@ const googleOAuthScopes = [
 
 export const stackClientApp = new StackClientApp({
   projectId: env.VITE_STACK_PROJECT_ID,
-  tokenStore: "cookie",
+  tokenStore: isDesktopRenderer() ? "memory" : "cookie",
   redirectMethod: "window",
   analytics: {
     replays: {
@@ -30,6 +32,12 @@ export const stackClientApp = new StackClientApp({
     github: [...githubOAuthScopes],
   },
 });
+function isDesktopRenderer(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    (window.location.protocol === "views:" || "__electrobunWebviewId" in window)
+  );
+}
 
 export const GITHUB_OAUTH_SCOPES = githubOAuthScopes;
 export const GOOGLE_OAUTH_SCOPES = googleOAuthScopes;

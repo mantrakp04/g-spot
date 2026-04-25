@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import { Button } from "@g-spot/ui/components/button";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup, type ResizablePanelHandle } from "@g-spot/ui/components/resizable";
-import { useUser } from "@stackframe/react";
 import { Toaster } from "@g-spot/ui/components/sonner";
 import { HotkeysProvider } from "@tanstack/react-hotkeys";
 import type { QueryClient } from "@tanstack/react-query";
@@ -17,7 +16,7 @@ import { DraftsProvider } from "@/contexts/drafts-context";
 import { PiCredentialFlowsProvider } from "@/contexts/pi-credential-flows-context";
 import { SectionCountsProvider } from "@/contexts/section-counts-context";
 import { ThemeProvider, ThemeScript } from "@/components/tweakcn-theme-provider";
-import { trpcClient, type trpc } from "@/utils/trpc";
+import type { trpc } from "@/utils/trpc";
 
 import "../index.css";
 
@@ -51,7 +50,6 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
 function RootComponent() {
   const sidebarPanelRef = useRef<ResizablePanelHandle | null>(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const user = useUser();
 
   const handleToggleSidebar = useCallback(() => {
     const sidebarPanel = sidebarPanelRef.current;
@@ -64,31 +62,6 @@ function RootComponent() {
 
     sidebarPanel.collapse();
   }, []);
-
-  useEffect(() => {
-    if (!user) return;
-
-    let cancelled = false;
-
-    const heartbeat = async () => {
-      try {
-        await trpcClient.relay.heartbeat.mutate();
-      } catch (error) {
-        if (cancelled) return;
-        console.error("[relay-heartbeat] Failed to ensure relay connection:", error);
-      }
-    };
-
-    void heartbeat();
-    const interval = window.setInterval(() => {
-      void heartbeat();
-    }, 30_000);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, [user?.id]);
 
   return (
     <>

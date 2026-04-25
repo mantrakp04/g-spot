@@ -36,15 +36,30 @@ type Journal = { version: string; dialect: string; entries: JournalEntry[] };
 const DRIZZLE_MIGRATIONS_TABLE = "__drizzle_migrations";
 const migrationsFolder = path.resolve(import.meta.dirname, "./migrations");
 
-const rawDb = openNativeDb(resolveDbFilePath(env.DATABASE_URL));
+type MigrationLogger = Pick<typeof console, "log">;
 
-bootstrapJournalIfNeeded(rawDb);
+export function runMigrations(logger: MigrationLogger = console): void {
+  const rawDb = openNativeDb(resolveDbFilePath(env.DATABASE_URL));
 
-migrate(drizzle(rawDb), { migrationsFolder });
+  try {
+    bootstrapJournalIfNeeded(rawDb, logger);
 
-console.log("migrations applied");
+    migrate(drizzle(rawDb), { migrationsFolder });
 
-function bootstrapJournalIfNeeded(db: ReturnType<typeof openNativeDb>): void {
+    logger.log("migrations applied");
+  } finally {
+    rawDb.close();
+  }
+}
+
+if (import.meta.main) {
+  runMigrations();
+}
+
+function bootstrapJournalIfNeeded(
+  db: ReturnType<typeof openNativeDb>,
+  logger: MigrationLogger,
+): void {
   const journalPath = path.join(migrationsFolder, "meta", "_journal.json");
   let journal: Journal;
   try {
@@ -77,7 +92,7 @@ function bootstrapJournalIfNeeded(db: ReturnType<typeof openNativeDb>): void {
     .get() as { count: number } | null;
   const appTables = appRow?.count ?? 0;
 
-  console.log(
+  logger.log(
     `[migrate] bootstrap check: journalExists=${journalExists} journalRows=${journalRowCount} appTables=${appTables}`,
   );
 
@@ -108,7 +123,7 @@ function bootstrapJournalIfNeeded(db: ReturnType<typeof openNativeDb>): void {
     insert.run(hash, entry.when);
     seededTags.push(entry.tag);
   }
-  console.log(
+  logger.log(
     `bootstrapped journal with ${seededTags.length} existing migration(s): ${seededTags.join(", ")}`,
   );
 }

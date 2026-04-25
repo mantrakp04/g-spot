@@ -2,7 +2,7 @@ import { useEffect, useMemo, type HTMLAttributes, type ReactElement } from "reac
 
 import type { ColumnConfig, FilterCondition } from "@g-spot/types/filters";
 import { getDefaultColumns, normalizeColumns } from "@g-spot/types/filters";
-import { useUser } from "@stackframe/react";
+import type { OAuthConnection } from "@stackframe/react";
 import { useNavigate } from "@tanstack/react-router";
 
 import type { GitHubIssue, GitHubPullRequest } from "@/lib/github/types";
@@ -28,6 +28,7 @@ type GitHubTableProps = {
   sortAsc?: boolean;
   onCountChange?: (count: number) => void;
   columns?: ColumnConfig[];
+  accounts?: OAuthConnection[];
 };
 
 export function GitHubTable({
@@ -39,10 +40,9 @@ export function GitHubTable({
   sortAsc,
   onCountChange,
   columns: columnsProp,
+  accounts,
 }: GitHubTableProps) {
-  const user = useUser();
   const navigate = useNavigate();
-  const accounts = user?.useConnectedAccounts();
   const githubAccount = accountId
     ? accounts?.find((a) => a.providerAccountId === accountId) ?? null
     : accounts?.find((a) => a.provider === "github") ?? null;
@@ -105,7 +105,7 @@ export function GitHubTable({
 
   const label = source === "github_pr" ? "pull requests" : "issues";
 
-  if (!user) return <SectionEmpty source={source} message={`Sign in to view ${label}`} />;
+  if (!accounts) return <SectionEmpty source={source} message={`Sign in to view ${label}`} />;
   if (!githubAccount)
     return (
       <SectionEmpty source={source} message={`Connect your GitHub account to view ${label}`} />

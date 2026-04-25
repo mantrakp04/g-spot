@@ -10,25 +10,35 @@ const releaseRepository = process.env.GITHUB_REPOSITORY ?? "mantrakp04/g-spot";
 const releaseTag = process.env.DESKTOP_RELEASE_TAG ?? "desktop-stable";
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 const bunModulesDir = path.join(repoRoot, "node_modules", ".bun");
-const sqliteVecPackageDir = readdirSync(bunModulesDir).find((entry) =>
-  entry.startsWith("sqlite-vec-darwin-arm64@"),
+
+// Map node platform/arch to the suffix conventions each native dep uses.
+// sharp + onnxruntime use `win32`; sqlite-vec uses `windows`.
+const nodePlatform = process.platform; // "darwin" | "linux" | "win32"
+const nodeArch = process.arch; // "arm64" | "x64"
+const sqliteVecPlatform =
+  nodePlatform === "win32" ? "windows" : nodePlatform;
+const sqliteVecExt =
+  nodePlatform === "darwin" ? "dylib" : nodePlatform === "win32" ? "dll" : "so";
+const sharpSuffix = `${nodePlatform}-${nodeArch}`;
+const sqliteVecSuffix = `${sqliteVecPlatform}-${nodeArch}`;
+
+const findPackageDir = (prefix: string): string | undefined =>
+  readdirSync(bunModulesDir).find((entry) => entry.startsWith(prefix));
+
+const sqliteVecPackageDir = findPackageDir(`sqlite-vec-${sqliteVecSuffix}@`);
+const onnxRuntimePackageDir = findPackageDir("onnxruntime-node@");
+const sharpNativePackageDir = findPackageDir(`@img+sharp-${sharpSuffix}@`);
+const sharpLibvipsPackageDir = findPackageDir(
+  `@img+sharp-libvips-${sharpSuffix}@`,
 );
-const onnxRuntimePackageDir = readdirSync(bunModulesDir).find((entry) =>
-  entry.startsWith("onnxruntime-node@"),
-);
-const sharpNativePackageDir = readdirSync(bunModulesDir).find((entry) =>
-  entry.startsWith("@img+sharp-darwin-arm64@"),
-);
-const sharpLibvipsPackageDir = readdirSync(bunModulesDir).find((entry) =>
-  entry.startsWith("@img+sharp-libvips-darwin-arm64@"),
-);
+
 const sqliteVecPath = sqliteVecPackageDir
   ? path.join(
       bunModulesDir,
       sqliteVecPackageDir,
       "node_modules",
-      "sqlite-vec-darwin-arm64",
-      "vec0.dylib",
+      `sqlite-vec-${sqliteVecSuffix}`,
+      `vec0.${sqliteVecExt}`,
     )
   : "";
 const onnxRuntimeNativeDir = onnxRuntimePackageDir
@@ -39,8 +49,8 @@ const onnxRuntimeNativeDir = onnxRuntimePackageDir
       "onnxruntime-node",
       "bin",
       "napi-v6",
-      "darwin",
-      "arm64",
+      nodePlatform,
+      nodeArch,
     )
   : "";
 const sharpNativeDir = sharpNativePackageDir
@@ -49,7 +59,7 @@ const sharpNativeDir = sharpNativePackageDir
       sharpNativePackageDir,
       "node_modules",
       "@img",
-      "sharp-darwin-arm64",
+      `sharp-${sharpSuffix}`,
     )
   : "";
 const sharpLibvipsDir = sharpLibvipsPackageDir
@@ -58,7 +68,7 @@ const sharpLibvipsDir = sharpLibvipsPackageDir
       sharpLibvipsPackageDir,
       "node_modules",
       "@img",
-      "sharp-libvips-darwin-arm64",
+      `sharp-libvips-${sharpSuffix}`,
     )
   : "";
 const sqliteVecCopyPath = path.relative(desktopRoot, sqliteVecPath);
@@ -67,16 +77,24 @@ const sharpNativeCopyPath = path.relative(desktopRoot, sharpNativeDir);
 const sharpLibvipsCopyPath = path.relative(desktopRoot, sharpLibvipsDir);
 
 if (!sqliteVecPath || !existsSync(sqliteVecPath)) {
-  throw new Error("Missing sqlite-vec darwin arm64 native extension. Run `bun install`.");
+  throw new Error(
+    `Missing sqlite-vec ${sqliteVecSuffix} native extension. Run \`bun install\`.`,
+  );
 }
 if (!onnxRuntimeNativeDir || !existsSync(onnxRuntimeNativeDir)) {
-  throw new Error("Missing onnxruntime-node darwin arm64 native files. Run `bun install`.");
+  throw new Error(
+    `Missing onnxruntime-node ${nodePlatform}/${nodeArch} native files. Run \`bun install\`.`,
+  );
 }
 if (!sharpNativeDir || !existsSync(sharpNativeDir)) {
-  throw new Error("Missing sharp darwin arm64 native files. Run `bun install`.");
+  throw new Error(
+    `Missing sharp ${sharpSuffix} native files. Run \`bun install\`.`,
+  );
 }
 if (!sharpLibvipsDir || !existsSync(sharpLibvipsDir)) {
-  throw new Error("Missing sharp libvips darwin arm64 native files. Run `bun install`.");
+  throw new Error(
+    `Missing sharp libvips ${sharpSuffix} native files. Run \`bun install\`.`,
+  );
 }
 
 export default {
@@ -95,10 +113,10 @@ export default {
     copy: {
       [webBuildDir]: "views/mainview",
       "../../packages/db/src/migrations": "bun/migrations",
-      [onnxRuntimeNativeCopyPath]: "bin/napi-v6/darwin/arm64",
-      [sharpNativeCopyPath]: "bun/node_modules/@img/sharp-darwin-arm64",
-      [sharpLibvipsCopyPath]: "bun/node_modules/@img/sharp-libvips-darwin-arm64",
-      [sqliteVecCopyPath]: "native/sqlite-vec/vec0.dylib",
+      [onnxRuntimeNativeCopyPath]: `bin/napi-v6/${nodePlatform}/${nodeArch}`,
+      [sharpNativeCopyPath]: `bun/node_modules/@img/sharp-${sharpSuffix}`,
+      [sharpLibvipsCopyPath]: `bun/node_modules/@img/sharp-libvips-${sharpSuffix}`,
+      [sqliteVecCopyPath]: `native/sqlite-vec/vec0.${sqliteVecExt}`,
     },
     watchIgnore: [`${webBuildDir}/**`],
     mac: {

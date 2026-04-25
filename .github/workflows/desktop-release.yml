@@ -114,6 +114,10 @@ jobs:
         include:
           - name: macos-arm64
             runner: macos-15
+          - name: linux-x64
+            runner: ubuntu-latest
+          - name: windows-x64
+            runner: windows-latest
     env:
       DESKTOP_RELEASE_TAG: ${{ needs.resolve.outputs.update_release_tag }}
     steps:

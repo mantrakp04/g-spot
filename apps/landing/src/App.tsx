@@ -1,11 +1,12 @@
 import { Button } from "@g-spot/ui/components/button";
 import { Card } from "@g-spot/ui/components/card";
 import { Separator } from "@g-spot/ui/components/separator";
-import { ArrowUpRight, Check, Copy, Github } from "lucide-react";
-import { useState } from "react";
+import { ArrowUpRight, Download, Github } from "lucide-react";
 
 const REPO = "mantrakp04/g-spot";
 const REPO_URL = `https://github.com/${REPO}`;
+const RELEASES_URL = `${REPO_URL}/releases/latest`;
+const NIGHTLY_URL = `${REPO_URL}/releases/tag/desktop-nightly`;
 
 const TITLE_TEXT = `
   ██████╗       ███████╗██████╗  ██████╗ ████████╗
@@ -19,19 +20,27 @@ const TITLE_TEXT = `
 const FEATURES: { title: string; body: string }[] = [
   {
     title: "One inbox for mail and code",
-    body: "Gmail threads and GitHub issues triaged side-by-side. No two tabs, no context-switch tax.",
+    body: "Gmail threads, GitHub PRs, and issues triaged side-by-side. Sectioned, filterable, reorderable. No two tabs, no context-switch tax.",
   },
   {
     title: "Review PRs without leaving home",
-    body: "Inline threads, stack visualization, and a quiet action bar. Your diffs, your keybindings.",
+    body: "Inline comment threads, CI checks, timelines, stack visualization, and a quiet keyboard-driven action bar.",
+  },
+  {
+    title: "An agent you actually approve",
+    body: "Tool calls surface as approval cards before they run. Per-chat sandbox, network toggle, and tool whitelist. The agent asks; you decide.",
   },
   {
     title: "A memory that actually remembers",
-    body: "A local knowledge graph with embeddings. Your agents recall what you told them last week.",
+    body: "Local knowledge graph with sqlite-vec embeddings. Chat turns auto-ingested. Salience decays over time. The agent recalls last week.",
+  },
+  {
+    title: "Gmail, fully wired",
+    body: "Read, compose, drafts, labels, attachments. Inline reply in-thread. A floating draft dock for juggling multiple drafts. Real-time push sync.",
   },
   {
     title: "Local-first by default",
-    body: "Ships as an Electrobun desktop app. Your data lives in a SQLite file you can cp.",
+    body: "Ships as an Electrobun desktop app with auto-updates. Your data lives in a SQLite file you can cp. No telemetry. No cookies.",
   },
 ];
 
@@ -40,20 +49,10 @@ const STACK: [string, string][] = [
   ["server", "elysia · tRPC"],
   ["web", "react 19 · tanstack router · tailwind v4"],
   ["data", "drizzle · sqlite · sqlite-vec"],
-  ["desktop", "electrobun"],
+  ["agent", "pi sdk · approval-gated tool calls"],
+  ["desktop", "electrobun · auto-update"],
   ["license", "MIT"],
 ];
-
-const INSTALL = `# clone
-git clone https://github.com/${REPO}
-cd g-spot
-
-# install & push schema
-bun install
-bun run db:push
-
-# run the desktop app
-bun dev:desktop`;
 
 export default function App() {
   return (
@@ -64,7 +63,7 @@ export default function App() {
         <section className="mt-14 grid gap-6">
           <Status />
           <FeaturesBlock />
-          <InstallBlock />
+          <DownloadBlock />
           <StackBlock />
           <CTA />
         </section>
@@ -89,10 +88,10 @@ function Header() {
             features
           </a>
           <a
-            href="#install"
+            href="#download"
             className="text-muted-foreground hover:text-foreground"
           >
-            install
+            download
           </a>
           <a
             href="#stack"
@@ -126,11 +125,19 @@ function Hero() {
         </h1>
         <p className="text-sm text-muted-foreground">
           g-spot is an open-source desktop app that bundles a Gmail/GitHub
-          inbox, a PR review surface, and a memory graph into one quiet window.
-          It runs on your machine. It ships as a single install.
+          inbox, a PR review surface, an approval-gated AI agent, and a memory
+          graph into one quiet window. It runs on your machine. It ships as a
+          single install.
         </p>
         <div className="flex flex-wrap items-center gap-2 pt-1">
-          <CopyInstall />
+          <Button
+            size="sm"
+            nativeButton={false}
+            render={<a href={RELEASES_URL} target="_blank" rel="noreferrer" />}
+          >
+            <Download />
+            Download
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -184,18 +191,42 @@ function FeaturesBlock() {
   );
 }
 
-function InstallBlock() {
+function DownloadBlock() {
   return (
-    <section id="install" className="space-y-3">
-      <h2 className="text-sm font-medium text-muted-foreground">Install</h2>
-      <Card className="p-0">
-        <pre className="overflow-x-auto px-4 py-4 font-mono text-xs/relaxed text-foreground/90">
-          {INSTALL}
-        </pre>
+    <section id="download" className="space-y-3">
+      <h2 className="text-sm font-medium text-muted-foreground">Download</h2>
+      <Card className="p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4">
+          <div className="space-y-1">
+            <div className="text-sm font-medium">
+              macOS · Linux · Windows
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Stable build. Auto-updates from GitHub releases. Uninstall is{" "}
+              <code className="font-mono">drag to trash</code>.
+            </p>
+          </div>
+          <Button
+            size="sm"
+            nativeButton={false}
+            render={<a href={RELEASES_URL} target="_blank" rel="noreferrer" />}
+          >
+            <Download />
+            Download stable
+          </Button>
+        </div>
       </Card>
       <p className="text-xs text-muted-foreground">
-        Three commands, one desktop window. Uninstall is{" "}
-        <code className="font-mono">rm -rf</code>.
+        Want the bleeding edge?{" "}
+        <a
+          className="underline underline-offset-2 hover:text-foreground"
+          href={NIGHTLY_URL}
+          target="_blank"
+          rel="noreferrer"
+        >
+          Grab the nightly
+        </a>
+        .
       </p>
     </section>
   );
@@ -232,11 +263,18 @@ function CTA() {
         <div>
           <div className="text-sm font-medium">Ready to try it?</div>
           <p className="text-xs text-muted-foreground">
-            Clone the repo. It'll feel like home in five minutes.
+            One installer. It'll feel like home in five minutes.
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <CopyInstall compact />
+          <Button
+            size="sm"
+            nativeButton={false}
+            render={<a href={RELEASES_URL} target="_blank" rel="noreferrer" />}
+          >
+            <Download />
+            Download
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -250,35 +288,6 @@ function CTA() {
         </div>
       </div>
     </Card>
-  );
-}
-
-function CopyInstall({ compact = false }: { compact?: boolean }) {
-  const [copied, setCopied] = useState(false);
-  const cmd = `git clone https://github.com/${REPO}`;
-
-  return (
-    <Button
-      size="sm"
-      onClick={() => {
-        navigator.clipboard.writeText(cmd).catch(() => {});
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-      }}
-    >
-      {copied ? <Check /> : <Copy />}
-      {compact ? (
-        copied ? (
-          "copied"
-        ) : (
-          "copy install"
-        )
-      ) : (
-        <span className="font-mono">
-          {copied ? "copied" : `git clone ${REPO}`}
-        </span>
-      )}
-    </Button>
   );
 }
 

@@ -313,19 +313,3 @@ CREATE TABLE `sections` (
 );
 --> statement-breakpoint
 CREATE INDEX `sections_position_idx` ON `sections` (`position`);--> statement-breakpoint
-CREATE TABLE `skills` (
-	`id` text PRIMARY KEY NOT NULL,
-	`project_id` text,
-	`name` text NOT NULL,
-	`description` text NOT NULL,
-	`content` text DEFAULT '' NOT NULL,
-	`trigger_keywords` text DEFAULT '[]' NOT NULL,
-	`disable_model_invocation` integer DEFAULT false NOT NULL,
-	`created_at` text DEFAULT (current_timestamp) NOT NULL,
-	`updated_at` text DEFAULT (current_timestamp) NOT NULL,
-	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade
-);
---> statement-breakpoint
-CREATE INDEX `skills_project_idx` ON `skills` (`project_id`);--> statement-breakpoint
-CREATE UNIQUE INDEX `skills_global_name_unique` ON `skills` (`name`) WHERE "skills"."project_id" IS NULL;--> statement-breakpoint
-CREATE UNIQUE INDEX `skills_project_name_unique` ON `skills` (`project_id`,`name`) WHERE "skills"."project_id" IS NOT NULL;

@@ -1,5 +1,6 @@
 import { Octokit } from "octokit";
-import type { FilterCondition } from "@g-spot/types/filters";
+import type { FilterCondition, FilterRule } from "@g-spot/types/filters";
+import { normalizeFilterRule } from "@g-spot/types/filters";
 import type {
   GitHubIssue,
   GitHubItemPage,
@@ -7,6 +8,7 @@ import type {
 } from "./types";
 
 const SEARCH_PAGE_SIZE = 7;
+const MAX_PARALLEL_SEARCH_QUERIES = 8;
 
 export type GitHubItemType = "pr" | "issue";
 
@@ -182,6 +184,7 @@ type SearchPageInfo = {
 
 type PullRequestSearchResponse = { search: { nodes: PullRequestNode[] } & SearchPageInfo };
 type IssueSearchResponse = { search: { nodes: IssueNode[] } & SearchPageInfo };
+type SearchVariables = { searchQuery: string; cursor: string | null; first: number };
 
 const SIMPLE_QUALIFIERS: Record<string, string> = {
   author: "author",
@@ -222,6 +225,102 @@ function formatRangeValue(operator: string, value: string): string {
 
 export function buildGitHubSearchQuery(
   itemType: GitHubItemType,
+  filters: FilterRule | FilterCondition[],
+  repos?: string[],
+  sortAsc?: boolean,
+): string {
+  const parts: string[] = [itemType === "pr" ? "is:pr" : "is:issue"];
+
+  if (repos) {
+    for (const repo of repos) parts.push(`repo:${repo}`);
+  }
+
+  const filterRule = normalizeFilterRule(filters);
+  const filterQuery = buildGitHubFilterRuleQuery(filterRule);
+  const hasStatusFilter = filterRuleHasField(filterRule, "status");
+  if (filterQuery) parts.push(filterQuery);
+
+  if (!hasStatusFilter) parts.push("is:open");
+  parts.push(sortAsc ? "sort:updated-asc" : "sort:updated-desc");
+  return parts.join(" ");
+}
+
+function filterRuleHasField(rule: FilterRule, field: string): boolean {
+  if (rule.type === "condition") return rule.field === field && rule.value.trim().length > 0;
+  return rule.children.some((child) => filterRuleHasField(child, field));
+}
+
+function buildGitHubConditionQuery(condition: FilterCondition): string | null {
+  const { field, operator, value } = condition;
+  if (value.trim().length === 0) return null;
+
+  const negate = operator === "is_not" || operator === "not_contains";
+
+  if (field === "status") {
+    return negate ? `-is:${value}` : `is:${value}`;
+  }
+  if (field === "draft") {
+    return `draft:${value}`;
+  }
+  if (field === "review_status") {
+    return negate ? `-review:${value}` : `review:${value}`;
+  }
+  if (field === "reviewer") {
+    return negate ? `-reviewed-by:${value}` : `review-requested:${value}`;
+  }
+  if (field === "milestone") {
+    return negate ? `-milestone:"${value}"` : `milestone:"${value}"`;
+  }
+  if (RANGE_FIELDS.has(field)) {
+    return `${field}:${formatRangeValue(operator, value)}`;
+  }
+  if (field in SIMPLE_QUALIFIERS) {
+    const qualifier = SIMPLE_QUALIFIERS[field]!;
+    return negate ? `-${qualifier}:${value}` : `${qualifier}:${value}`;
+  }
+
+  return null;
+}
+
+function buildGitHubFilterRuleQuery(rule: FilterRule): string | null {
+  if (rule.type === "condition") return buildGitHubConditionQuery(rule);
+
+  const children = rule.children
+    .map(buildGitHubFilterRuleQuery)
+    .filter((query): query is string => query != null && query.length > 0);
+
+  if (children.length === 0) return null;
+  if (children.length === 1) return children[0]!;
+
+  const operator = rule.operator === "or" ? " OR " : " AND ";
+  return `(${children.join(operator)})`;
+}
+
+function toAndClauses(rule: FilterRule): FilterCondition[][] {
+  const normalized = normalizeFilterRule(rule);
+
+  if (normalized.type === "condition") {
+    return normalized.value.trim().length > 0 ? [[normalized]] : [[]];
+  }
+
+  const childClauses = normalized.children.map(toAndClauses);
+  if (childClauses.length === 0) return [[]];
+
+  if (normalized.operator === "or") {
+    return childClauses.flat();
+  }
+
+  return childClauses.reduce<FilterCondition[][]>(
+    (acc, clauses) =>
+      acc.flatMap((left) =>
+        clauses.map((right) => [...left, ...right]),
+      ),
+    [[]],
+  );
+}
+
+function buildGitHubAndOnlySearchQuery(
+  itemType: GitHubItemType,
   filters: FilterCondition[],
   repos?: string[],
   sortAsc?: boolean,
@@ -233,31 +332,73 @@ export function buildGitHubSearchQuery(
     for (const repo of repos) parts.push(`repo:${repo}`);
   }
 
-  for (const { field, operator, value } of filters) {
-    const negate = operator === "is_not" || operator === "not_contains";
-
-    if (field === "status") {
+  for (const filter of filters) {
+    if (filter.field === "status" && filter.value.trim().length > 0) {
       hasStatusFilter = true;
-      parts.push(negate ? `-is:${value}` : `is:${value}`);
-    } else if (field === "draft") {
-      parts.push(`draft:${value}`);
-    } else if (field === "review_status") {
-      parts.push(negate ? `-review:${value}` : `review:${value}`);
-    } else if (field === "reviewer") {
-      parts.push(negate ? `-reviewed-by:${value}` : `review-requested:${value}`);
-    } else if (field === "milestone") {
-      parts.push(negate ? `-milestone:"${value}"` : `milestone:"${value}"`);
-    } else if (RANGE_FIELDS.has(field)) {
-      parts.push(`${field}:${formatRangeValue(operator, value)}`);
-    } else if (field in SIMPLE_QUALIFIERS) {
-      const qualifier = SIMPLE_QUALIFIERS[field]!;
-      parts.push(negate ? `-${qualifier}:${value}` : `${qualifier}:${value}`);
     }
+    const query = buildGitHubConditionQuery(filter);
+    if (query) parts.push(query);
   }
 
   if (!hasStatusFilter) parts.push("is:open");
   parts.push(sortAsc ? "sort:updated-asc" : "sort:updated-desc");
   return parts.join(" ");
+}
+
+function buildGitHubSearchQueries(
+  itemType: GitHubItemType,
+  filters: FilterRule,
+  repos?: string[],
+  sortAsc?: boolean,
+): string[] {
+  const seen = new Set<string>();
+  const queries: string[] = [];
+  const clauses = toAndClauses(filters);
+
+  if (clauses.length > MAX_PARALLEL_SEARCH_QUERIES) {
+    return [buildGitHubSearchQuery(itemType, filters, repos, sortAsc)];
+  }
+
+  for (const clause of clauses) {
+    const query = buildGitHubAndOnlySearchQuery(itemType, clause, repos, sortAsc);
+    if (seen.has(query)) continue;
+    seen.add(query);
+    queries.push(query);
+  }
+
+  return queries.length > 0
+    ? queries
+    : [buildGitHubAndOnlySearchQuery(itemType, [], repos, sortAsc)];
+}
+
+function parseMultiCursor(cursor: string | null | undefined, count: number): (string | null)[] {
+  if (!cursor?.startsWith("multi:")) {
+    return Array.from({ length: count }, () => null);
+  }
+
+  try {
+    const parsed = JSON.parse(decodeURIComponent(cursor.slice("multi:".length)));
+    if (!Array.isArray(parsed)) throw new Error("Invalid cursor");
+    return Array.from({ length: count }, (_, index) =>
+      typeof parsed[index] === "string" ? parsed[index] : null,
+    );
+  } catch {
+    return Array.from({ length: count }, () => null);
+  }
+}
+
+function encodeMultiCursor(cursors: (string | null)[]): string | null {
+  return cursors.some((cursor) => cursor != null)
+    ? `multi:${encodeURIComponent(JSON.stringify(cursors))}`
+    : null;
+}
+
+function compareGitHubItems(sortAsc: boolean | undefined) {
+  return (a: GitHubPullRequest | GitHubIssue, b: GitHubPullRequest | GitHubIssue) => {
+    const aTime = Date.parse(a.updatedAt);
+    const bTime = Date.parse(b.updatedAt);
+    return sortAsc ? aTime - bTime : bTime - aTime;
+  };
 }
 
 function mapStatusCheck(
@@ -422,60 +563,125 @@ function mapIssueNode(node: IssueNode): GitHubIssue {
 export async function searchGitHubItems(
   itemType: GitHubItemType,
   accessToken: string,
-  filters: FilterCondition[],
+  filters: FilterRule,
   cursor?: string | null,
   repos?: string[],
   sortAsc?: boolean,
 ): Promise<GitHubItemPage> {
   const octokit = new Octokit({ auth: accessToken });
-  const searchQuery = buildGitHubSearchQuery(itemType, filters, repos, sortAsc);
-  const variables = { searchQuery, cursor: cursor ?? null, first: SEARCH_PAGE_SIZE };
+  const searchQueries = buildGitHubSearchQueries(itemType, filters, repos, sortAsc);
+  const cursors = searchQueries.length > 1
+    ? parseMultiCursor(cursor, searchQueries.length)
+    : [cursor ?? null];
+  const first = searchQueries.length > 1
+    ? Math.max(1, Math.ceil(SEARCH_PAGE_SIZE / searchQueries.length))
+    : SEARCH_PAGE_SIZE;
 
   if (itemType === "pr") {
-    let response: PullRequestSearchResponse;
+    const responses = await Promise.all(
+      searchQueries.map((searchQuery, index) =>
+        searchPullRequests(octokit, {
+          searchQuery,
+          cursor: cursors[index] ?? null,
+          first,
+        }),
+      ),
+    );
 
-    if (hasOrgAccess === false) {
-      response = await octokit.graphql<PullRequestSearchResponse>(
-        SEARCH_PULL_REQUESTS_QUERY_USER_ONLY,
-        variables,
-      );
-    } else {
-      try {
-        response = await octokit.graphql<PullRequestSearchResponse>(
-          SEARCH_PULL_REQUESTS_QUERY_WITH_TEAMS,
-          variables,
-        );
-        hasOrgAccess = true;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "";
-        if (message.includes("required scopes") || message.includes("read:org")) {
-          hasOrgAccess = false;
-          response = await octokit.graphql<PullRequestSearchResponse>(
-            SEARCH_PULL_REQUESTS_QUERY_USER_ONLY,
-            variables,
-          );
-        } else {
-          throw error;
-        }
+    const itemsById = new Map<string, GitHubPullRequest>();
+    for (const response of responses) {
+      for (const node of response.search.nodes) {
+        const item = mapPullRequestNode(node);
+        itemsById.set(item.id, item);
       }
     }
 
-    const { nodes, pageInfo, issueCount } = response.search;
+    const items = [...itemsById.values()]
+      .sort(compareGitHubItems(sortAsc))
+      .slice(0, SEARCH_PAGE_SIZE);
+
     return {
-      items: nodes.map(mapPullRequestNode),
-      nextCursor: pageInfo.hasNextPage ? pageInfo.endCursor : null,
-      totalCount: issueCount,
+      items,
+      nextCursor: searchQueries.length > 1
+        ? encodeMultiCursor(responses.map((response) =>
+            response.search.pageInfo.hasNextPage ? response.search.pageInfo.endCursor : null,
+          ))
+        : responses[0]!.search.pageInfo.hasNextPage
+          ? responses[0]!.search.pageInfo.endCursor
+          : null,
+      totalCount: searchQueries.length > 1
+        ? Math.max(itemsById.size, ...responses.map((response) => response.search.issueCount))
+        : responses[0]!.search.issueCount,
     };
   }
 
-  const response = await octokit.graphql<IssueSearchResponse>(
-    SEARCH_ISSUES_QUERY,
-    variables,
+  const responses = await Promise.all(
+    searchQueries.map((searchQuery, index) =>
+      octokit.graphql<IssueSearchResponse>(
+        SEARCH_ISSUES_QUERY,
+        {
+          searchQuery,
+          cursor: cursors[index] ?? null,
+          first,
+        },
+      ),
+    ),
   );
-  const { nodes, pageInfo, issueCount } = response.search;
+
+  const itemsById = new Map<string, GitHubIssue>();
+  for (const response of responses) {
+    for (const node of response.search.nodes) {
+      const item = mapIssueNode(node);
+      itemsById.set(item.id, item);
+    }
+  }
+
+  const items = [...itemsById.values()]
+    .sort(compareGitHubItems(sortAsc))
+    .slice(0, SEARCH_PAGE_SIZE);
+
   return {
-    items: nodes.map(mapIssueNode),
-    nextCursor: pageInfo.hasNextPage ? pageInfo.endCursor : null,
-    totalCount: issueCount,
+    items,
+    nextCursor: searchQueries.length > 1
+      ? encodeMultiCursor(responses.map((response) =>
+          response.search.pageInfo.hasNextPage ? response.search.pageInfo.endCursor : null,
+        ))
+      : responses[0]!.search.pageInfo.hasNextPage
+        ? responses[0]!.search.pageInfo.endCursor
+        : null,
+    totalCount: searchQueries.length > 1
+      ? Math.max(itemsById.size, ...responses.map((response) => response.search.issueCount))
+      : responses[0]!.search.issueCount,
   };
+}
+
+async function searchPullRequests(
+  octokit: Octokit,
+  variables: SearchVariables,
+): Promise<PullRequestSearchResponse> {
+  if (hasOrgAccess === false) {
+    return octokit.graphql<PullRequestSearchResponse>(
+      SEARCH_PULL_REQUESTS_QUERY_USER_ONLY,
+      variables,
+    );
+  }
+
+  try {
+    const response = await octokit.graphql<PullRequestSearchResponse>(
+      SEARCH_PULL_REQUESTS_QUERY_WITH_TEAMS,
+      variables,
+    );
+    hasOrgAccess = true;
+    return response;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (message.includes("required scopes") || message.includes("read:org")) {
+      hasOrgAccess = false;
+      return octokit.graphql<PullRequestSearchResponse>(
+        SEARCH_PULL_REQUESTS_QUERY_USER_ONLY,
+        variables,
+      );
+    }
+    throw error;
+  }
 }

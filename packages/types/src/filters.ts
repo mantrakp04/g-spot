@@ -91,6 +91,8 @@ export const gmailFields = [
 ] as const;
 
 export const filterConditionSchema = z.object({
+  type: z.literal("condition").default("condition"),
+  id: z.string().optional(),
   field: z.string().min(1),
   operator: filterOperatorSchema,
   value: z.string(),
@@ -99,7 +101,139 @@ export const filterConditionSchema = z.object({
 
 export type FilterCondition = z.infer<typeof filterConditionSchema>;
 
-export const sectionFiltersSchema = z.array(filterConditionSchema);
+export type FilterGroup = {
+  type: "group";
+  id?: string;
+  operator: FilterLogic;
+  children: FilterRule[];
+};
+
+export type FilterRule = FilterCondition | FilterGroup;
+
+export const filterGroupSchema: z.ZodType<FilterGroup> = z.object({
+  type: z.literal("group"),
+  id: z.string().optional(),
+  operator: filterLogicSchema.default("and"),
+  children: z.lazy(() => filterRuleSchema.array()).default([]),
+});
+
+export const filterRuleSchema: z.ZodType<FilterRule> = z.union([
+  filterConditionSchema,
+  filterGroupSchema,
+]);
+
+export const sectionFiltersSchema = filterRuleSchema.default({
+  type: "group",
+  operator: "and",
+  children: [],
+});
+
+export function createEmptyFilterCondition(
+  source: SectionSource = "github_pr",
+): FilterCondition {
+  return {
+    type: "condition",
+    field: source === "gmail" ? "from" : "status",
+    operator: "is",
+    value: "",
+    logic: "and",
+  };
+}
+
+export function createEmptyFilterGroup(
+  operator: FilterLogic = "and",
+  children: FilterRule[] = [],
+): FilterGroup {
+  return {
+    type: "group",
+    operator,
+    children,
+  };
+}
+
+function isFilterConditionLike(value: unknown): value is FilterCondition {
+  return Boolean(
+    value
+    && typeof value === "object"
+    && "field" in value
+    && "operator" in value
+    && "value" in value,
+  );
+}
+
+function conditionHasValue(condition: FilterCondition): boolean {
+  return condition.value.trim().length > 0;
+}
+
+export function normalizeFilterRule(value: unknown): FilterRule {
+  if (Array.isArray(value)) {
+    return legacyFilterArrayToRule(value.filter(isFilterConditionLike));
+  }
+
+  const parsed = filterRuleSchema.safeParse(value);
+  if (parsed.success) return parsed.data;
+
+  return createEmptyFilterGroup();
+}
+
+export function legacyFilterArrayToRule(filters: FilterCondition[]): FilterGroup {
+  const orGroups: FilterGroup[] = [];
+
+  for (const filter of filters) {
+    const condition: FilterCondition = {
+      type: "condition",
+      field: filter.field,
+      operator: filter.operator,
+      value: filter.value,
+      logic: filter.logic ?? "and",
+      ...(filter.id ? { id: filter.id } : {}),
+    };
+
+    if (orGroups.length === 0 || condition.logic === "or") {
+      orGroups.push(createEmptyFilterGroup("and", [condition]));
+    } else {
+      orGroups[orGroups.length - 1]!.children.push(condition);
+    }
+  }
+
+  if (orGroups.length === 0) return createEmptyFilterGroup();
+  if (orGroups.length === 1) return orGroups[0]!;
+  return createEmptyFilterGroup("or", orGroups);
+}
+
+export function filterRuleHasConditions(rule: FilterRule): boolean {
+  if (rule.type === "condition") return conditionHasValue(rule);
+  return rule.children.some(filterRuleHasConditions);
+}
+
+export function pruneEmptyFilterRule(rule: FilterRule): FilterRule {
+  if (rule.type === "condition") return rule;
+
+  return {
+    ...rule,
+    children: rule.children
+      .map(pruneEmptyFilterRule)
+      .filter((child) => child.type === "group" || conditionHasValue(child)),
+  };
+}
+
+export function stripFilterRuleIds(rule: FilterRule): FilterRule {
+  if (rule.type === "condition") {
+    const { id: _id, ...condition } = rule;
+    return condition;
+  }
+
+  const { id: _id, ...group } = rule;
+  return {
+    ...group,
+    children: group.children.map(stripFilterRuleIds),
+  };
+}
+
+export function flattenFilterConditions(rule: FilterRule): FilterCondition[] {
+  if (rule.type === "condition") return [rule];
+  return rule.children.flatMap(flattenFilterConditions);
+}
 
 export const sectionSourceSchema = z.enum(["github_pr", "github_issue", "gmail"]);
 export type SectionSource = z.infer<typeof sectionSourceSchema>;

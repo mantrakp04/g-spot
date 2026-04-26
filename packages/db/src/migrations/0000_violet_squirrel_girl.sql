@@ -11,7 +11,6 @@ CREATE TABLE `chats` (
 	`id` text PRIMARY KEY NOT NULL,
 	`project_id` text NOT NULL,
 	`title` text DEFAULT 'New Chat' NOT NULL,
-	`model` text DEFAULT 'gpt-5.4-mini' NOT NULL,
 	`agent_config` text DEFAULT '{}' NOT NULL,
 	`created_at` text DEFAULT (current_timestamp) NOT NULL,
 	`updated_at` text DEFAULT (current_timestamp) NOT NULL,
@@ -19,6 +18,17 @@ CREATE TABLE `chats` (
 );
 --> statement-breakpoint
 CREATE INDEX `chats_project_updated_idx` ON `chats` (`project_id`,`updated_at`);--> statement-breakpoint
+CREATE TABLE `file_extractions` (
+	`hash` text PRIMARY KEY NOT NULL,
+	`extractor_version` integer NOT NULL,
+	`filename` text NOT NULL,
+	`mime_type` text NOT NULL,
+	`text_s3_key` text NOT NULL,
+	`char_count` integer NOT NULL,
+	`created_at` text DEFAULT (current_timestamp) NOT NULL,
+	FOREIGN KEY (`hash`) REFERENCES `file_hashes`(`hash`) ON UPDATE no action ON DELETE no action
+);
+--> statement-breakpoint
 CREATE TABLE `file_hashes` (
 	`hash` text PRIMARY KEY NOT NULL,
 	`s3_key` text NOT NULL,
@@ -100,6 +110,7 @@ CREATE TABLE `gmail_messages` (
 	`in_reply_to` text,
 	`references_header` text,
 	`is_draft` integer DEFAULT false NOT NULL,
+	`gmail_draft_id` text,
 	`history_id` text,
 	`raw_size_estimate` integer,
 	`created_at` text DEFAULT (current_timestamp) NOT NULL,

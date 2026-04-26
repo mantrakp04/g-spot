@@ -1,6 +1,6 @@
 import { useEffect, useMemo, type HTMLAttributes, type ReactElement } from "react";
 
-import type { ColumnConfig, FilterCondition } from "@g-spot/types/filters";
+import type { ColumnConfig, FilterRule } from "@g-spot/types/filters";
 import { getDefaultColumns, normalizeColumns } from "@g-spot/types/filters";
 import { useQuery } from "@tanstack/react-query";
 
@@ -18,7 +18,7 @@ import { SectionEmpty } from "./section-empty";
 
 type GmailThreadTableProps = {
   sectionId: string;
-  filters: FilterCondition[];
+  filters: FilterRule;
   accountId?: string | null;
   sortAsc?: boolean;
   /** Second arg: show "+" on the count badge while the total-count query is still loading. */

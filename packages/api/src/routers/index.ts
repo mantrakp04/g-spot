@@ -6,6 +6,7 @@ import { gmailSyncRouter } from "./gmail-sync";
 import { memoryRouter } from "./memory";
 import { piRouter } from "./pi";
 import { projectsRouter } from "./projects";
+import { relayRouter } from "./relay";
 import { sectionsRouter } from "./sections";
 import { skillsRouter } from "./skills";
 
@@ -22,6 +23,7 @@ export const appRouter = router({
   memory: memoryRouter,
   gmail: gmailRouter,
   gmailSync: gmailSyncRouter,
+  relay: relayRouter,
 });
 
 export type AppRouter = typeof appRouter;

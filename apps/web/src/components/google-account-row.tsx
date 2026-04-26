@@ -39,28 +39,12 @@ export function GoogleAccountRow({
       }),
     refetchInterval: (query) => {
       const status = query.state.data?.status;
-      return status === "running" || status === "paused" || status === "interrupted"
-        ? 1500
-        : false;
-    },
-  });
-
-  const syncFailures = useQuery({
-    queryKey: ["gmail-sync", "failures", account.providerAccountId],
-    queryFn: () =>
-      trpcClient.gmailSync.getFailures.query({
-        providerAccountId: account.providerAccountId,
-      }),
-    refetchInterval: () => {
-      const status = syncProgress.data?.status;
-      return status === "running" || status === "paused" || status === "interrupted"
-        ? 1500
-        : false;
+      return status === "running" ? 1500 : false;
     },
   });
 
   const startSyncMutation = useMutation({
-    mutationFn: async (intent: "auto" | "retry_failed") => {
+    mutationFn: async (intent: SyncIntent) => {
       const accessToken = await getGoogleAccessToken(account);
       return trpcClient.gmailSync.startSync.mutate({
         providerAccountId: account.providerAccountId,
@@ -68,13 +52,26 @@ export function GoogleAccountRow({
         intent,
       });
     },
-    onSuccess: () => {
-      toast.success("Gmail sync started");
+    onSuccess: (result) => {
+      toast.success(result.started ? "Gmail sync started" : "Gmail is up to date");
       syncProgress.refetch();
-      syncFailures.refetch();
     },
     onError: (err) => {
       toast.error(err instanceof Error ? err.message : "Failed to start sync");
+    },
+  });
+
+  const startExtractionMutation = useMutation({
+    mutationFn: () =>
+      trpcClient.gmailSync.startExtraction.mutate({
+        providerAccountId: account.providerAccountId,
+      }),
+    onSuccess: () => {
+      toast.success("Inbox analysis started");
+      syncProgress.refetch();
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : "Failed to start analysis");
     },
   });
 
@@ -86,7 +83,6 @@ export function GoogleAccountRow({
     onSuccess: () => {
       toast.info("Sync cancelled");
       syncProgress.refetch();
-      syncFailures.refetch();
     },
   });
 
@@ -134,20 +130,11 @@ export function GoogleAccountRow({
 
   const isSyncing = syncProgress.data?.status === "running";
   const syncData = syncProgress.data;
-  const failedThreadCount = syncFailures.data?.length ?? 0;
-  const syncAction = getSyncAction(syncData, failedThreadCount);
-  const showSyncProgress = Boolean(
-    syncData
-      && (isSyncing
-        || syncData.status === "paused"
-        || syncData.status === "interrupted"
-        || failedThreadCount > 0),
-  );
-  const failureSummary = summarizeFailures(syncFailures.data ?? []);
-  const latestFailure = syncFailures.data?.[0] ?? null;
-  const { fetchFailed, processFailed } = countFailuresByPhase(
-    syncFailures.data ?? [],
-  );
+  const remainingInboxAnalysis =
+    syncData?.local.unprocessedInboxThreads
+    ?? syncData?.extraction.remainingInboxThreads
+    ?? 0;
+  const showSyncControls = Boolean(syncData || !q.isError);
 
   return (
     <li className="group/row px-4 py-2.5 transition-colors hover:bg-muted/30">
@@ -175,37 +162,9 @@ export function GoogleAccountRow({
         <div
           className={cn(
             "flex shrink-0 items-center gap-0.5 transition-opacity",
-            !isSyncing && "opacity-0 group-hover/row:opacity-100",
+            "opacity-0 group-hover/row:opacity-100",
           )}
         >
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className={cn(
-              "size-6 text-muted-foreground hover:text-foreground",
-              isSyncing && "hover:text-destructive",
-            )}
-            onClick={() => {
-              if (syncAction.kind === "cancel") {
-                cancelSyncMutation.mutate();
-              } else {
-                startSyncMutation.mutate(syncAction.intent);
-              }
-            }}
-            disabled={startSyncMutation.isPending || cancelSyncMutation.isPending}
-            title={syncAction.label}
-          >
-            {startSyncMutation.isPending || cancelSyncMutation.isPending ? (
-              <Loader2 className="size-3 animate-spin" />
-            ) : syncAction.icon === "retry" ? (
-              <RotateCcw className="size-3" strokeWidth={2} />
-            ) : syncAction.icon === "cancel" ? (
-              <X className="size-3" strokeWidth={2.5} />
-            ) : (
-              <Download className="size-3" strokeWidth={2} />
-            )}
-          </Button>
           <Button
             type="button"
             variant="ghost"
@@ -234,16 +193,19 @@ export function GoogleAccountRow({
         </div>
       </div>
 
-      {/* Sync progress bar */}
-      {showSyncProgress && syncData && (
-        <SyncProgressBar
-          statusLabel={getSyncStatusLabel(syncData)}
-          mailTotal={syncData.mail.totalThreads}
-          mailSynced={syncData.mail.syncedThreads}
-          inboxTotal={syncData.extraction.totalInboxThreads}
-          inboxAnalyzed={syncData.extraction.analyzedInboxThreads}
-          fetchFailed={fetchFailed}
-          processFailed={processFailed}
+      {showSyncControls && (
+        <SyncControls
+          syncData={syncData}
+          isBusy={
+            startSyncMutation.isPending
+            || startExtractionMutation.isPending
+            || cancelSyncMutation.isPending
+          }
+          isSyncing={isSyncing}
+          remainingInboxAnalysis={remainingInboxAnalysis}
+          onStartSync={(intent) => startSyncMutation.mutate(intent)}
+          onStartExtraction={() => startExtractionMutation.mutate()}
+          onCancel={() => cancelSyncMutation.mutate()}
         />
       )}
 
@@ -254,57 +216,90 @@ export function GoogleAccountRow({
         </div>
       )}
 
-      {failureSummary && (
-        <div className="mt-1.5 ml-10 rounded-sm border border-amber-500/20 bg-amber-500/5 px-2 py-1">
-          <p className="text-[10px] text-amber-300">
-            Failed stages: {failureSummary}
-          </p>
-          {latestFailure && (
-            <p className="mt-0.5 line-clamp-2 text-[10px] text-muted-foreground">
-              Latest: {formatFailureStage(latestFailure.stage)} failed: {latestFailure.errorMessage}
-            </p>
-          )}
-        </div>
-      )}
     </li>
   );
 }
 
-function SyncProgressBar({
-  statusLabel,
-  mailTotal,
-  mailSynced,
-  inboxTotal,
-  inboxAnalyzed,
-  fetchFailed,
-  processFailed,
+type SyncIntent = "auto" | "full" | "incremental";
+
+function SyncControls({
+  syncData,
+  isBusy,
+  isSyncing,
+  remainingInboxAnalysis,
+  onStartSync,
+  onStartExtraction,
+  onCancel,
 }: {
-  statusLabel: string;
-  mailTotal: number;
-  mailSynced: number;
-  inboxTotal: number;
-  inboxAnalyzed: number;
-  fetchFailed: number;
-  processFailed: number;
+  syncData: SyncProgressData | null | undefined;
+  isBusy: boolean;
+  isSyncing: boolean;
+  remainingInboxAnalysis: number;
+  onStartSync: (intent: SyncIntent) => void;
+  onStartExtraction: () => void;
+  onCancel: () => void;
 }) {
+  const activeKind = getActiveOperation(syncData);
+  const displayedActiveKind = activeKind ?? getPausedOperation(syncData);
+  const isPaused = syncData?.status === "paused" || syncData?.status === "interrupted";
+  const disableStart = isBusy || isSyncing;
+  const localThreadCount = syncData?.local.totalThreads ?? 0;
+  const inboxThreadCount = syncData?.local.inboxThreads ?? 0;
+  const unprocessedInboxThreadCount =
+    syncData?.local.unprocessedInboxThreads
+    ?? syncData?.extraction.remainingInboxThreads
+    ?? 0;
+  const analyzedInboxThreadCount = Math.max(
+    0,
+    inboxThreadCount - unprocessedInboxThreadCount,
+  );
+  const showingFullRun = displayedActiveKind === "full" && syncData?.mode === "full";
+  const showingIncrementalRun =
+    displayedActiveKind === "incremental"
+    && syncData?.mode === "incremental"
+    && syncData.phase !== "extracting";
+
   return (
-    <div className="mt-2 ml-10 space-y-2">
-      <p className="text-[10px] text-muted-foreground">{statusLabel}</p>
-      <PhaseBar
-        label="Mail"
-        total={mailTotal}
-        done={mailSynced}
-        failed={fetchFailed}
-        doneClass="bg-blue-500/70"
-        doneText="text-blue-400"
+    <div className="mt-2 ml-10 space-y-1.5">
+      <OperationRow
+        title="Full sync"
+        detail="All Gmail threads"
+        tone="blue"
+        total={showingFullRun ? syncData.mail.totalThreads : localThreadCount}
+        done={showingFullRun ? syncData.mail.syncedThreads : localThreadCount}
+        state={getOperationState("full", displayedActiveKind, syncData)}
+        actionLabel={isPaused && syncData?.mode === "full" ? "Resume" : "Run"}
+        actionIcon={isPaused && syncData?.mode === "full" ? "resume" : "start"}
+        disabled={disableStart && displayedActiveKind !== "full"}
+        busy={isBusy && displayedActiveKind === "full"}
+        onAction={() => {
+          if (displayedActiveKind === "full" && isSyncing) onCancel();
+          else onStartSync(isPaused && syncData?.mode === "full" ? "auto" : "full");
+        }}
       />
-      <PhaseBar
-        label="Inbox analysis"
-        total={inboxTotal}
-        done={inboxAnalyzed}
-        failed={processFailed}
-        doneClass="bg-emerald-500/70"
-        doneText="text-emerald-400"
+      <OperationRow
+        title="Incremental sync"
+        detail="Automatic changes"
+        tone="amber"
+        total={showingIncrementalRun ? syncData.mail.totalThreads : 0}
+        done={showingIncrementalRun ? syncData.mail.syncedThreads : 0}
+        state={getOperationState("incremental", displayedActiveKind, syncData)}
+      />
+      <OperationRow
+        title="Inbox analysis"
+        detail={`${remainingInboxAnalysis} remaining`}
+        tone="emerald"
+        total={inboxThreadCount}
+        done={analyzedInboxThreadCount}
+        state={getOperationState("extract", displayedActiveKind, syncData)}
+        actionLabel={isPaused && displayedActiveKind === "extract" ? "Resume" : "Analyze"}
+        actionIcon={isPaused && displayedActiveKind === "extract" ? "resume" : "start"}
+        disabled={disableStart && displayedActiveKind !== "extract"}
+        busy={isBusy && displayedActiveKind === "extract"}
+        onAction={() => {
+          if (displayedActiveKind === "extract" && isSyncing) onCancel();
+          else onStartExtraction();
+        }}
       />
     </div>
   );
@@ -314,132 +309,192 @@ type SyncProgressData = NonNullable<
   Awaited<ReturnType<typeof trpcClient.gmailSync.getSyncProgress.query>>
 >;
 
-function getSyncAction(
-  syncData: SyncProgressData | null | undefined,
-  failedThreadCount: number,
-):
-  | { kind: "cancel"; icon: "cancel"; label: string }
-  | { kind: "start"; icon: "download" | "retry"; intent: "auto" | "retry_failed"; label: string } {
-  if (syncData?.status === "running") {
-    return { kind: "cancel", icon: "cancel", label: "Cancel sync" };
-  }
-  if (syncData?.status === "error") {
-    return { kind: "start", icon: "retry", intent: "auto", label: "Retry sync" };
-  }
-  if (failedThreadCount > 0 && syncData?.status !== "paused" && syncData?.status !== "interrupted") {
-    return {
-      kind: "start",
-      icon: "retry",
-      intent: "retry_failed",
-      label: `Retry ${failedThreadCount} failed`,
-    };
-  }
-  if (syncData?.status === "paused") {
-    return { kind: "start", icon: "download", intent: "auto", label: "Resume sync" };
-  }
-  if (syncData?.status === "interrupted") {
-    return { kind: "start", icon: "download", intent: "auto", label: "Resume interrupted sync" };
-  }
-  return { kind: "start", icon: "download", intent: "auto", label: "Sync" };
-}
+type OperationKind = "full" | "incremental" | "extract";
+type OperationState = "idle" | "running" | "paused" | "interrupted" | "completed" | "blocked";
 
-function getSyncStatusLabel(syncData: SyncProgressData): string {
-  if (syncData.status === "running") {
-    return syncData.phase === "extracting" ? "Analyzing inbox" : "Syncing mail";
-  }
-  if (syncData.status === "paused") return "Paused";
-  if (syncData.status === "interrupted") return "Interrupted";
-  if (syncData.status === "error") return "Needs attention";
-  if (syncData.status === "completed") return "Synced";
-  return "Not synced";
-}
-
-function PhaseBar({
-  label,
+function OperationRow({
+  title,
+  detail,
+  tone,
   total,
   done,
-  failed,
-  doneClass,
-  doneText,
+  state,
+  actionLabel,
+  actionIcon,
+  disabled,
+  busy,
+  onAction,
 }: {
-  label: string;
+  title: string;
+  detail: string;
+  tone: "blue" | "amber" | "emerald";
   total: number;
   done: number;
-  failed: number;
-  doneClass: string;
-  doneText: string;
+  state: OperationState;
+  actionLabel?: string;
+  actionIcon?: "start" | "resume";
+  disabled?: boolean;
+  busy?: boolean;
+  onAction?: () => void;
 }) {
-  const donePct = total > 0 ? (done / total) * 100 : 0;
-  const failedPct = total > 0 ? (failed / total) * 100 : 0;
+  const pct = total > 0 ? Math.min(100, (done / total) * 100) : 0;
+  const remaining = Math.max(0, total - done);
+  const isActive = state === "running";
+  const showStop = isActive;
 
   return (
-    <div className="space-y-1">
-      <div className="flex h-1.5 overflow-hidden rounded-full bg-muted/50">
-        <div
-          className={cn("h-full transition-all duration-500", doneClass)}
-          style={{ width: `${donePct}%` }}
-        />
-        {failed > 0 && (
-          <div
-            className="h-full bg-destructive/50 transition-all duration-500"
-            style={{ width: `${failedPct}%` }}
-          />
-        )}
+    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-border/50 bg-muted/15 px-2 py-1.5">
+      <div className="min-w-0 space-y-1">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="truncate font-medium text-[11px] text-foreground">
+            {title}
+          </span>
+          <StatusPill state={state} />
+          <span className="truncate text-[10px] text-muted-foreground">
+            {detail}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="h-1.5 min-w-16 flex-1 overflow-hidden rounded-full bg-muted/50">
+            <div
+              className={cn(
+                "h-full transition-all duration-500",
+                tone === "blue" && "bg-blue-500/70",
+                tone === "amber" && "bg-amber-500/70",
+                tone === "emerald" && "bg-emerald-500/70",
+              )}
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+          <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
+            <span
+              className={cn(
+                tone === "blue" && "text-blue-400",
+                tone === "amber" && "text-amber-300",
+                tone === "emerald" && "text-emerald-400",
+              )}
+            >
+              {done}
+            </span>
+            {" / "}
+            {total}
+            {remaining > 0 && ` · ${remaining} left`}
+          </span>
+        </div>
       </div>
-      <div className="flex items-center gap-2 text-[10px] tabular-nums text-muted-foreground">
-        <span className="text-muted-foreground/70">{label}</span>
-        <span>
-          <span className={doneText}>{done}</span>
-          {" / "}
-          {total}
+      {onAction ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className={cn(
+            "h-6 shrink-0 gap-1 px-2 text-[10px]",
+            showStop && "text-destructive hover:text-destructive",
+          )}
+          disabled={disabled || busy}
+          onClick={onAction}
+        >
+          {busy ? (
+            <Loader2 className="size-3 animate-spin" />
+          ) : showStop ? (
+            <X className="size-3" strokeWidth={2.5} />
+          ) : actionIcon === "resume" ? (
+            <RotateCcw className="size-3" strokeWidth={2} />
+          ) : (
+            <Download className="size-3" strokeWidth={2} />
+          )}
+          {showStop ? "Stop" : actionLabel}
+        </Button>
+      ) : (
+        <span className="shrink-0 px-2 text-[10px] text-muted-foreground">
+          Auto
         </span>
-        {failed > 0 && (
-          <>
-            <span className="text-muted-foreground/30">|</span>
-            <span className="text-destructive">{failed} failed</span>
-          </>
-        )}
-      </div>
+      )}
     </div>
   );
 }
 
-function countFailuresByPhase(failures: Array<{ stage: string }>) {
-  let fetchFailed = 0;
-  let processFailed = 0;
-  for (const failure of failures) {
-    if (failure.stage === "fetch") fetchFailed++;
-    else processFailed++;
-  }
-  return { fetchFailed, processFailed };
+function StatusPill({ state }: { state: OperationState }) {
+  return (
+    <span
+      className={cn(
+        "shrink-0 rounded-sm px-1 py-0.5 text-[9px] uppercase leading-none tracking-normal",
+        state === "running" && "bg-blue-500/15 text-blue-300",
+        state === "paused" && "bg-amber-500/15 text-amber-300",
+        state === "interrupted" && "bg-amber-500/15 text-amber-300",
+        state === "completed" && "bg-emerald-500/15 text-emerald-300",
+        state === "blocked" && "bg-destructive/15 text-destructive",
+        state === "idle" && "bg-muted text-muted-foreground",
+      )}
+    >
+      {state}
+    </span>
+  );
 }
 
-function formatFailureStage(stage: string) {
-  switch (stage) {
-    case "fetch":
-      return "Fetch";
-    case "extract":
-      return "Extract";
-    case "resolve":
-      return "Resolve";
-    case "ingest":
-      return "Ingest";
-    default:
-      return stage;
-  }
+function getActiveOperation(
+  syncData: SyncProgressData | null | undefined,
+): OperationKind | null {
+  if (!syncData || syncData.status !== "running") return null;
+  if (syncData.phase === "extracting") return "extract";
+  return syncData.mode;
 }
 
-function summarizeFailures(
-  failures: Array<{ stage: string }>,
-) {
-  if (failures.length === 0) return null;
-
-  const counts = new Map<string, number>();
-  for (const failure of failures) {
-    counts.set(failure.stage, (counts.get(failure.stage) ?? 0) + 1);
+function getPausedOperation(
+  syncData: SyncProgressData | null | undefined,
+): OperationKind | null {
+  if (
+    !syncData
+    || (syncData.status !== "paused" && syncData.status !== "interrupted")
+  ) {
+    return null;
   }
+  if (
+    syncData.mail.totalThreads === 0
+    && (
+      syncData.extraction.remainingInboxThreads > 0
+      || syncData.local.unprocessedInboxThreads > 0
+    )
+  ) {
+    return "extract";
+  }
+  return syncData.mode;
+}
 
-  return Array.from(counts.entries())
-    .map(([stage, count]) => `${count} ${formatFailureStage(stage).toLowerCase()}`)
-    .join(", ");
+function getOperationState(
+  kind: OperationKind,
+  activeKind: OperationKind | null,
+  syncData: SyncProgressData | null | undefined,
+): OperationState {
+  if (!syncData) return "idle";
+  if (syncData.status === "error") return "blocked";
+  if (activeKind === kind) {
+    if (syncData.status === "paused" || syncData.status === "interrupted") {
+      return syncData.status;
+    }
+    return "running";
+  }
+  if (
+    (syncData.status === "paused" || syncData.status === "interrupted")
+    && (
+      syncData.mode === kind
+      || (kind === "extract" && syncData.phase === "extracting")
+    )
+  ) {
+    return syncData.status;
+  }
+  if (kind === "full") {
+    return syncData.account.hasCompletedFullSync
+      ? "completed"
+      : "idle";
+  }
+  if (kind === "incremental") {
+    return syncData.account.hasCompletedIncrementalSync
+      ? "completed"
+      : "idle";
+  }
+  return syncData.local.inboxThreads > 0
+    && syncData.local.unprocessedInboxThreads === 0
+    ? "completed"
+    : "idle";
 }

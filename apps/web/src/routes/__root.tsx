@@ -12,6 +12,7 @@ import { ChevronsRight } from "lucide-react";
 
 import { AppSidebar } from "@/components/app-sidebar";
 import { DraftDock } from "@/components/inbox/draft-dock";
+import { RelayHeartbeat } from "@/components/relay-heartbeat";
 import { DraftsProvider } from "@/contexts/drafts-context";
 import { PiCredentialFlowsProvider } from "@/contexts/pi-credential-flows-context";
 import { SectionCountsProvider } from "@/contexts/section-counts-context";
@@ -105,6 +106,7 @@ function RootComponent() {
               </ResizablePanel>
             </ResizablePanelGroup>
             <DraftDock />
+            <RelayHeartbeat />
             </PiCredentialFlowsProvider>
           </DraftsProvider>
         </SectionCountsProvider>

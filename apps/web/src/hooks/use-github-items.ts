@@ -1,6 +1,6 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import type { OAuthConnection } from "@stackframe/react";
-import type { FilterCondition } from "@g-spot/types/filters";
+import type { FilterRule } from "@g-spot/types/filters";
 import type { GitHubItemPage } from "@/lib/github/types";
 import { searchGitHubItems } from "@/lib/github/api";
 import { getConnectedAccountAccessToken } from "@/lib/connected-account";
@@ -15,7 +15,7 @@ const SOURCE_TO_ITEM_TYPE = {
 export function useGitHubItems(
   source: "github_pr" | "github_issue",
   sectionId: string,
-  filters: FilterCondition[],
+  filters: FilterRule,
   account: OAuthConnection | null,
   repos?: string[],
   sortAsc?: boolean,

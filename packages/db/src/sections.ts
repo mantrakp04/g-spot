@@ -1,5 +1,6 @@
 import { eq, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
+import type { FilterRule } from "@g-spot/types/filters";
 
 import { db } from "./index";
 import { sections } from "./schema";
@@ -22,7 +23,7 @@ export async function listSections() {
 export async function createSection(input: {
   name: string;
   source: SectionSource;
-  filters: Array<{ field: string; operator: string; value: string; logic?: string }>;
+  filters: FilterRule;
   showBadge: boolean;
   repos: string[];
   accountId: string | null;
@@ -61,7 +62,7 @@ export async function createSection(input: {
 export async function updateSection(input: {
   id: string;
   name?: string;
-  filters?: Array<{ field: string; operator: string; value: string; logic?: string }>;
+  filters?: FilterRule;
   showBadge?: boolean;
   collapsed?: boolean;
   repos?: string[];

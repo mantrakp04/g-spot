@@ -76,10 +76,15 @@ import type {
   ColumnSizing,
   ColumnTruncation,
   FilterCondition,
+  FilterGroup,
+  FilterRule,
   SectionSource,
 } from "@g-spot/types/filters";
 import {
   clampColumnWidth,
+  createEmptyFilterCondition,
+  createEmptyFilterGroup,
+  flattenFilterConditions,
   getDefaultColumns,
   getColumnContentAlign,
   getColumnHeaderAlign,
@@ -88,7 +93,10 @@ import {
   getColumnSizing,
   getColumnTruncation,
   getColumnWidthBounds,
+  normalizeFilterRule,
   normalizeColumns,
+  pruneEmptyFilterRule,
+  stripFilterRuleIds,
 } from "@g-spot/types/filters";
 import {
   useCreateSectionMutation,
@@ -264,6 +272,230 @@ function SortableColumnItem({
   );
 }
 
+function makeFilterNodeId() {
+  return `filter-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function withFilterNodeIds(rule: FilterRule): FilterRule {
+  if (rule.type === "condition") {
+    return {
+      ...rule,
+      type: "condition",
+      id: rule.id ?? makeFilterNodeId(),
+      logic: rule.logic ?? "and",
+    };
+  }
+
+  return {
+    ...rule,
+    id: rule.id ?? makeFilterNodeId(),
+    children: rule.children.map(withFilterNodeIds),
+  };
+}
+
+function createBuilderCondition(source: SectionSource): FilterCondition {
+  return {
+    ...createEmptyFilterCondition(source),
+    id: makeFilterNodeId(),
+  };
+}
+
+function createBuilderGroup(
+  operator: "and" | "or" = "and",
+  source: SectionSource,
+): FilterGroup {
+  return {
+    ...createEmptyFilterGroup(operator, [createBuilderCondition(source)]),
+    id: makeFilterNodeId(),
+  };
+}
+
+type FilterLeaf = {
+  condition: FilterCondition;
+  index: number;
+};
+
+function collectFilterLeaves(rule: FilterRule): FilterLeaf[] {
+  return flattenFilterConditions(rule).map((condition, index) => ({
+    condition,
+    index,
+  }));
+}
+
+function FilterRuleBuilder({
+  rule,
+  source,
+  depth = 0,
+  leafIndexById,
+  suggestionStates,
+  loadingLabels,
+  loadingGmailLabels,
+  loadingRepos,
+  onChange,
+  onSearchChange,
+  onRemove,
+}: {
+  rule: FilterRule;
+  source: SectionSource;
+  depth?: number;
+  leafIndexById: Map<string, number>;
+  suggestionStates: ReturnType<typeof useSectionFilterSuggestions>;
+  loadingLabels: boolean;
+  loadingGmailLabels: boolean;
+  loadingRepos: boolean;
+  onChange: (next: FilterRule) => void;
+  onSearchChange: (conditionId: string, query: string) => void;
+  onRemove?: () => void;
+}) {
+  if (rule.type === "condition") {
+    const leafIndex = rule.id ? leafIndexById.get(rule.id) : undefined;
+    const { options, isLoading } = leafIndex != null ? suggestionStates[leafIndex] ?? {} : {};
+    const isGitHubSource = source === "github_pr" || source === "github_issue";
+    const supportsTypedSuggestions =
+      (source === "github_pr"
+        && ["author", "reviewer", "assignee", "mentions", "involves"].includes(rule.field))
+      || (source === "github_issue"
+        && ["author", "assignee", "mentions", "involves"].includes(rule.field));
+
+    return (
+      <FilterConditionRow
+        condition={rule}
+        source={source}
+        onChange={onChange}
+        onSearchChange={
+          supportsTypedSuggestions && rule.id
+            ? (query) => onSearchChange(rule.id!, query)
+            : undefined
+        }
+        onRemove={onRemove ?? (() => {})}
+        dynamicOptions={options}
+        isLoadingOptions={
+          isLoading
+          || (isGitHubSource && rule.field === "label" && loadingLabels)
+          || (source === "gmail" && rule.field === "label" && loadingGmailLabels)
+          || (isGitHubSource && rule.field === "repo" && loadingRepos)
+        }
+      />
+    );
+  }
+
+  const isRoot = depth === 0;
+  const nextGroupOperator = rule.operator === "and" ? "or" : "and";
+
+  return (
+    <div
+      className={cn(
+        "space-y-2",
+        !isRoot && "rounded-lg p-3 ring-1",
+        !isRoot && rule.operator === "and" && "bg-blue-500/5 ring-blue-500/10",
+        !isRoot && rule.operator === "or" && "bg-amber-500/5 ring-amber-500/10",
+      )}
+    >
+      <div className="flex items-center gap-2">
+        {!isRoot && onRemove && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            className="text-muted-foreground hover:text-destructive"
+            onClick={onRemove}
+            aria-label="Remove group"
+          >
+            <Trash2 className="size-3.5" />
+          </Button>
+        )}
+        <button
+          type="button"
+          onClick={() => onChange({ ...rule, operator: nextGroupOperator })}
+          className={cn(
+            "rounded px-2 py-1 text-[10px] font-bold uppercase tracking-wide transition-colors",
+            rule.operator === "and"
+              ? "bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 dark:text-blue-400"
+              : "bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 dark:text-amber-400",
+          )}
+        >
+          {rule.operator}
+        </button>
+        <span className="text-xs text-muted-foreground">
+          {rule.operator === "and" ? "Match all conditions" : "Match any condition"}
+        </span>
+      </div>
+
+      <div className="space-y-2 border-l-2 border-foreground/[0.06] pl-2">
+        {rule.children.length === 0 && (
+          <p className="rounded-lg bg-muted/30 px-3 py-3 text-center text-xs text-muted-foreground/60 ring-1 ring-inset ring-border/40">
+            No filters - all items will be shown.
+          </p>
+        )}
+
+        {rule.children.map((child) => (
+          <FilterRuleBuilder
+            key={child.id}
+            rule={child}
+            source={source}
+            depth={depth + 1}
+            leafIndexById={leafIndexById}
+            suggestionStates={suggestionStates}
+            loadingLabels={loadingLabels}
+            loadingGmailLabels={loadingGmailLabels}
+            loadingRepos={loadingRepos}
+            onChange={(updated) => {
+              onChange({
+                ...rule,
+                children: rule.children.map((current) =>
+                  current.id === child.id ? updated : current,
+                ),
+              });
+            }}
+            onSearchChange={onSearchChange}
+            onRemove={() => {
+              onChange({
+                ...rule,
+                children: rule.children.filter((current) => current.id !== child.id),
+              });
+            }}
+          />
+        ))}
+
+        <div className="flex items-center gap-2 pt-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() =>
+              onChange({
+                ...rule,
+                children: [...rule.children, createBuilderCondition(source)],
+              })
+            }
+          >
+            <Plus className="mr-1 size-3.5" />
+            Add condition
+          </Button>
+          {depth < 2 && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() =>
+                onChange({
+                  ...rule,
+                  children: [...rule.children, createBuilderGroup(nextGroupOperator, source)],
+                })
+              }
+            >
+              <Plus className="mr-1 size-3.5" />
+              Add {nextGroupOperator.toUpperCase()} group
+            </Button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function SectionBuilder({
   open,
   onOpenChange,
@@ -316,8 +548,8 @@ function SectionBuilderContent({
   // Form state
   const [name, setName] = useState("");
   const [source, setSource] = useState<SectionSource>("github_pr");
-  const [filters, setFilters] = useState<FilterCondition[]>([]);
-  const [filterSearchQueries, setFilterSearchQueries] = useState<string[]>([]);
+  const [filters, setFilters] = useState<FilterRule>(() => createBuilderGroup("and", "github_pr"));
+  const [filterSearchQueries, setFilterSearchQueries] = useState<Record<string, string>>({});
   const [repos, setRepos] = useState<string[]>([]);
   const [accountId, setAccountId] = useState<string | null>(null);
   const [showBadge, setShowBadge] = useState(true);
@@ -332,12 +564,14 @@ function SectionBuilderContent({
   // Reset form when dialog opens
   useEffect(() => {
     if (open) {
-      const nextFilters = section ? parseJson<FilterCondition[]>(section.filters, []) : [];
       const nextSource = section?.source ?? "github_pr";
+      const nextFilters = withFilterNodeIds(
+        section ? normalizeFilterRule(parseJson(section.filters, null)) : createBuilderGroup("and", nextSource),
+      );
       setName(section?.name ?? "");
       setSource(nextSource);
       setFilters(nextFilters);
-      setFilterSearchQueries(Array.from({ length: nextFilters.length }, () => ""));
+      setFilterSearchQueries({});
       setRepos(section ? parseJson(section.repos, []) : []);
       setAccountId(section?.accountId ?? null);
       setShowBadge(section?.showBadge ?? true);
@@ -382,6 +616,20 @@ function SectionBuilderContent({
     () => repoSearchData?.pages.flatMap((p) => p.repos) ?? [],
     [repoSearchData],
   );
+  const filterLeaves = useMemo(() => collectFilterLeaves(filters), [filters]);
+  const flatFilterConditions = useMemo(
+    () => filterLeaves.map((leaf) => leaf.condition),
+    [filterLeaves],
+  );
+  const leafIndexById = useMemo(
+    () =>
+      new Map(
+        filterLeaves
+          .filter((leaf) => leaf.condition.id)
+          .map((leaf) => [leaf.condition.id!, leaf.index]),
+      ),
+    [filterLeaves],
+  );
 
   // Other options
   const { data: labelOptions, isLoading: loadingLabels } =
@@ -391,9 +639,11 @@ function SectionBuilderContent({
   const suggestionStates = useSectionFilterSuggestions({
     source,
     account: selectedAccount,
-    filters,
+    filters: flatFilterConditions,
     repos,
-    searchQueries: filterSearchQueries,
+    searchQueries: flatFilterConditions.map((condition) =>
+      condition.id ? filterSearchQueries[condition.id] ?? "" : "",
+    ),
     repoOptions: repoSearchResults.map((repo) => ({
       value: repo.value,
       label: repo.label,
@@ -405,34 +655,6 @@ function SectionBuilderContent({
   const createMutation = useCreateSectionMutation();
   const updateMutation = useUpdateSectionMutation();
   const deleteMutation = useDeleteSectionMutation();
-
-  function insertCondition(atIndex: number, logic: "and" | "or" = "and") {
-    const defaultField = source === "gmail" ? "from" : "status";
-    const newCond: FilterCondition = {
-      field: defaultField,
-      operator: "is" as const,
-      value: "",
-      logic,
-    };
-    setFilters((prev) => [...prev.slice(0, atIndex), newCond, ...prev.slice(atIndex)]);
-    setFilterSearchQueries((prev) => [...prev.slice(0, atIndex), "", ...prev.slice(atIndex)]);
-  }
-
-  function addCondition(logic: "and" | "or" = "and") {
-    insertCondition(filters.length, logic);
-  }
-
-  function updateCondition(index: number, updated: FilterCondition) {
-    setFilters((prev) => prev.map((c, i) => (i === index ? updated : c)));
-    setFilterSearchQueries((prev) =>
-      prev.map((query, i) => (i === index ? "" : query)),
-    );
-  }
-
-  function removeCondition(index: number) {
-    setFilters((prev) => prev.filter((_, i) => i !== index));
-    setFilterSearchQueries((prev) => prev.filter((_, i) => i !== index));
-  }
 
   function updateColumn(id: string, updater: (column: ColumnConfig) => ColumnConfig) {
     setColumns((prev) => prev.map((column) => (
@@ -456,7 +678,7 @@ function SectionBuilderContent({
     const trimmedName = name.trim();
     if (!trimmedName) return;
 
-    const validFilters = filters.filter((f) => f.value.trim() !== "");
+    const validFilters = stripFilterRuleIds(pruneEmptyFilterRule(filters));
 
     if (isEdit && section) {
       await updateMutation.mutateAsync({
@@ -527,8 +749,8 @@ function SectionBuilderContent({
                     if (!v) return;
                     const newSource = v as SectionSource;
                     setSource(newSource);
-                    setFilters([]);
-                    setFilterSearchQueries([]);
+                    setFilters(createBuilderGroup("and", newSource));
+                    setFilterSearchQueries({});
                     setRepos([]);
                     setAccountId(null);
                     setColumns(getDefaultColumns(newSource));
@@ -625,138 +847,22 @@ function SectionBuilderContent({
           {/* Filters */}
           <div className="space-y-2">
             <Label className="text-xs font-medium text-muted-foreground">Filters</Label>
-
-            {filters.length === 0 && (
-              <p className="rounded-lg bg-muted/30 px-3 py-3 text-center text-xs text-muted-foreground/60 ring-1 ring-inset ring-border/40">
-                No filters — all items will be shown.
-              </p>
-            )}
-
-            {(() => {
-              // Group conditions by OR boundaries: a condition with logic="or" starts a new group.
-              const groups: Array<{ indices: number[] }> = [];
-              filters.forEach((c, i) => {
-                if (i === 0 || c.logic === "or") {
-                  groups.push({ indices: [i] });
-                } else {
-                  groups[groups.length - 1].indices.push(i);
-                }
-              });
-
-              return (
-                <div className="space-y-2">
-                  {groups.map((group, gi) => {
-                    const lastIndex = group.indices[group.indices.length - 1];
-                    return (
-                      <div key={gi}>
-                        {gi > 0 && (
-                          <div className="flex items-center gap-3 py-2">
-                            <div className="h-px flex-1 bg-border/40" />
-                            <button
-                              type="button"
-                              onClick={() =>
-                                updateCondition(group.indices[0], {
-                                  ...filters[group.indices[0]],
-                                  logic: "and",
-                                })
-                              }
-                              className={cn(
-                                "rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-widest transition-colors",
-                                "border border-border/60 text-muted-foreground",
-                                "hover:border-foreground/30 hover:text-foreground",
-                              )}
-                              title="Click to merge into previous group"
-                            >
-                              Or
-                            </button>
-                            <div className="h-px flex-1 bg-border/40" />
-                          </div>
-                        )}
-
-                        <div className="space-y-1.5">
-                          {group.indices.map((globalIndex, localIndex) => {
-                            const condition = filters[globalIndex];
-                            const { options, isLoading } = suggestionStates[globalIndex] ?? {};
-                            const supportsTypedSuggestions =
-                              (source === "github_pr"
-                                && ["author", "reviewer", "assignee", "mentions", "involves"].includes(condition.field))
-                              || (source === "github_issue"
-                                && ["author", "assignee", "mentions", "involves"].includes(condition.field));
-                            return (
-                              <FilterConditionRow
-                                key={globalIndex}
-                                condition={condition}
-                                source={isEdit ? section!.source : source}
-                                prefix={localIndex === 0 ? null : "And"}
-                                onPrefixClick={
-                                  localIndex === 0
-                                    ? undefined
-                                    : () =>
-                                        updateCondition(globalIndex, {
-                                          ...condition,
-                                          logic: "or",
-                                        })
-                                }
-                                onChange={(updated) => updateCondition(globalIndex, updated)}
-                                onSearchChange={
-                                  supportsTypedSuggestions
-                                    ? (query) =>
-                                        setFilterSearchQueries((prev) =>
-                                          prev.map((current, currentIndex) =>
-                                            currentIndex === globalIndex ? query : current,
-                                          ),
-                                        )
-                                    : undefined
-                                }
-                                onRemove={() => removeCondition(globalIndex)}
-                                dynamicOptions={options}
-                                isLoadingOptions={
-                                  isLoading
-                                  || (isGitHubSource && condition.field === "label" && loadingLabels)
-                                  || (source === "gmail" && condition.field === "label" && loadingGmailLabels)
-                                  || (isGitHubSource && condition.field === "repo" && loadingRepos)
-                                }
-                              />
-                            );
-                          })}
-
-                          <div className="flex items-stretch gap-2">
-                            <div className="w-10 shrink-0" />
-                            <button
-                              type="button"
-                              onClick={() => insertCondition(lastIndex + 1, "and")}
-                              className={cn(
-                                "group/add flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg",
-                                "bg-muted/25 text-xs font-medium text-muted-foreground/80",
-                                "ring-1 ring-inset ring-border/40 transition-colors",
-                                "hover:bg-muted/50 hover:text-foreground hover:ring-border/70",
-                              )}
-                            >
-                              <Plus className="size-3 opacity-70 transition-opacity group-hover/add:opacity-100" />
-                              Add condition
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })()}
-
-            <button
-              type="button"
-              onClick={() => addCondition(filters.length === 0 ? "and" : "or")}
-              className={cn(
-                "group/add mt-2 flex h-10 w-full items-center justify-center gap-1.5 rounded-lg",
-                "bg-muted/50 text-xs font-medium text-foreground/80",
-                "ring-1 ring-inset ring-border/60 transition-colors",
-                "hover:bg-muted/70 hover:text-foreground hover:ring-border",
-              )}
-            >
-              <Plus className="size-3 opacity-70 transition-opacity group-hover/add:opacity-100" />
-              Add filter
-            </button>
+            <FilterRuleBuilder
+              rule={filters}
+              source={source}
+              leafIndexById={leafIndexById}
+              suggestionStates={suggestionStates}
+              loadingLabels={loadingLabels}
+              loadingGmailLabels={loadingGmailLabels}
+              loadingRepos={loadingRepos}
+              onChange={setFilters}
+              onSearchChange={(conditionId, query) =>
+                setFilterSearchQueries((prev) => ({
+                  ...prev,
+                  [conditionId]: query,
+                }))
+              }
+            />
           </div>
 
           {/* Columns */}

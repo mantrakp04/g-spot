@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { filterConditionSchema } from "@g-spot/types/filters";
+import { filterConditionSchema, sectionFiltersSchema } from "@g-spot/types/filters";
 
 import {
   countFilteredThreads,
@@ -155,7 +155,7 @@ export const gmailRouter = router({
     .input(
       z.object({
         providerAccountId: z.string(),
-        filters: z.array(filterConditionSchema).default([]),
+        filters: sectionFiltersSchema,
         limit: z.number().int().min(1).max(100).default(50),
         cursor: z.string().nullable().optional(),
       }),
@@ -220,7 +220,7 @@ export const gmailRouter = router({
     .input(
       z.object({
         providerAccountId: z.string(),
-        filters: z.array(filterConditionSchema).default([]),
+        filters: sectionFiltersSchema,
       }),
     )
     .query(async ({ input }) => {

@@ -24,7 +24,7 @@ export const sectionsRouter = router({
       z.object({
         name: z.string().min(1).max(100),
         source: sectionSourceSchema,
-        filters: sectionFiltersSchema.default([]),
+        filters: sectionFiltersSchema,
         showBadge: z.boolean().default(true),
         repos: z.array(z.string()).default([]),
         accountId: z.string().nullable().default(null),

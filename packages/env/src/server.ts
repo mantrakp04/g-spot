@@ -29,6 +29,7 @@ export const env = createEnv({
     STACK_PROJECT_ID: z.string().min(1).default("528293a9-a93a-4511-92a9-0df356161cc7"),
     // Gmail sync
     GMAIL_SYNC_CONCURRENCY: z.coerce.number().int().min(1).max(50).default(20),
+    GMAIL_PUBSUB_TOPIC_NAME: z.string().min(1).optional().default("projects/nifty-time-331809/topics/g-spot-gmail-sync"),
     RELAY_URL: z.string().min(1).default(
       process.env.NODE_ENV === "production"
         ? "ws://relay.g-spot.dev"

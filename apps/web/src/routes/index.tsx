@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo, useTransition, startTransition as reactStartTransition, memo, type Dispatch, type SetStateAction } from "react";
 
-import type { FilterCondition, SectionSource, ColumnConfig } from "@g-spot/types/filters";
+import type { FilterRule, SectionSource, ColumnConfig } from "@g-spot/types/filters";
+import { normalizeFilterRule } from "@g-spot/types/filters";
 import { Skeleton } from "@g-spot/ui/components/skeleton";
 import type { OAuthConnection } from "@stackframe/react";
 import { useUser } from "@stackframe/react";
@@ -28,11 +29,11 @@ export const Route = createFileRoute("/")({
   component: InboxPage,
 });
 
-function parseFilters(filtersJson: string): FilterCondition[] {
+function parseFilters(filtersJson: string): FilterRule {
   try {
-    return JSON.parse(filtersJson) as FilterCondition[];
+    return normalizeFilterRule(JSON.parse(filtersJson));
   } catch {
-    return [];
+    return normalizeFilterRule(null);
   }
 }
 

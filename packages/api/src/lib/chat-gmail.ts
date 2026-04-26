@@ -26,6 +26,7 @@ type BaseAdapters = { gmail: ReturnType<typeof createGmailAdapter> };
 type ChatInstanceExport = Chat<BaseAdapters>;
 
 let chatPromise: Promise<ChatInstanceExport> | null = null;
+const gmailFanoutChains = new Map<string, Promise<void>>();
 
 export async function getChatInstance(): Promise<ChatInstanceExport> {
   if (!chatPromise) {
@@ -149,22 +150,52 @@ export function fanoutNewGmailMessages(args: {
   rawMessages: GmailRawMessage[];
 }): void {
   const { accountId, gmailThreadId, rawMessages } = args;
-  void (async () => {
-    try {
-      const chat = await getChatInstance();
-      const adapter = chat.getAdapter("gmail");
-      const threadId = adapter.encodeThreadId({ accountId, gmailThreadId });
-      for (const raw of rawMessages) {
-        chat.processMessage(adapter, threadId, () => {
+  const threadId = `gmail:${accountId}:${gmailThreadId}`;
+  const previous = gmailFanoutChains.get(threadId) ?? Promise.resolve();
+  const next = previous
+    .catch(() => undefined)
+    .then(() => processGmailFanout({ accountId, gmailThreadId, rawMessages }));
+
+  gmailFanoutChains.set(threadId, next);
+  void next.finally(() => {
+    if (gmailFanoutChains.get(threadId) === next) {
+      gmailFanoutChains.delete(threadId);
+    }
+  });
+}
+
+async function processGmailFanout(args: {
+  accountId: string;
+  gmailThreadId: string;
+  rawMessages: GmailRawMessage[];
+}): Promise<void> {
+  const { accountId, gmailThreadId, rawMessages } = args;
+  try {
+    const chat = await getChatInstance();
+    const adapter = chat.getAdapter("gmail");
+    const threadId = adapter.encodeThreadId({ accountId, gmailThreadId });
+
+    for (const raw of rawMessages) {
+      let task: Promise<unknown> | null = null;
+      chat.processMessage(
+        adapter,
+        threadId,
+        () => {
           const msg = adapter.parseMessage(raw);
           (msg as { threadId: string }).threadId = threadId;
           return Promise.resolve(msg);
-        });
-      }
-    } catch (error) {
-      console.error("[chat-gmail] fanout failed", error);
+        },
+        {
+          waitUntil(promise) {
+            task = promise;
+          },
+        },
+      );
+      await task;
     }
-  })();
+  } catch (error) {
+    console.error("[chat-gmail] fanout failed", error);
+  }
 }
 
 export type { GmailThreadRef, GmailRawMessage };

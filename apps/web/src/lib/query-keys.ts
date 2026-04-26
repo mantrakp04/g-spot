@@ -1,4 +1,4 @@
-import type { FilterCondition } from "@g-spot/types/filters";
+import type { FilterCondition, FilterRule } from "@g-spot/types/filters";
 
 import { trpc } from "@/utils/trpc";
 
@@ -59,7 +59,7 @@ export const githubKeys = {
     sectionId: string,
     input: {
       accountId: string | null;
-      filters: FilterCondition[];
+      filters: FilterRule;
       repos: string[];
       sortAsc: boolean;
     },
@@ -98,14 +98,14 @@ export const gmailKeys = {
     sectionId: string,
     input: {
       accountId: string | null;
-      filters: FilterCondition[];
+      filters: FilterRule;
     },
   ) => ["gmail", "threads", sectionId, input] as const,
   threadCount: (
     sectionId: string,
     input: {
       accountId: string | null;
-      filters: FilterCondition[];
+      filters: FilterRule;
     },
   ) => ["gmail", "threads", sectionId, "count", input] as const,
   thread: (threadId: string | null, accountId: string | null | undefined) =>

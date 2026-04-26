@@ -11,13 +11,15 @@ export type GmailPushNotification = {
 export async function processGmailPushNotification(
   payload: GmailPushNotification,
   receivedAt: string,
-): Promise<void> {
+): Promise<{ accounts: Array<{ id: string; email: string; providerAccountId: string }> }> {
   const accounts = await listGmailAccountsByEmail(payload.emailAddress);
   if (accounts.length === 0) {
-    return;
+    return { accounts: [] };
   }
 
   for (const account of accounts) {
     await recordGmailPushNotification(account.id, payload.historyId, receivedAt);
   }
+
+  return { accounts };
 }

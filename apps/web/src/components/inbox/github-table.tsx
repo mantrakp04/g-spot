@@ -1,6 +1,6 @@
 import { useEffect, useMemo, type HTMLAttributes, type ReactElement } from "react";
 
-import type { ColumnConfig, FilterCondition } from "@g-spot/types/filters";
+import type { ColumnConfig, FilterRule } from "@g-spot/types/filters";
 import { getDefaultColumns, normalizeColumns } from "@g-spot/types/filters";
 import type { OAuthConnection } from "@stackframe/react";
 import { useNavigate } from "@tanstack/react-router";
@@ -22,7 +22,7 @@ import { SectionEmpty } from "./section-empty";
 type GitHubTableProps = {
   source: "github_pr" | "github_issue";
   sectionId: string;
-  filters: FilterCondition[];
+  filters: FilterRule;
   repos?: string[];
   accountId?: string | null;
   sortAsc?: boolean;

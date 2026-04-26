@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, lt, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, notInArray, or, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
@@ -20,6 +20,7 @@ import type {
   GmailSyncStateRow,
   GmailThreadRow,
 } from "./schema/gmail";
+import type { FilterRule } from "@g-spot/types/filters";
 
 // ---------------------------------------------------------------------------
 // Accounts
@@ -50,6 +51,17 @@ export async function listGmailAccounts(): Promise<GmailAccountRow[]> {
     .select()
     .from(gmailAccounts)
     .orderBy(asc(gmailAccounts.createdAt));
+}
+
+export async function listGmailAccountsWithPendingNotifications(): Promise<GmailAccountRow[]> {
+  const accounts = await db
+    .select()
+    .from(gmailAccounts)
+    .where(isNotNull(gmailAccounts.lastNotificationHistoryId))
+    .orderBy(asc(gmailAccounts.createdAt));
+  return accounts.filter((account) =>
+    isNewerHistoryId(account.lastNotificationHistoryId!, account.historyId),
+  );
 }
 
 export async function listGmailAccountsByEmail(
@@ -130,14 +142,32 @@ export async function recordGmailPushNotification(
   historyId: string,
   receivedAt = new Date().toISOString(),
 ): Promise<void> {
+  const [account] = await db
+    .select({ lastNotificationHistoryId: gmailAccounts.lastNotificationHistoryId })
+    .from(gmailAccounts)
+    .where(eq(gmailAccounts.id, accountId));
+  const lastHistoryId = account?.lastNotificationHistoryId ?? null;
+  const nextHistoryId = isNewerHistoryId(historyId, lastHistoryId)
+    ? historyId
+    : lastHistoryId;
+
   await db
     .update(gmailAccounts)
     .set({
-      lastNotificationHistoryId: historyId,
+      lastNotificationHistoryId: nextHistoryId,
       lastNotificationAt: receivedAt,
       updatedAt: receivedAt,
     })
     .where(eq(gmailAccounts.id, accountId));
+}
+
+function isNewerHistoryId(incoming: string, existing: string | null): boolean {
+  if (!existing) return true;
+  try {
+    return BigInt(incoming) > BigInt(existing);
+  } catch {
+    return incoming > existing;
+  }
 }
 
 export async function setGmailAccountNeedsFullResync(
@@ -231,7 +261,7 @@ export async function upsertThread(
     labels: string[];
     historyId?: string;
   },
-): Promise<{ id: string; isNew: boolean }> {
+): Promise<{ id: string; isNew: boolean; isProcessed: boolean }> {
   const [existing] = await db
     .select()
     .from(gmailThreads)
@@ -245,6 +275,9 @@ export async function upsertThread(
   const now = new Date().toISOString();
 
   if (existing) {
+    const wasInbox = (JSON.parse(existing.labels) as string[]).includes("INBOX");
+    const isInbox = data.labels.includes("INBOX");
+    const isProcessed = isInbox && !wasInbox ? false : existing.isProcessed;
     await db
       .update(gmailThreads)
       .set({
@@ -254,11 +287,11 @@ export async function upsertThread(
         messageCount: data.messageCount,
         labels: JSON.stringify(data.labels),
         historyId: data.historyId ?? existing.historyId,
-        isProcessed: data.labels.includes("INBOX") ? false : existing.isProcessed,
+        isProcessed,
         updatedAt: now,
       })
       .where(eq(gmailThreads.id, existing.id));
-    return { id: existing.id, isNew: false };
+    return { id: existing.id, isNew: false, isProcessed };
   }
 
   const id = nanoid();
@@ -275,7 +308,7 @@ export async function upsertThread(
     createdAt: now,
     updatedAt: now,
   });
-  return { id, isNew: true };
+  return { id, isNew: true, isProcessed: false };
 }
 
 export async function getThread(
@@ -318,6 +351,13 @@ export async function markThreadProcessed(threadId: string): Promise<void> {
   await db
     .update(gmailThreads)
     .set({ isProcessed: true, updatedAt: new Date().toISOString() })
+    .where(eq(gmailThreads.id, threadId));
+}
+
+export async function markThreadUnprocessed(threadId: string): Promise<void> {
+  await db
+    .update(gmailThreads)
+    .set({ isProcessed: false, updatedAt: new Date().toISOString() })
     .where(eq(gmailThreads.id, threadId));
 }
 
@@ -370,6 +410,32 @@ export async function getUnprocessedInboxGmailThreadIds(
   return rows.map((r) => r.gmailThreadId);
 }
 
+export async function listUnprocessedInboxThreadsBatch(
+  accountId: string,
+  limit = 100,
+  excludeThreadIds: string[] = [],
+): Promise<Array<Pick<GmailThreadRow, "id" | "gmailThreadId" | "subject">>> {
+  const conditions: SQL[] = [
+    eq(gmailThreads.accountId, accountId),
+    eq(gmailThreads.isProcessed, false),
+    labelExistsSql("INBOX"),
+  ];
+  if (excludeThreadIds.length > 0) {
+    conditions.push(notInArray(gmailThreads.id, excludeThreadIds));
+  }
+
+  return db
+    .select({
+      id: gmailThreads.id,
+      gmailThreadId: gmailThreads.gmailThreadId,
+      subject: gmailThreads.subject,
+    })
+    .from(gmailThreads)
+    .where(and(...conditions))
+    .orderBy(desc(gmailThreads.lastMessageAt))
+    .limit(limit);
+}
+
 /**
  * Returns all fetched thread IDs that have the INBOX label (processed or not).
  * Used to count the "processable" universe during sync resume.
@@ -389,9 +455,36 @@ export async function getFetchedInboxGmailThreadIds(
   return new Set(rows.map((r) => r.gmailThreadId));
 }
 
+export async function getGmailThreadStats(accountId: string): Promise<{
+  totalThreads: number;
+  inboxThreads: number;
+  unprocessedInboxThreads: number;
+}> {
+  const [row] = await db
+    .select({
+      totalThreads: sql<number>`count(*)`,
+      inboxThreads: sql<number>`sum(case when ${labelExistsSql("INBOX")} then 1 else 0 end)`,
+      unprocessedInboxThreads: sql<number>`sum(case when ${labelExistsSql("INBOX")} and ${gmailThreads.isProcessed} = 0 then 1 else 0 end)`,
+    })
+    .from(gmailThreads)
+    .where(eq(gmailThreads.accountId, accountId));
+
+  return {
+    totalThreads: Number(row?.totalThreads ?? 0),
+    inboxThreads: Number(row?.inboxThreads ?? 0),
+    unprocessedInboxThreads: Number(row?.unprocessedInboxThreads ?? 0),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Messages
 // ---------------------------------------------------------------------------
+
+export type UpsertedGmailMessage = {
+  id: string;
+  gmailMessageId: string;
+  isNew: boolean;
+};
 
 export async function upsertMessages(
   threadId: string,
@@ -416,8 +509,8 @@ export async function upsertMessages(
     historyId: string | null;
     rawSizeEstimate: number | null;
   }>,
-): Promise<string[]> {
-  const ids: string[] = [];
+): Promise<UpsertedGmailMessage[]> {
+  const results: UpsertedGmailMessage[] = [];
 
   for (const msg of messages) {
     const [existing] = await db
@@ -452,7 +545,11 @@ export async function upsertMessages(
           rawSizeEstimate: msg.rawSizeEstimate,
         })
         .where(eq(gmailMessages.id, existing.id));
-      ids.push(existing.id);
+      results.push({
+        id: existing.id,
+        gmailMessageId: msg.gmailMessageId,
+        isNew: false,
+      });
     } else {
       const id = nanoid();
       await db.insert(gmailMessages).values({
@@ -478,11 +575,15 @@ export async function upsertMessages(
         historyId: msg.historyId,
         rawSizeEstimate: msg.rawSizeEstimate,
       });
-      ids.push(id);
+      results.push({
+        id,
+        gmailMessageId: msg.gmailMessageId,
+        isNew: true,
+      });
     }
   }
 
-  return ids;
+  return results;
 }
 
 export async function getThreadMessages(
@@ -907,6 +1008,7 @@ export async function getFailuresByIds(
 // ---------------------------------------------------------------------------
 
 export type GmailFilterCondition = {
+  type?: "condition";
   field: string;
   operator: string;
   value: string;
@@ -971,6 +1073,13 @@ function parseSizeBytes(value: string): number | null {
   if (unit === "m") return amount * 1048576;
   if (unit === "g") return amount * 1073741824;
   return amount;
+}
+
+function booleanFilterWantsPositive(operator: string, value: string): boolean | null {
+  const normalized = value.trim().toLowerCase();
+  if (normalized !== "true" && normalized !== "false") return null;
+  const rawValue = normalized === "true";
+  return operator === "is_not" ? !rawValue : rawValue;
 }
 
 function labelExistsSql(label: string): SQL {
@@ -1071,43 +1180,45 @@ function buildFilterConditionSql(
         : labelExistsSql(mapped);
     }
 
-    case "is_unread":
-      if (value.trim().toLowerCase() !== "true") return null;
-      return operator === "is"
-        ? labelExistsSql("UNREAD")
-        : labelNotExistsSql("UNREAD");
-    case "is_read":
-      if (value.trim().toLowerCase() !== "true") return null;
-      return operator === "is"
-        ? labelNotExistsSql("UNREAD")
-        : labelExistsSql("UNREAD");
-    case "is_starred":
-      if (value.trim().toLowerCase() !== "true") return null;
-      return operator === "is"
-        ? labelExistsSql("STARRED")
-        : labelNotExistsSql("STARRED");
-    case "is_important":
-      if (value.trim().toLowerCase() !== "true") return null;
-      return operator === "is"
-        ? labelExistsSql("IMPORTANT")
-        : labelNotExistsSql("IMPORTANT");
-    case "is_snoozed":
-      if (value.trim().toLowerCase() !== "true") return null;
-      return operator === "is"
-        ? labelExistsSql("SNOOZED")
-        : labelNotExistsSql("SNOOZED");
-    case "is_muted":
-      if (value.trim().toLowerCase() !== "true") return null;
-      return operator === "is"
-        ? labelExistsSql("MUTED")
-        : labelNotExistsSql("MUTED");
+    case "is_unread": {
+      const wantsPositive = booleanFilterWantsPositive(operator, value);
+      if (wantsPositive === null) return null;
+      return wantsPositive ? labelExistsSql("UNREAD") : labelNotExistsSql("UNREAD");
+    }
+    case "is_read": {
+      const wantsPositive = booleanFilterWantsPositive(operator, value);
+      if (wantsPositive === null) return null;
+      return wantsPositive ? labelNotExistsSql("UNREAD") : labelExistsSql("UNREAD");
+    }
+    case "is_starred": {
+      const wantsPositive = booleanFilterWantsPositive(operator, value);
+      if (wantsPositive === null) return null;
+      return wantsPositive ? labelExistsSql("STARRED") : labelNotExistsSql("STARRED");
+    }
+    case "is_important": {
+      const wantsPositive = booleanFilterWantsPositive(operator, value);
+      if (wantsPositive === null) return null;
+      return wantsPositive ? labelExistsSql("IMPORTANT") : labelNotExistsSql("IMPORTANT");
+    }
+    case "is_snoozed": {
+      const wantsPositive = booleanFilterWantsPositive(operator, value);
+      if (wantsPositive === null) return null;
+      return wantsPositive ? labelExistsSql("SNOOZED") : labelNotExistsSql("SNOOZED");
+    }
+    case "is_muted": {
+      const wantsPositive = booleanFilterWantsPositive(operator, value);
+      if (wantsPositive === null) return null;
+      return wantsPositive ? labelExistsSql("MUTED") : labelNotExistsSql("MUTED");
+    }
 
-    case "has_attachment":
-      if (value.trim().toLowerCase() !== "true") return null;
-      if (operator === "is") {
+    case "has_attachment": {
+      const wantsPositive = booleanFilterWantsPositive(operator, value);
+      if (wantsPositive === null) return null;
+      if (wantsPositive) {
         return sql`EXISTS (SELECT 1 FROM ${gmailAttachments} a INNER JOIN ${gmailMessages} m ON a.message_id = m.id WHERE m.thread_id = ${gmailThreads.id} AND m.account_id = ${accountId})`;
       }
       return sql`NOT EXISTS (SELECT 1 FROM ${gmailAttachments} a INNER JOIN ${gmailMessages} m ON a.message_id = m.id WHERE m.thread_id = ${gmailThreads.id} AND m.account_id = ${accountId})`;
+    }
 
     case "filename": {
       const needle = value.trim().toLowerCase();
@@ -1158,7 +1269,8 @@ function buildFilterConditionSql(
     case "has_spreadsheet":
     case "has_presentation":
     case "has_youtube": {
-      if (value.trim().toLowerCase() !== "true") return null;
+      const wantsPositive = booleanFilterWantsPositive(operator, value);
+      if (wantsPositive === null) return null;
       const patterns: Record<string, string[]> = {
         has_drive: ["%drive.google.com%"],
         has_document: ["%docs.google.com/document%"],
@@ -1171,7 +1283,7 @@ function buildFilterConditionSql(
       const combined = likeClauses.length === 1
         ? likeClauses[0]!
         : sql`(${sql.join(likeClauses, sql` OR `)})`;
-      if (operator === "is") {
+      if (wantsPositive) {
         return sql`EXISTS (SELECT 1 FROM ${gmailMessages} m WHERE m.thread_id = ${gmailThreads.id} AND m.account_id = ${accountId} AND ${combined})`;
       }
       return sql`NOT EXISTS (SELECT 1 FROM ${gmailMessages} m WHERE m.thread_id = ${gmailThreads.id} AND m.account_id = ${accountId} AND ${combined})`;
@@ -1182,23 +1294,38 @@ function buildFilterConditionSql(
   }
 }
 
+function buildFilterRuleSql(
+  accountId: string,
+  rule: FilterRule,
+): SQL | undefined {
+  if (rule.type === "condition") {
+    if (rule.value.trim().length === 0) return undefined;
+    return buildFilterConditionSql(accountId, rule) ?? undefined;
+  }
+
+  const conditions = rule.children
+    .map((child) => buildFilterRuleSql(accountId, child))
+    .filter((condition): condition is SQL => condition != null);
+
+  if (conditions.length === 0) return undefined;
+  if (conditions.length === 1) return conditions[0];
+  return rule.operator === "or" ? or(...conditions) : and(...conditions);
+}
+
 function buildFilterWhere(
   accountId: string,
-  filters: GmailFilterCondition[],
+  filters: FilterRule,
 ): SQL | undefined {
+  const ruleSql = buildFilterRuleSql(accountId, filters);
   const conditions: SQL[] = [eq(gmailThreads.accountId, accountId)];
-
-  for (const filter of filters) {
-    const condition = buildFilterConditionSql(accountId, filter);
-    if (condition) conditions.push(condition);
-  }
+  if (ruleSql) conditions.push(ruleSql);
 
   return and(...conditions);
 }
 
 export async function queryThreads(
   accountId: string,
-  filters: GmailFilterCondition[],
+  filters: FilterRule,
   options: {
     limit?: number;
     cursor?: string | null;
@@ -1291,7 +1418,7 @@ export async function queryThreads(
 
 export async function countFilteredThreads(
   accountId: string,
-  filters: GmailFilterCondition[],
+  filters: FilterRule,
 ): Promise<number> {
   const where = buildFilterWhere(accountId, filters);
   const [row] = await db

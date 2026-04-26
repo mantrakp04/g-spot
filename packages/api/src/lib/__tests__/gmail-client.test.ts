@@ -1,11 +1,38 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
+  parseGmailRetryAfterSeconds,
   parseGmailMessage,
   parseAttachments,
   threadToText,
   type GmailApiMessage,
   type GmailPayloadPart,
 } from "../gmail-client";
+
+const TEST_INTERNAL_DATE = String(new Date("2026-04-01T12:00:00.000Z").getTime());
+
+describe("parseGmailRetryAfterSeconds", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-26T00:50:59.763Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("parses Gmail retry timestamps from error detail", () => {
+    expect(
+      parseGmailRetryAfterSeconds({
+        detail:
+          "User-rate limit exceeded. Retry after 2026-04-26T00:51:59.763Z",
+      }),
+    ).toBe(60);
+  });
+
+  it("parses numeric Retry-After headers", () => {
+    expect(parseGmailRetryAfterSeconds({ header: "120" })).toBe(120);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // parseGmailMessage
@@ -18,6 +45,7 @@ describe("parseGmailMessage", () => {
       threadId: "thread1",
       snippet: "Hello world",
       labelIds: ["INBOX", "UNREAD"],
+      internalDate: TEST_INTERNAL_DATE,
       sizeEstimate: 1234,
       payload: {
         mimeType: "text/plain",
@@ -55,6 +83,7 @@ describe("parseGmailMessage", () => {
       threadId: "thread1",
       snippet: "Multi",
       labelIds: [],
+      internalDate: TEST_INTERNAL_DATE,
       payload: {
         mimeType: "multipart/alternative",
         headers: [
@@ -87,6 +116,7 @@ describe("parseGmailMessage", () => {
       id: "msg3",
       threadId: "thread1",
       snippet: "",
+      internalDate: TEST_INTERNAL_DATE,
       payload: {
         mimeType: "text/html",
         headers: [
@@ -110,6 +140,7 @@ describe("parseGmailMessage", () => {
       id: "msg4",
       threadId: "thread1",
       snippet: "",
+      internalDate: TEST_INTERNAL_DATE,
       payload: {
         headers: [
           { name: "From", value: "plain@email.com" },
@@ -127,6 +158,7 @@ describe("parseGmailMessage", () => {
       id: "msg5",
       threadId: "thread1",
       snippet: "",
+      internalDate: TEST_INTERNAL_DATE,
       payload: {
         headers: [
           { name: "From", value: "x@x.com" },
@@ -145,6 +177,7 @@ describe("parseGmailMessage", () => {
       threadId: "thread1",
       snippet: "",
       labelIds: ["DRAFT"],
+      internalDate: TEST_INTERNAL_DATE,
       payload: {
         headers: [
           { name: "From", value: "x@x.com" },

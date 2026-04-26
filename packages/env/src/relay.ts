@@ -23,7 +23,6 @@ export const env = createEnv({
     DATABASE_URL: z.string().min(1).default(relayDatabasePath),
     STACK_PROJECT_ID: z.string().min(1),
     STACK_SECRET_SERVER_KEY: z.string().min(1),
-    GMAIL_PUBSUB_TOPIC_NAME: z.string().min(1),
     GMAIL_PUBSUB_VERIFICATION_TOKEN: z.string().min(1),
   },
   runtimeEnv: process.env,

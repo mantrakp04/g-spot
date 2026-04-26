@@ -1,9 +1,9 @@
 /**
  * Gmail sync orchestrator.
  *
- * Two-queue architecture:
- * - Queue 1 (Fetcher): fetches threads from Gmail API, stores in DB
- * - Queue 2 (Processor): runs LLM extraction + memory ingestion
+ * Fetches threads from Gmail API and stores them in the local DB.
+ * Memory extraction is intentionally handled by gmail-extraction.ts so sync
+ * never auto-runs analysis.
  *
  * Circuit breaker: 429s pause all fetching.
  */
@@ -18,13 +18,9 @@ import {
   getGmailAccountById,
   getRunningSyncStates,
   getSyncState,
-  getThread,
-  getThreadMessages,
-  getRetryableFailureThreadIds,
   getUnprocessedInboxGmailThreadIds,
   incrementSyncProgress,
-  listMessagesByThreadIds,
-  markThreadProcessed,
+  markThreadUnprocessed,
   recordSyncFailure,
   resolveFailuresForThread,
   setGmailAccountNeedsFullResync,
@@ -49,11 +45,9 @@ import {
   listLabels,
   parseGmailMessage,
   parseAttachments,
-  threadToText,
   GmailApiError,
   type ParsedMessage,
 } from "./gmail-client";
-import { extractAndIngestThread } from "./memory-extractor";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -66,7 +60,6 @@ export const syncStartIntents = [
   "auto",
   "push",
   "resume",
-  "retry_failed",
 ] as const;
 export type SyncStartIntent = (typeof syncStartIntents)[number];
 type CircuitState = "closed" | "open";
@@ -89,13 +82,6 @@ interface FetchItem {
   gmailThreadId: string;
 }
 
-interface ProcessItem {
-  dbThreadId: string;
-  gmailThreadId: string;
-  subject: string;
-  messages: ParsedMessage[];
-}
-
 type ProgressSnapshot = Pick<
   SyncProgress,
   | "totalThreads"
@@ -107,14 +93,13 @@ type ProgressSnapshot = Pick<
 
 type SyncScope = ProgressSnapshot & {
   toFetch: string[];
-  unprocessedInScope: string[];
 };
 
 type SyncExecutionPlan = {
   bootstrapProgress: ProgressSnapshot | null;
   intent: SyncStartIntent;
   mode: SyncMode;
-  scopeStrategy: SyncMode | "failed_only";
+  scopeStrategy: SyncMode;
   updatesAccountCheckpoint: boolean;
 };
 
@@ -125,8 +110,7 @@ type SyncStartPlanAccount = Pick<
 
 type SyncStartPlanState = Pick<
   NonNullable<Awaited<ReturnType<typeof getSyncState>>>,
-  "failedThreads"
-  | "fetchedThreads"
+  "fetchedThreads"
   | "mode"
   | "processableThreads"
   | "processedThreads"
@@ -141,8 +125,7 @@ type SyncThreadResolution = {
 };
 
 type SyncStateWrite = Parameters<typeof upsertSyncState>[1];
-
-type StoredThreadMessage = Awaited<ReturnType<typeof getThreadMessages>>[number];
+type GmailProfile = Awaited<ReturnType<typeof getProfile>>;
 
 function getBootstrapProgress(
   syncState: SyncStartPlanState | null,
@@ -153,12 +136,12 @@ function getBootstrapProgress(
     fetchedThreads: syncState.fetchedThreads,
     processableThreads: syncState.processableThreads,
     processedThreads: syncState.processedThreads,
-    failedThreads: syncState.failedThreads,
+    failedThreads: 0,
   };
 }
 
-function hasCompletedSync(account: SyncStartPlanAccount | null): boolean {
-  return Boolean(account?.lastFullSyncAt || account?.lastIncrementalSyncAt);
+function hasCompletedFullSync(account: SyncStartPlanAccount | null): boolean {
+  return Boolean(account?.lastFullSyncAt);
 }
 
 function resolveModeFromSyncState(syncState: SyncStartPlanState | null): SyncMode {
@@ -166,32 +149,9 @@ function resolveModeFromSyncState(syncState: SyncStartPlanState | null): SyncMod
 }
 
 function resolveModeFromAccount(account: SyncStartPlanAccount | null): SyncMode {
-  return hasCompletedSync(account) && !account?.needsFullResync
+  return hasCompletedFullSync(account) && !account?.needsFullResync
     ? "incremental"
     : "full";
-}
-
-function resolveModeForRetry(input: {
-  account: SyncStartPlanAccount | null;
-  syncState: SyncStartPlanState | null;
-}): SyncMode {
-  return input.syncState
-    ? resolveModeFromSyncState(input.syncState)
-    : resolveModeFromAccount(input.account);
-}
-
-function getFailureRetryBootstrapProgress(
-  syncState: SyncStartPlanState | null,
-): ProgressSnapshot | null {
-  if (!syncState || syncState.failedThreads === 0) return null;
-
-  return {
-    totalThreads: syncState.failedThreads,
-    fetchedThreads: 0,
-    processableThreads: 0,
-    processedThreads: 0,
-    failedThreads: syncState.failedThreads,
-  };
 }
 
 export function resolveSyncStartPlan(
@@ -200,13 +160,45 @@ export function resolveSyncStartPlan(
     account: SyncStartPlanAccount | null;
     syncState: SyncStartPlanState | null;
   },
-): SyncExecutionPlan {
-  if (intent === "full" || intent === "incremental") {
+): SyncExecutionPlan | null {
+  if (intent === "incremental") {
+    if (!hasCompletedFullSync(input.account) || input.account?.needsFullResync) {
+      return null;
+    }
     return {
       bootstrapProgress: null,
       intent,
-      mode: intent,
-      scopeStrategy: intent,
+      mode: "incremental",
+      scopeStrategy: "incremental",
+      updatesAccountCheckpoint: true,
+    };
+  }
+
+  if (intent === "full") {
+    return {
+      bootstrapProgress: null,
+      intent,
+      mode: "full",
+      scopeStrategy: "full",
+      updatesAccountCheckpoint: true,
+    };
+  }
+
+  if (intent === "push") {
+    if (
+      !hasCompletedFullSync(input.account)
+      || input.account?.needsFullResync
+      || input.syncState?.status === "running"
+      || input.syncState?.status === "paused"
+      || input.syncState?.status === "interrupted"
+    ) {
+      return null;
+    }
+    return {
+      bootstrapProgress: null,
+      intent,
+      mode: "incremental",
+      scopeStrategy: "incremental",
       updatesAccountCheckpoint: true,
     };
   }
@@ -214,10 +206,6 @@ export function resolveSyncStartPlan(
   if (
     intent === "resume"
     || (intent === "auto" && (
-      input.syncState?.status === "paused"
-      || input.syncState?.status === "interrupted"
-    ))
-    || (intent === "retry_failed" && (
       input.syncState?.status === "paused"
       || input.syncState?.status === "interrupted"
     ))
@@ -229,16 +217,6 @@ export function resolveSyncStartPlan(
       mode,
       scopeStrategy: mode,
       updatesAccountCheckpoint: true,
-    };
-  }
-
-  if (intent === "retry_failed") {
-    return {
-      bootstrapProgress: getFailureRetryBootstrapProgress(input.syncState),
-      intent,
-      mode: resolveModeForRetry(input),
-      scopeStrategy: "failed_only",
-      updatesAccountCheckpoint: false,
     };
   }
 
@@ -255,7 +233,7 @@ export function resolveSyncStartPlan(
 async function resolveSyncExecutionPlan(
   accountId: string,
   intent: SyncStartIntent,
-): Promise<SyncExecutionPlan> {
+): Promise<SyncExecutionPlan | null> {
   const [account, syncState] = await Promise.all([
     getGmailAccountById(accountId),
     getSyncState(accountId),
@@ -271,7 +249,6 @@ async function resolveSyncExecutionPlan(
       : null,
     syncState: syncState
       ? {
-        failedThreads: syncState.failedThreads,
         fetchedThreads: syncState.fetchedThreads,
         mode: syncState.mode,
         processableThreads: syncState.processableThreads,
@@ -288,6 +265,7 @@ export function getScopedSyncResumeState(
   alreadyFetched: ReadonlySet<string>,
   alreadyFetchedInbox: ReadonlySet<string>,
   unprocessed: string[],
+  mode: SyncMode = "full",
 ): {
   fetchedInScope: Set<string>;
   processableThreads: number;
@@ -297,14 +275,35 @@ export function getScopedSyncResumeState(
   unprocessedInScope: string[];
 } {
   const threadIdSet = new Set(threadIds);
-  const fetchedInScope = new Set(
-    threadIds.filter((id) => alreadyFetched.has(id)),
-  );
   const inboxFetchedInScopeSize = threadIds.reduce(
     (acc, id) => (alreadyFetchedInbox.has(id) ? acc + 1 : acc),
     0,
   );
   const unprocessedInScope = unprocessed.filter((id) => threadIdSet.has(id));
+
+  // Incremental sync receives only threads that *changed* since the last
+  // historyId (e.g. label flips like UNREAD removed). Every one of those is
+  // dirty and must be re-fetched even if it's already in the DB — otherwise
+  // label/read-state changes never land locally. Full sync keeps the dedupe
+  // so a resumed run doesn't re-download the whole mailbox.
+  //
+  // Because incremental refetches every scoped thread, it must not pre-count
+  // already-fetched inbox rows as processable or enqueue stored unprocessed
+  // rows. Fetching the dirty thread decides whether it is still inbox and
+  // increments the processable counter exactly once.
+  if (mode === "incremental") {
+    return {
+      fetchedInScope: new Set<string>(),
+      processableThreads: 0,
+      processedThreads: 0,
+      toFetch: [...threadIds],
+      totalThreads: threadIds.length,
+      unprocessedInScope: [],
+    };
+  }
+
+  const fetchedInScope = new Set(threadIds.filter((id) => alreadyFetched.has(id)));
+  const toFetch = threadIds.filter((id) => !fetchedInScope.has(id));
 
   return {
     fetchedInScope,
@@ -313,7 +312,7 @@ export function getScopedSyncResumeState(
       0,
       inboxFetchedInScopeSize - unprocessedInScope.length,
     ),
-    toFetch: threadIds.filter((id) => !fetchedInScope.has(id)),
+    toFetch,
     totalThreads: threadIds.length,
     unprocessedInScope,
   };
@@ -321,29 +320,6 @@ export function getScopedSyncResumeState(
 
 export function threadHasInboxLabel(labels: readonly string[]): boolean {
   return labels.includes(GMAIL_INBOX_LABEL);
-}
-
-function storedMessageToParsedMessage(message: StoredThreadMessage): ParsedMessage {
-  return {
-    gmailMessageId: message.gmailMessageId,
-    gmailThreadId: message.gmailThreadId,
-    fromName: message.fromName,
-    fromEmail: message.fromEmail,
-    toHeader: message.toHeader,
-    ccHeader: message.ccHeader,
-    subject: message.subject,
-    date: message.date,
-    bodyHtml: message.bodyHtml,
-    bodyText: message.bodyText,
-    snippet: message.snippet,
-    labels: JSON.parse(message.labels) as string[],
-    messageIdHeader: message.messageIdHeader,
-    inReplyTo: message.inReplyTo,
-    referencesHeader: message.referencesHeader,
-    isDraft: message.isDraft,
-    historyId: message.historyId,
-    rawSizeEstimate: message.rawSizeEstimate,
-  };
 }
 
 export async function upsertRemoteGmailThread(
@@ -367,7 +343,7 @@ export async function upsertRemoteGmailThread(
     for (const label of msg.labels) allLabels.add(label);
   }
 
-  const { id: dbThreadId } = await upsertThread(accountId, {
+  const { id: dbThreadId, isProcessed } = await upsertThread(accountId, {
     gmailThreadId,
     subject,
     snippet: messages[0]?.snippet ?? "",
@@ -382,19 +358,21 @@ export async function upsertRemoteGmailThread(
     detail.messages.map((message) => message.id),
   );
 
-  const knownGmailMessageIds = new Set(
-    (await listMessagesByThreadIds([dbThreadId])).map((m) => m.gmailMessageId),
-  );
-
-  const msgIds = await upsertMessages(dbThreadId, accountId, messages);
+  const upsertedMessages = await upsertMessages(dbThreadId, accountId, messages);
 
   for (let i = 0; i < detail.messages.length; i++) {
-    if (!msgIds[i]) continue;
-    await upsertAttachments(msgIds[i]!, parseAttachments(detail.messages[i]!));
+    const message = upsertedMessages[i];
+    if (!message) continue;
+    await upsertAttachments(message.id, parseAttachments(detail.messages[i]!));
   }
 
+  const newMessageIds = new Set(
+    upsertedMessages
+      .filter((message) => message.isNew)
+      .map((message) => message.gmailMessageId),
+  );
   const newlyIngested = detail.messages.filter(
-    (raw) => !knownGmailMessageIds.has(raw.id),
+    (raw) => newMessageIds.has(raw.id),
   );
   if (newlyIngested.length > 0) {
     fanoutNewGmailMessages({
@@ -405,12 +383,17 @@ export async function upsertRemoteGmailThread(
   }
 
   const labels = Array.from(allLabels);
+  const hasNewContent = newlyIngested.length > 0;
+  const shouldExtract = threadHasInboxLabel(labels) && (!isProcessed || hasNewContent);
+  if (shouldExtract && hasNewContent) {
+    await markThreadUnprocessed(dbThreadId);
+  }
 
   return {
     dbThreadId,
     subject,
     messages,
-    shouldExtract: threadHasInboxLabel(labels),
+    shouldExtract,
   };
 }
 
@@ -419,7 +402,6 @@ export async function upsertRemoteGmailThread(
 // ---------------------------------------------------------------------------
 
 const FETCH_CONCURRENCY = env.GMAIL_SYNC_CONCURRENCY;
-const PROCESS_CONCURRENCY = env.MEMORY_WORKER_CONCURRENCY;
 
 // ---------------------------------------------------------------------------
 // Orchestrator
@@ -429,20 +411,22 @@ const MAX_CIRCUIT_BACKOFF_SEC = 600;
 
 export class GmailSyncOrchestrator {
   private fetchQueue: AsyncQueuer<FetchItem>;
-  private processQueue: AsyncQueuer<ProcessItem>;
   private circuitState: CircuitState = "closed";
   private rateLimitStreak = 0;
   private cancelled = false;
   private progress: SyncProgress;
   private accountId: string;
   private token: string;
+  private initialProfile: GmailProfile | null;
 
   constructor(
     accountId: string,
     token: string,
+    initialProfile: GmailProfile | null = null,
   ) {
     this.accountId = accountId;
     this.token = token;
+    this.initialProfile = initialProfile;
 
     this.progress = {
       status: "idle",
@@ -456,7 +440,6 @@ export class GmailSyncOrchestrator {
       error: null,
     };
 
-    // Queue 1: Gmail Fetcher
     this.fetchQueue = new AsyncQueuer<FetchItem>(
       async (item) => this.fetchThread(item),
       {
@@ -464,47 +447,9 @@ export class GmailSyncOrchestrator {
         started: false,
         throwOnError: false,
         onError: (error, item) => this.handleFetchError(error, item),
-        onSuccess: (_result, item) => this.handleStageSuccess("fetch", item.gmailThreadId),
+        onSuccess: (_result, item) => this.handleFetchSuccess(item.gmailThreadId),
       },
     );
-
-    // Queue 2: Memory Processor
-    this.processQueue = new AsyncQueuer<ProcessItem>(
-      async (item) => this.processThread(item),
-      {
-        concurrency: PROCESS_CONCURRENCY,
-        started: false,
-        throwOnError: false,
-        onError: (error, item) => this.handleProcessError(error, item),
-        onSuccess: (_result, item) => this.handleStageSuccess("process", item.gmailThreadId),
-      },
-    );
-  }
-
-  private clearFailureFor(
-    gmailThreadId: string,
-    source: "fetch" | "process",
-  ): void {
-    resolveFailuresForThread(this.accountId, gmailThreadId)
-      .then(async (cleared) => {
-        if (cleared > 0) {
-          this.progress.failedThreads = Math.max(
-            0,
-            this.progress.failedThreads - cleared,
-          );
-          await incrementSyncProgress(
-            this.accountId,
-            "failedThreads",
-            -cleared,
-          );
-        }
-      })
-      .catch((err) => {
-        console.error(
-          `[gmail-sync] resolveFailuresForThread (${source}) failed for ${gmailThreadId}:`,
-          err,
-        );
-      });
   }
 
   // ----- Public API -----
@@ -521,10 +466,8 @@ export class GmailSyncOrchestrator {
       await this.setRunningScope(scope);
 
       this.enqueueFetchItems(scope.toFetch);
-      await this.enqueueStoredThreadsForProcessing(scope.unprocessedInScope);
 
       this.fetchQueue.start();
-      this.processQueue.start();
 
       await this.waitForCompletion();
 
@@ -542,7 +485,6 @@ export class GmailSyncOrchestrator {
       }
     } finally {
       this.fetchQueue.stop();
-      this.processQueue.stop();
       if (this.cancelled) {
         await this.markPaused().catch((err) =>
           console.error("[gmail-sync] Failed to persist paused state:", err)
@@ -558,9 +500,7 @@ export class GmailSyncOrchestrator {
   cancel(): void {
     this.cancelled = true;
     this.fetchQueue.stop();
-    this.processQueue.stop();
     this.fetchQueue.clear();
-    this.processQueue.clear();
     this.progress.status = "paused";
   }
 
@@ -592,14 +532,6 @@ export class GmailSyncOrchestrator {
   private async resolveThreadIdsForPlan(
     plan: SyncExecutionPlan,
   ): Promise<SyncThreadResolution> {
-    if (plan.scopeStrategy === "failed_only") {
-      return {
-        completedMode: null,
-        finalHistoryId: null,
-        threadIds: await getRetryableFailureThreadIds(this.accountId),
-      };
-    }
-
     return this.resolveThreadIdsForMode(plan.scopeStrategy);
   }
 
@@ -609,7 +541,8 @@ export class GmailSyncOrchestrator {
     threadIds: string[];
   }> {
     let completedMode: SyncMode = mode;
-    const profile = await getProfile(this.token);
+    const profile = this.initialProfile ?? await getProfile(this.token);
+    this.initialProfile = null;
     const labels = await listLabels(this.token);
     let finalHistoryId = profile.historyId;
     await syncLabels(
@@ -664,21 +597,43 @@ export class GmailSyncOrchestrator {
     plan: SyncExecutionPlan,
     resolution: SyncThreadResolution,
   ): Promise<SyncScope> {
-    const failedThreadIds = plan.scopeStrategy === "failed_only"
-      ? resolution.threadIds
-      : await getRetryableFailureThreadIds(this.accountId);
-    const scopedThreadIds =
-      plan.scopeStrategy === "failed_only" || failedThreadIds.length === 0
-        ? resolution.threadIds
-        : Array.from(new Set([...resolution.threadIds, ...failedThreadIds]));
-
-    return this.buildSyncScope(scopedThreadIds, failedThreadIds.length);
+    return this.buildSyncScope(
+      resolution.threadIds,
+      0,
+      resolution.completedMode ?? plan.mode,
+    );
   }
 
   private async buildSyncScope(
     threadIds: string[],
     failedThreads: number,
+    mode: SyncMode,
   ): Promise<SyncScope> {
+    if (mode === "incremental") {
+      const {
+        fetchedInScope,
+        processableThreads,
+        processedThreads,
+        toFetch,
+        totalThreads,
+      } = getScopedSyncResumeState(
+        threadIds,
+        new Set<string>(),
+        new Set<string>(),
+        [],
+        mode,
+      );
+
+      return {
+        failedThreads,
+        fetchedThreads: fetchedInScope.size,
+        processableThreads,
+        processedThreads,
+        toFetch,
+        totalThreads,
+      };
+    }
+
     const alreadyFetched = await getFetchedGmailThreadIds(this.accountId);
     const alreadyFetchedInbox = await getFetchedInboxGmailThreadIds(
       this.accountId,
@@ -690,12 +645,12 @@ export class GmailSyncOrchestrator {
       processedThreads,
       toFetch,
       totalThreads,
-      unprocessedInScope,
     } = getScopedSyncResumeState(
       threadIds,
       alreadyFetched,
       alreadyFetchedInbox,
       unprocessed,
+      mode,
     );
 
     return {
@@ -705,7 +660,6 @@ export class GmailSyncOrchestrator {
       processedThreads,
       toFetch,
       totalThreads,
-      unprocessedInScope,
     };
   }
 
@@ -727,6 +681,12 @@ export class GmailSyncOrchestrator {
     plan: SyncExecutionPlan,
     resolution: Pick<SyncThreadResolution, "completedMode" | "finalHistoryId">,
   ): Promise<void> {
+    if (this.progress.failedThreads > 0) {
+      throw new Error(
+        `Gmail sync skipped ${this.progress.failedThreads} thread(s); not advancing checkpoint`,
+      );
+    }
+
     if (plan.updatesAccountCheckpoint) {
       if (!resolution.completedMode || !resolution.finalHistoryId) {
         throw new Error("Missing Gmail sync checkpoint for completed sync");
@@ -803,35 +763,6 @@ export class GmailSyncOrchestrator {
     }
   }
 
-  private async enqueueStoredThreadsForProcessing(
-    gmailThreadIds: string[],
-  ): Promise<void> {
-    for (const gmailThreadId of gmailThreadIds) {
-      if (this.cancelled) break;
-      const item = await this.getStoredProcessItem(gmailThreadId);
-      if (item) {
-        this.processQueue.addItem(item);
-      }
-    }
-  }
-
-  private async getStoredProcessItem(
-    gmailThreadId: string,
-  ): Promise<ProcessItem | null> {
-    const thread = await getThread(this.accountId, gmailThreadId);
-    if (!thread) return null;
-    if (!threadHasInboxLabel(JSON.parse(thread.labels) as string[])) {
-      return null;
-    }
-
-    return {
-      dbThreadId: thread.id,
-      gmailThreadId,
-      subject: thread.subject,
-      messages: (await getThreadMessages(thread.id)).map(storedMessageToParsedMessage),
-    };
-  }
-
   private bumpProgress(
     field:
       | "fetchedThreads"
@@ -849,50 +780,12 @@ export class GmailSyncOrchestrator {
     });
   }
 
-  private handleStageSuccess(
-    stage: "fetch" | "process",
-    gmailThreadId: string,
-  ): void {
-    if (stage === "fetch") {
-      this.rateLimitStreak = 0;
-      this.bumpProgress("fetchedThreads");
-    } else {
-      this.bumpProgress("processedThreads");
-    }
-    this.clearFailureFor(gmailThreadId, stage);
-  }
-
-  private recordStageFailure(
-    item: Pick<FetchItem | ProcessItem, "gmailThreadId">,
-    data: {
-      error: Error;
-      errorCode: string;
-      logLabel: "Fetch" | "Process";
-      stage: "fetch" | "extract";
-    },
-  ): void {
-    recordSyncFailure(this.accountId, {
-      gmailThreadId: item.gmailThreadId,
-      stage: data.stage,
-      errorMessage: data.error.message,
-      errorCode: data.errorCode,
-    })
-      .then((created) => {
-        if (created) {
-          this.bumpProgress("failedThreads");
-        }
-      })
-      .catch((error) => {
-        console.error(
-          `[gmail-sync] Failed to record ${data.stage} failure for ${item.gmailThreadId}:`,
-          error,
-        );
-      });
-
-    console.error(
-      `[gmail-sync] ${data.logLabel} failed for ${item.gmailThreadId}:`,
-      data.error.message,
-    );
+  private handleFetchSuccess(gmailThreadId: string): void {
+    this.rateLimitStreak = 0;
+    resolveFailuresForThread(this.accountId, gmailThreadId).catch((error) => {
+      console.error("[gmail-sync] Failed to resolve fetch failure:", error);
+    });
+    this.bumpProgress("fetchedThreads");
   }
 
   // ----- Internal: Fetch -----
@@ -907,7 +800,7 @@ export class GmailSyncOrchestrator {
       return;
     }
 
-    const { dbThreadId, subject, messages, shouldExtract } = await upsertRemoteGmailThread(
+    const { shouldExtract } = await upsertRemoteGmailThread(
       this.accountId,
       this.token,
       item.gmailThreadId,
@@ -916,67 +809,48 @@ export class GmailSyncOrchestrator {
     if (!shouldExtract) return;
 
     this.bumpProgress("processableThreads");
-
-    // Enqueue for memory processing
-    this.processQueue.addItem({
-      dbThreadId,
-      gmailThreadId: item.gmailThreadId,
-      subject,
-      messages,
-    });
   }
 
   private handleFetchError(error: Error, item: FetchItem): void {
     if (this.cancelled) return;
 
     if (error instanceof GmailApiError && error.isRateLimit) {
-      this.openCircuit(error.retryAfter ?? 60);
+      this.openCircuit(error.retryAfter ?? 60, error.retryAfter !== undefined);
       // Re-enqueue
       this.fetchQueue.addItem(item);
       return;
     }
 
-    this.recordStageFailure(item, {
-      error,
-      errorCode: error instanceof GmailApiError ? String(error.status) : "UNKNOWN",
-      logLabel: "Fetch",
+    recordSyncFailure(this.accountId, {
+      gmailThreadId: item.gmailThreadId,
       stage: "fetch",
+      errorMessage: error instanceof Error ? error.message : String(error),
+      errorCode: error instanceof GmailApiError
+        ? error.reason ?? String(error.status)
+        : undefined,
+    }).catch((err) => {
+      console.error("[gmail-sync] Failed to record fetch failure:", err);
     });
-  }
-
-  // ----- Internal: Process -----
-
-  private async processThread(item: ProcessItem): Promise<void> {
-    if (this.cancelled) return;
-
-    const content = threadToText(item.subject, item.messages);
-
-    await extractAndIngestThread(content, item.gmailThreadId);
-    await markThreadProcessed(item.dbThreadId);
-  }
-
-  private handleProcessError(error: Error, item: ProcessItem): void {
-    if (this.cancelled) return;
-
-    this.recordStageFailure(item, {
-      error,
-      errorCode: "LLM_ERROR",
-      logLabel: "Process",
-      stage: "extract",
-    });
+    this.bumpProgress("failedThreads");
+    console.error(
+      `[gmail-sync] Fetch skipped for ${item.gmailThreadId}:`,
+      error instanceof Error ? error.message : error,
+    );
   }
 
   // ----- Internal: Circuit Breaker -----
 
-  private openCircuit(retryAfterSec: number): void {
+  private openCircuit(retryAfterSec: number, exactRetryAfter = false): void {
     if (this.circuitState === "open") return;
     this.circuitState = "open";
     this.rateLimitStreak += 1;
 
-    const backoffSec = Math.min(
-      retryAfterSec * 2 ** (this.rateLimitStreak - 1),
-      MAX_CIRCUIT_BACKOFF_SEC,
-    );
+    const backoffSec = exactRetryAfter
+      ? retryAfterSec
+      : Math.min(
+        retryAfterSec * 2 ** (this.rateLimitStreak - 1),
+        MAX_CIRCUIT_BACKOFF_SEC,
+      );
 
     // Actually pause the queue. Without stop(), workers keep pulling items
     // and the open-circuit guard re-enqueues them in a tight loop, piling
@@ -993,18 +867,14 @@ export class GmailSyncOrchestrator {
   // ----- Internal: Completion -----
 
   private async waitForCompletion(): Promise<void> {
-    // Poll until both queues are idle
+    // Poll until the fetch queue is idle.
     while (!this.cancelled) {
       const fetchState = this.fetchQueue.store.state;
-      const processState = this.processQueue.store.state;
 
       const fetchDone =
         fetchState.items.length === 0 && fetchState.activeItems.length === 0;
-      const processDone =
-        processState.items.length === 0 &&
-        processState.activeItems.length === 0;
 
-      if (fetchDone && processDone) break;
+      if (fetchDone) break;
       await sleep(500);
     }
   }
@@ -1039,17 +909,25 @@ export async function startSync(
   accountId: string,
   token: string,
   intent: SyncStartIntent,
-): Promise<GmailSyncOrchestrator> {
+  initialProfile: GmailProfile | null = null,
+): Promise<{ started: boolean; orchestrator: GmailSyncOrchestrator }> {
   const existing = activeSyncs.get(accountId);
   if (existing) {
+    if (intent === "push") {
+      return { started: true, orchestrator: existing };
+    }
     throw new Error("Sync already in progress for this account");
   }
 
-  const orch = new GmailSyncOrchestrator(accountId, token);
+  const plan = await resolveSyncExecutionPlan(accountId, intent);
+  const orch = new GmailSyncOrchestrator(accountId, token, initialProfile);
+  if (!plan) {
+    return { started: false, orchestrator: orch };
+  }
+
   activeSyncs.set(accountId, orch);
 
   try {
-    const plan = await resolveSyncExecutionPlan(accountId, intent);
     void orch.startSync(plan).finally(() => {
       const current = activeSyncs.get(accountId);
       if (current === orch) {
@@ -1057,7 +935,7 @@ export async function startSync(
         notifyGmailSyncFinished(accountId);
       }
     });
-    return orch;
+    return { started: true, orchestrator: orch };
   } catch (error) {
     const current = activeSyncs.get(accountId);
     if (current === orch) activeSyncs.delete(accountId);

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "4896e111-839f-4f0d-840c-5698eaa836ff",
+  "id": "02890c0b-6695-4abe-901b-1b1e2b33a948",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "chat_messages": {
@@ -90,14 +90,6 @@
           "autoincrement": false,
           "default": "'New Chat'"
         },
-        "model": {
-          "name": "model",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'gpt-5.4-mini'"
-        },
         "agent_config": {
           "name": "agent_config",
           "type": "text",
@@ -145,6 +137,80 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "file_extractions": {
+      "name": "file_extractions",
+      "columns": {
+        "hash": {
+          "name": "hash",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "extractor_version": {
+          "name": "extractor_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "filename": {
+          "name": "filename",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "mime_type": {
+          "name": "mime_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "text_s3_key": {
+          "name": "text_s3_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "char_count": {
+          "name": "char_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(current_timestamp)"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "file_extractions_hash_file_hashes_hash_fk": {
+          "name": "file_extractions_hash_file_hashes_hash_fk",
+          "tableFrom": "file_extractions",
+          "tableTo": "file_hashes",
+          "columnsFrom": [
+            "hash"
+          ],
+          "columnsTo": [
+            "hash"
+          ],
+          "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
@@ -702,6 +768,13 @@
           "notNull": true,
           "autoincrement": false,
           "default": false
+        },
+        "gmail_draft_id": {
+          "name": "gmail_draft_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         },
         "history_id": {
           "name": "history_id",

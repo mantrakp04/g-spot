@@ -1,11 +1,11 @@
-import type { FilterCondition, ColumnConfig } from "@g-spot/types/filters";
+import type { ColumnConfig, FilterRule } from "@g-spot/types/filters";
 
 import type { GmailThread } from "@/lib/gmail/types";
 import { GmailThreadTable } from "./gmail-thread-table";
 
 type GmailMailViewProps = {
   sectionId: string;
-  filters: FilterCondition[];
+  filters: FilterRule;
   accountId?: string | null;
   sortAsc?: boolean;
   onCountChange?: (count: number, countTotalPending: boolean) => void;

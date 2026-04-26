@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import type { FilterCondition } from "@g-spot/types/filters";
+import type { FilterRule } from "@g-spot/types/filters";
 
 import { gmailKeys } from "@/lib/query-keys";
 import { trpcClient } from "@/utils/trpc";
@@ -7,7 +7,7 @@ import { persistedStaleWhileRevalidateQueryOptions } from "@/utils/query-default
 
 export function useGmailThreadCount(
   sectionId: string,
-  filters: FilterCondition[],
+  filters: FilterRule,
   providerAccountId: string | null,
 ) {
   return useQuery({

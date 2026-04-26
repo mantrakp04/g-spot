@@ -1,5 +1,4 @@
 import type { ServerWebSocket } from "bun";
-import { createHash } from "node:crypto";
 import {
   decodeGmailPushPayload,
   gmailPubSubEnvelopeSchema,
@@ -45,10 +44,6 @@ const DEDUPE_TTL_MS = 5 * 60 * 1000; // 5min
 const gmailProfileSchema = z.object({
   emailAddress: z.string().min(1),
 });
-const gmailWatchSchema = z.object({
-  historyId: z.string().min(1),
-  expiration: z.string().min(1),
-});
 const relayAckMessageSchema = z.object({
   type: z.literal("ack"),
   id: z.string().min(1),
@@ -91,15 +86,6 @@ function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
-/** Short stable opaque label for logs — not reversible to the original value */
-function opaqueRef(value: string): string {
-  return createHash("sha256").update(value, "utf8").digest("hex").slice(0, 12);
-}
-
-function fmtMs(ms: number): string {
-  return ms.toFixed(2);
-}
-
 async function getGmailProfile(token: string): Promise<{ emailAddress: string }> {
   const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/profile", {
     headers: { Authorization: `Bearer ${token}` },
@@ -113,30 +99,6 @@ async function getGmailProfile(token: string): Promise<{ emailAddress: string }>
   }
 
   return gmailProfileSchema.parse(await response.json());
-}
-
-async function watchMailbox(
-  token: string,
-): Promise<{ historyId: string; expiration: string }> {
-  const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/watch", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      topicName: env.GMAIL_PUBSUB_TOPIC_NAME,
-    }),
-  });
-
-  if (!response.ok) {
-    const errorBody = await response.text();
-    throw new Error(
-      `Gmail watch failed (${response.status} ${response.statusText}): ${errorBody}`,
-    );
-  }
-
-  return gmailWatchSchema.parse(await response.json());
 }
 
 async function listConnectedGmailAccounts(user: RelayUser): Promise<ConnectedGmailAccount[]> {
@@ -153,16 +115,12 @@ async function listConnectedGmailAccounts(user: RelayUser): Promise<ConnectedGma
 
     try {
       const profile = await getGmailProfile(tokenResult.data.accessToken);
-      await watchMailbox(tokenResult.data.accessToken);
       connectedGmailAccounts.push({
         email: normalizeEmail(profile.emailAddress),
         providerAccountId: account.providerAccountId,
       });
-    } catch (error) {
-      console.error(
-        `[relay] gmail.watch_failed accountRef=${opaqueRef(account.providerAccountId)}`,
-        error,
-      );
+    } catch {
+      // ignore: account skipped if profile unavailable
     }
   }
 
@@ -240,7 +198,9 @@ async function enqueueRelayEventForUser(
       true,
       DEDUPE_TTL_MS,
     );
-    if (!fresh) return;
+    if (!fresh) {
+      return;
+    }
   }
 
   await state.enqueue(userThreadId(userId), queueEntryForEvent(event), PENDING_QUEUE_MAX);
@@ -254,7 +214,9 @@ async function enqueueEventForEmail(event: RelayEventPayload): Promise<void> {
       true,
       DEDUPE_TTL_MS,
     );
-    if (!fresh) return;
+    if (!fresh) {
+      return;
+    }
   }
 
   await state.enqueue(emailThreadId(email), queueEntryForEvent(event), PENDING_QUEUE_MAX);
@@ -278,28 +240,37 @@ async function enqueueEventForUser(
 }
 
 async function drainQueue(userId: string) {
-  if (draining.has(userId)) return;
+  if (draining.has(userId)) {
+    return;
+  }
   const socket = activeSockets.get(userId);
-  if (!socket) return;
+  if (!socket) {
+    return;
+  }
 
   draining.add(userId);
-  const userRef = opaqueRef(userId);
   try {
     const existingInflight = await state.get<RelayEventPayload>(inflightKey(userId));
-    if (existingInflight) return;
+    if (existingInflight) {
+      return;
+    }
 
     const entry = await state.dequeue(userThreadId(userId));
-    if (!entry) return;
+    if (!entry) {
+      return;
+    }
 
     const event = extractRelayEvent(entry);
-    if (!event) return;
+    if (!event) {
+      return;
+    }
 
     await state.set(inflightKey(userId), event, INFLIGHT_TTL_MS);
 
     const message: RelayPushMessage = { type: "gmail.push", event };
     socket.send(JSON.stringify(message));
-  } catch (error) {
-    console.error(`[relay] push.dispatch_failed userRef=${userRef}`, error);
+  } catch {
+    // best-effort: next drain will retry
   } finally {
     draining.delete(userId);
   }
@@ -314,8 +285,6 @@ async function handleApiWsUpgrade(
   request: Request,
   server: { upgrade(request: Request, options: { data: RelaySocketData }): boolean },
 ): Promise<Response | undefined> {
-  const connectStartedAt = performance.now();
-
   if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
     return new Response("Expected WebSocket upgrade request", {
       status: 426,
@@ -324,9 +293,10 @@ async function handleApiWsUpgrade(
   }
 
   const user = await stackServerApp.getUser({ tokenStore: request });
-  if (!user) return new Response("Unauthorized", { status: 401 });
+  if (!user) {
+    return new Response("Unauthorized", { status: 401 });
+  }
 
-  const userRef = opaqueRef(user.id);
   const gmailAccounts = await listConnectedGmailAccounts(user);
 
   if (gmailAccounts.length === 0) {
@@ -344,9 +314,6 @@ async function handleApiWsUpgrade(
   });
 
   if (!upgraded) {
-    console.error(
-      `[relay] ws.upgrade_failed userRef=${userRef} ms.total=${fmtMs(performance.now() - connectStartedAt)}`,
-    );
     return new Response("WebSocket upgrade failed", { status: 500 });
   }
 
@@ -365,7 +332,9 @@ async function handlePushWebhook(request: Request): Promise<Response> {
     return new Response("Invalid JSON", { status: 400 });
   }
 
-  if (!envelope.message?.data) return new Response(null, { status: 204 });
+  if (!envelope.message?.data) {
+    return new Response(null, { status: 204 });
+  }
 
   let payload: GmailPushPayload;
   try {
@@ -374,7 +343,8 @@ async function handlePushWebhook(request: Request): Promise<Response> {
     return new Response("Invalid Pub/Sub payload", { status: 400 });
   }
 
-  const userIds = [...(userIdsByEmail.get(normalizeEmail(payload.emailAddress)) ?? [])];
+  const normalizedEmail = normalizeEmail(payload.emailAddress);
+  const userIds = [...(userIdsByEmail.get(normalizedEmail) ?? [])];
   const receivedAt = envelope.message.publishTime ?? new Date().toISOString();
   const event = eventFromPush(envelope, payload, receivedAt);
 
@@ -454,7 +424,9 @@ Bun.serve<RelaySocketData>({
 
       void (async () => {
         const inflight = await state.get<RelayEventPayload>(inflightKey(userId));
-        if (!inflight || inflight.id !== message.id) return;
+        if (!inflight || inflight.id !== message.id) {
+          return;
+        }
         await state.delete(inflightKey(userId));
         await drainQueue(userId);
       })();

@@ -38,6 +38,30 @@ export async function createFileMetadata(input: {
   return id;
 }
 
+/**
+ * Look up the most recently uploaded file by filename. Used for vault-style
+ * `![[name.ext]]` embeds where the markdown only knows the bare filename.
+ * Most-recent-wins is a deliberate trade-off — if two uploads share a name,
+ * the latest replaces the older in the rendered output.
+ */
+export async function getFileByFilename(filename: string) {
+  const [row] = await db
+    .select({
+      id: fileMetadata.id,
+      filename: fileMetadata.filename,
+      mimeType: fileMetadata.mimeType,
+      size: fileMetadata.size,
+      hash: fileMetadata.hash,
+      s3Key: fileHashes.s3Key,
+    })
+    .from(fileMetadata)
+    .innerJoin(fileHashes, eq(fileMetadata.hash, fileHashes.hash))
+    .where(eq(fileMetadata.filename, filename))
+    .orderBy(sql`${fileMetadata.createdAt} desc`)
+    .limit(1);
+  return row ?? null;
+}
+
 /** Look up a file by its metadata ID. Returns metadata + s3Key, or null. */
 export async function getFileById(fileId: string) {
   const [row] = await db

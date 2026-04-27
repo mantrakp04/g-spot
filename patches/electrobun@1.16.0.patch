@@ -1,0 +1,327 @@
+diff --git a/dist/api/bun/core/BrowserWindow.ts b/dist/api/bun/core/BrowserWindow.ts
+index 7370127c5ef6eaaba2b6c6a7ef83467e0f42aabb..b9a67741e4c2b091a9330be9d754535107a4285a 100644
+--- a/dist/api/bun/core/BrowserWindow.ts
++++ b/dist/api/bun/core/BrowserWindow.ts
+@@ -1,7 +1,7 @@
+ import { ffi } from "../proc/native";
+ import electrobunEventEmitter from "../events/eventEmitter";
+ import { BrowserView } from "./BrowserView";
+-import { type Pointer } from "bun:ffi";
++import { dlopen, FFIType, ptr, type Pointer } from "bun:ffi";
+ import { BuildConfig } from "./BuildConfig";
+ import { quit } from "./Utils";
+ import { type RPCWithTransport } from "../../shared/rpc.js";
+@@ -11,6 +11,207 @@ import { WGPUView } from "./WGPUView";
+ 
+ const buildConfig = await BuildConfig.get();
+ 
++export type WindowTabbingMode = "automatic" | "preferred" | "disallowed";
++export type WindowTabOrderingMode = "above" | "below" | "out";
++
++const tabbingModeValues: Record<WindowTabbingMode, number> = {
++	automatic: 0,
++	preferred: 1,
++	disallowed: 2,
++};
++
++const tabOrderingModeValues: Record<WindowTabOrderingMode, number> = {
++	below: -1,
++	out: 0,
++	above: 1,
++};
++
++let objcRuntime:
++	| ReturnType<typeof dlopen<{
++			objc_getClass: {
++				args: [typeof FFIType.cstring];
++				returns: typeof FFIType.ptr;
++			};
++			sel_registerName: {
++				args: [typeof FFIType.cstring];
++				returns: typeof FFIType.ptr;
++			};
++			objc_msgSend: {
++				args: [typeof FFIType.ptr, typeof FFIType.ptr];
++				returns: typeof FFIType.ptr;
++			};
++		}>>
++	| null
++	| undefined;
++
++let objcRuntimeWithObjectArg:
++	| ReturnType<typeof dlopen<{
++			objc_msgSend: {
++				args: [
++					typeof FFIType.ptr,
++					typeof FFIType.ptr,
++					typeof FFIType.ptr,
++				];
++				returns: typeof FFIType.ptr;
++			};
++		}>>
++	| null
++	| undefined;
++
++let objcRuntimeWithIntegerArg:
++	| ReturnType<typeof dlopen<{
++			objc_msgSend: {
++				args: [typeof FFIType.ptr, typeof FFIType.ptr, typeof FFIType.i64];
++				returns: typeof FFIType.ptr;
++			};
++		}>>
++	| null
++	| undefined;
++
++let objcRuntimeWithObjectAndIntegerArgs:
++	| ReturnType<typeof dlopen<{
++			objc_msgSend: {
++				args: [
++					typeof FFIType.ptr,
++					typeof FFIType.ptr,
++					typeof FFIType.ptr,
++					typeof FFIType.i64,
++				];
++				returns: typeof FFIType.ptr;
++			};
++		}>>
++	| null
++	| undefined;
++
++function toCString(value: string): Pointer {
++	return ptr(Buffer.from(`${value}\0`, "utf8")) as Pointer;
++}
++
++function getObjCRuntime() {
++	if (process.platform !== "darwin") return null;
++	if (objcRuntime !== undefined) return objcRuntime;
++
++	objcRuntime = dlopen("/usr/lib/libobjc.A.dylib", {
++		objc_getClass: {
++			args: [FFIType.cstring],
++			returns: FFIType.ptr,
++		},
++		sel_registerName: {
++			args: [FFIType.cstring],
++			returns: FFIType.ptr,
++		},
++		objc_msgSend: {
++			args: [FFIType.ptr, FFIType.ptr],
++			returns: FFIType.ptr,
++		},
++	});
++
++	return objcRuntime;
++}
++
++function getObjCRuntimeWithObjectArg() {
++	if (process.platform !== "darwin") return null;
++	if (objcRuntimeWithObjectArg !== undefined) return objcRuntimeWithObjectArg;
++
++	objcRuntimeWithObjectArg = dlopen("/usr/lib/libobjc.A.dylib", {
++		objc_msgSend: {
++			args: [FFIType.ptr, FFIType.ptr, FFIType.ptr],
++			returns: FFIType.ptr,
++		},
++	});
++
++	return objcRuntimeWithObjectArg;
++}
++
++function getObjCRuntimeWithIntegerArg() {
++	if (process.platform !== "darwin") return null;
++	if (objcRuntimeWithIntegerArg !== undefined) return objcRuntimeWithIntegerArg;
++
++	objcRuntimeWithIntegerArg = dlopen("/usr/lib/libobjc.A.dylib", {
++		objc_msgSend: {
++			args: [FFIType.ptr, FFIType.ptr, FFIType.i64],
++			returns: FFIType.ptr,
++		},
++	});
++
++	return objcRuntimeWithIntegerArg;
++}
++
++function getObjCRuntimeWithObjectAndIntegerArgs() {
++	if (process.platform !== "darwin") return null;
++	if (objcRuntimeWithObjectAndIntegerArgs !== undefined) {
++		return objcRuntimeWithObjectAndIntegerArgs;
++	}
++
++	objcRuntimeWithObjectAndIntegerArgs = dlopen("/usr/lib/libobjc.A.dylib", {
++		objc_msgSend: {
++			args: [FFIType.ptr, FFIType.ptr, FFIType.ptr, FFIType.i64],
++			returns: FFIType.ptr,
++		},
++	});
++
++	return objcRuntimeWithObjectAndIntegerArgs;
++}
++
++function getSelector(name: string): Pointer | null {
++	const objc = getObjCRuntime();
++	return objc?.symbols.sel_registerName(toCString(name)) ?? null;
++}
++
++function getNSString(value: string): Pointer | null {
++	const objc = getObjCRuntime();
++	const nsStringClass = objc?.symbols.objc_getClass(toCString("NSString"));
++	const selector = getSelector("stringWithUTF8String:");
++	if (!objc || !nsStringClass || !selector) return null;
++	const objectArgRuntime = getObjCRuntimeWithObjectArg();
++	return objectArgRuntime?.symbols.objc_msgSend(
++		nsStringClass,
++		selector,
++		toCString(value),
++	) as Pointer;
++}
++
++function sendWindowMessage(windowPtr: Pointer, selectorName: string): Pointer | null {
++	const objc = getObjCRuntime();
++	const selector = getSelector(selectorName);
++	if (!objc || !selector) return null;
++	return objc.symbols.objc_msgSend(windowPtr, selector) as Pointer;
++}
++
++function sendWindowObjectMessage(
++	windowPtr: Pointer,
++	selectorName: string,
++	arg: Pointer,
++): Pointer | null {
++	const objc = getObjCRuntimeWithObjectArg();
++	const selector = getSelector(selectorName);
++	if (!objc || !selector) return null;
++	return objc.symbols.objc_msgSend(windowPtr, selector, arg) as Pointer;
++}
++
++function sendWindowIntegerMessage(
++	windowPtr: Pointer,
++	selectorName: string,
++	arg: number,
++): Pointer | null {
++	const objc = getObjCRuntimeWithIntegerArg();
++	const selector = getSelector(selectorName);
++	if (!objc || !selector) return null;
++	return objc.symbols.objc_msgSend(windowPtr, selector, arg) as Pointer;
++}
++
++function sendWindowObjectAndIntegerMessage(
++	windowPtr: Pointer,
++	selectorName: string,
++	arg1: Pointer,
++	arg2: number,
++): Pointer | null {
++	const objc = getObjCRuntimeWithObjectAndIntegerArgs();
++	const selector = getSelector(selectorName);
++	if (!objc || !selector) return null;
++	return objc.symbols.objc_msgSend(windowPtr, selector, arg1, arg2) as Pointer;
++}
++
+ export type WindowOptionsType<T = undefined> = {
+ 	title: string;
+ 	frame: {
+@@ -41,6 +242,10 @@ export type WindowOptionsType<T = undefined> = {
+ 	// Use for untrusted content (remote URLs) to prevent malicious sites from
+ 	// accessing internal APIs, creating OOPIFs, or communicating with Bun
+ 	sandbox: boolean;
++	// macOS native NSWindow tabbing. No-op on non-macOS platforms.
++	tabbingIdentifier: string | null;
++	tabbingMode: WindowTabbingMode | null;
++	showTabBar: boolean;
+ };
+ 
+ const defaultOptions: WindowOptionsType = {
+@@ -62,6 +267,9 @@ const defaultOptions: WindowOptionsType = {
+ 	hidden: false,
+ 	navigationRules: null,
+ 	sandbox: false,
++	tabbingIdentifier: null,
++	tabbingMode: null,
++	showTabBar: false,
+ };
+ 
+ export const BrowserWindowMap: {
+@@ -165,6 +373,9 @@ export class BrowserWindow<T extends RPCWithTransport = RPCWithTransport> {
+ 		titleBarStyle,
+ 		transparent,
+ 		hidden,
++		tabbingIdentifier,
++		tabbingMode,
++		showTabBar,
+ 	}: Partial<WindowOptionsType<T>>) {
+ 		this.ptr = ffi.request.createWindow({
+ 			id: this.id,
+@@ -211,6 +422,15 @@ export class BrowserWindow<T extends RPCWithTransport = RPCWithTransport> {
+ 		}) as Pointer;
+ 
+ 		BrowserWindowMap[this.id] = this;
++		if (tabbingIdentifier) {
++			this.setTabbingIdentifier(tabbingIdentifier);
++		}
++		if (tabbingMode) {
++			this.setTabbingMode(tabbingMode);
++		}
++		if (showTabBar) {
++			this.toggleTabBar();
++		}
+ 
+ 		// todo (yoav): user should be able to override this and pass in their
+ 		// own webview instance, or instances for attaching to the window.
+@@ -353,6 +573,58 @@ export class BrowserWindow<T extends RPCWithTransport = RPCWithTransport> {
+ 		return { width: frame.width, height: frame.height };
+ 	}
+ 
++	setTabbingIdentifier(identifier: string) {
++		const nsIdentifier = getNSString(identifier);
++		if (!nsIdentifier) return;
++		sendWindowObjectMessage(this.ptr, "setTabbingIdentifier:", nsIdentifier);
++	}
++
++	setTabbingMode(mode: WindowTabbingMode) {
++		sendWindowIntegerMessage(this.ptr, "setTabbingMode:", tabbingModeValues[mode]);
++	}
++
++	addTabbedWindow(
++		window: BrowserWindow,
++		ordered: WindowTabOrderingMode = "above",
++	) {
++		sendWindowObjectAndIntegerMessage(
++			this.ptr,
++			"addTabbedWindow:ordered:",
++			window.ptr,
++			tabOrderingModeValues[ordered],
++		);
++	}
++
++	selectTab() {
++		const tabGroup = sendWindowMessage(this.ptr, "tabGroup");
++		if (tabGroup) {
++			sendWindowObjectMessage(tabGroup, "setSelectedWindow:", this.ptr);
++			return;
++		}
++
++		this.focus();
++	}
++
++	mergeAllWindows() {
++		sendWindowMessage(this.ptr, "mergeAllWindows:");
++	}
++
++	selectNextTab() {
++		sendWindowMessage(this.ptr, "selectNextTab:");
++	}
++
++	selectPreviousTab() {
++		sendWindowMessage(this.ptr, "selectPreviousTab:");
++	}
++
++	moveTabToNewWindow() {
++		sendWindowMessage(this.ptr, "moveTabToNewWindow:");
++	}
++
++	toggleTabBar() {
++		sendWindowMessage(this.ptr, "toggleTabBar:");
++	}
++
+ 	/**
+ 	 * Set the page zoom level for the window's webview (WebKit only).
+ 	 * @param zoomLevel - The zoom level (1.0 = 100%, 1.5 = 150%, etc.)

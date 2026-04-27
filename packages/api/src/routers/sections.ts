@@ -7,6 +7,10 @@ import {
 
 import { publicProcedure, router } from "../index";
 import {
+  buildSectionFilters,
+  buildSectionFiltersInputSchema,
+} from "../ai-flows/section-filters";
+import {
   createSection,
   deleteSection,
   listSections,
@@ -18,6 +22,12 @@ export const sectionsRouter = router({
   list: publicProcedure.query(async () => {
     return listSections();
   }),
+
+  buildFilters: publicProcedure
+    .input(buildSectionFiltersInputSchema)
+    .mutation(async ({ input }) => {
+      return buildSectionFilters(input);
+    }),
 
   create: publicProcedure
     .input(

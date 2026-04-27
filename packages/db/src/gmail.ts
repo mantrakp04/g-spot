@@ -5,19 +5,21 @@ import { nanoid } from "nanoid";
 import { db } from "./index";
 import {
   gmailAccounts,
+  gmailAnalysisState,
   gmailAttachments,
+  gmailFetchState,
   gmailLabels,
   gmailMessages,
   gmailSyncFailures,
-  gmailSyncState,
   gmailThreads,
 } from "./schema";
 import type {
   GmailAccountRow,
+  GmailAnalysisStateRow,
+  GmailFetchStateRow,
   GmailLabelRow,
   GmailMessageRow,
   GmailSyncFailureRow,
-  GmailSyncStateRow,
   GmailThreadRow,
 } from "./schema/gmail";
 import type { FilterRule } from "@g-spot/types/filters";
@@ -436,6 +438,37 @@ export async function listUnprocessedInboxThreadsBatch(
     .limit(limit);
 }
 
+export async function listUnprocessedInboxThreadsByGmailIds(
+  accountId: string,
+  gmailThreadIds: string[],
+): Promise<Array<Pick<GmailThreadRow, "id" | "gmailThreadId" | "subject">>> {
+  if (gmailThreadIds.length === 0) return [];
+
+  // SQLite caps parameters around 999; chunk to stay well under.
+  const CHUNK = 500;
+  const out: Array<Pick<GmailThreadRow, "id" | "gmailThreadId" | "subject">> = [];
+  for (let i = 0; i < gmailThreadIds.length; i += CHUNK) {
+    const chunk = gmailThreadIds.slice(i, i + CHUNK);
+    const rows = await db
+      .select({
+        id: gmailThreads.id,
+        gmailThreadId: gmailThreads.gmailThreadId,
+        subject: gmailThreads.subject,
+      })
+      .from(gmailThreads)
+      .where(
+        and(
+          eq(gmailThreads.accountId, accountId),
+          eq(gmailThreads.isProcessed, false),
+          labelExistsSql("INBOX"),
+          inArray(gmailThreads.gmailThreadId, chunk),
+        ),
+      );
+    out.push(...rows);
+  }
+  return out;
+}
+
 /**
  * Returns all fetched thread IDs that have the INBOX label (processed or not).
  * Used to count the "processable" universe during sync resume.
@@ -760,28 +793,54 @@ export async function listAttachmentsByAccount(
 }
 
 // ---------------------------------------------------------------------------
-// Sync State
+// Fetch State
 // ---------------------------------------------------------------------------
 
-export async function getSyncState(
+export async function getFetchState(
   accountId: string,
-): Promise<GmailSyncStateRow | null> {
+  mode: "full" | "incremental",
+): Promise<GmailFetchStateRow | null> {
   const [row] = await db
     .select()
-    .from(gmailSyncState)
-    .where(eq(gmailSyncState.accountId, accountId));
+    .from(gmailFetchState)
+    .where(
+      and(
+        eq(gmailFetchState.accountId, accountId),
+        eq(gmailFetchState.mode, mode),
+      ),
+    );
   return row ?? null;
 }
 
-export async function upsertSyncState(
+export async function listFetchStates(
   accountId: string,
+): Promise<GmailFetchStateRow[]> {
+  return db
+    .select()
+    .from(gmailFetchState)
+    .where(eq(gmailFetchState.accountId, accountId));
+}
+
+export async function getRunningFetchStates(): Promise<GmailFetchStateRow[]> {
+  return db
+    .select()
+    .from(gmailFetchState)
+    .where(
+      or(
+        eq(gmailFetchState.status, "running"),
+        eq(gmailFetchState.status, "paused"),
+        eq(gmailFetchState.status, "interrupted"),
+      ),
+    );
+}
+
+export async function upsertFetchState(
+  accountId: string,
+  mode: "full" | "incremental",
   data: Partial<{
     status: string;
-    mode: string;
     totalThreads: number;
     fetchedThreads: number;
-    processableThreads: number;
-    processedThreads: number;
     failedThreads: number;
     startedAt: string;
     completedAt: string | null;
@@ -789,15 +848,82 @@ export async function upsertSyncState(
   }>,
 ): Promise<void> {
   const now = new Date().toISOString();
-  const existing = await getSyncState(accountId);
+  const existing = await getFetchState(accountId, mode);
 
   if (existing) {
     await db
-      .update(gmailSyncState)
+      .update(gmailFetchState)
       .set({ ...data, updatedAt: now })
-      .where(eq(gmailSyncState.id, existing.id));
+      .where(eq(gmailFetchState.id, existing.id));
   } else {
-    await db.insert(gmailSyncState).values({
+    await db.insert(gmailFetchState).values({
+      id: nanoid(),
+      accountId,
+      mode,
+      status: "idle",
+      ...data,
+      updatedAt: now,
+    });
+  }
+}
+
+export async function incrementFetchProgress(
+  accountId: string,
+  mode: "full" | "incremental",
+  field: "fetchedThreads" | "failedThreads",
+  amount = 1,
+): Promise<void> {
+  const col = gmailFetchState[field];
+  await db
+    .update(gmailFetchState)
+    .set({
+      [field]: sql`${col} + ${amount}`,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(
+      and(
+        eq(gmailFetchState.accountId, accountId),
+        eq(gmailFetchState.mode, mode),
+      ),
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Analysis State
+// ---------------------------------------------------------------------------
+
+export async function getAnalysisState(
+  accountId: string,
+): Promise<GmailAnalysisStateRow | null> {
+  const [row] = await db
+    .select()
+    .from(gmailAnalysisState)
+    .where(eq(gmailAnalysisState.accountId, accountId));
+  return row ?? null;
+}
+
+export async function upsertAnalysisState(
+  accountId: string,
+  data: Partial<{
+    status: string;
+    totalThreads: number;
+    analyzedThreads: number;
+    failedThreads: number;
+    startedAt: string;
+    completedAt: string | null;
+    lastError: string | null;
+  }>,
+): Promise<void> {
+  const now = new Date().toISOString();
+  const existing = await getAnalysisState(accountId);
+
+  if (existing) {
+    await db
+      .update(gmailAnalysisState)
+      .set({ ...data, updatedAt: now })
+      .where(eq(gmailAnalysisState.id, existing.id));
+  } else {
+    await db.insert(gmailAnalysisState).values({
       id: nanoid(),
       accountId,
       status: "idle",
@@ -807,23 +933,19 @@ export async function upsertSyncState(
   }
 }
 
-export async function incrementSyncProgress(
+export async function incrementAnalysisProgress(
   accountId: string,
-  field:
-    | "fetchedThreads"
-    | "processableThreads"
-    | "processedThreads"
-    | "failedThreads",
+  field: "analyzedThreads" | "failedThreads",
   amount = 1,
 ): Promise<void> {
-  const col = gmailSyncState[field];
+  const col = gmailAnalysisState[field];
   await db
-    .update(gmailSyncState)
+    .update(gmailAnalysisState)
     .set({
       [field]: sql`${col} + ${amount}`,
       updatedAt: new Date().toISOString(),
     })
-    .where(eq(gmailSyncState.accountId, accountId));
+    .where(eq(gmailAnalysisState.accountId, accountId));
 }
 
 // ---------------------------------------------------------------------------
@@ -923,13 +1045,6 @@ export async function resolveFailure(failureId: string): Promise<void> {
     .update(gmailSyncFailures)
     .set({ resolvedAt: new Date().toISOString() })
     .where(eq(gmailSyncFailures.id, failureId));
-}
-
-export async function getRunningSyncStates(): Promise<GmailSyncStateRow[]> {
-  return db
-    .select()
-    .from(gmailSyncState)
-    .where(eq(gmailSyncState.status, "running"));
 }
 
 export async function resolveFailuresForThread(

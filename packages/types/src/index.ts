@@ -4,5 +4,7 @@ export * from "./desktop";
 export * from "./filters";
 export * from "./gmail";
 export * from "./github";
+export * from "./mcp";
+export * from "./note";
 export * from "./project";
 export * from "./skill";

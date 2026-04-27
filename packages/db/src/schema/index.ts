@@ -5,6 +5,7 @@ export { chats, chatMessages } from "./chat";
 export { fileExtractions, fileHashes, fileMetadata } from "./files";
 export { piState } from "./pi";
 export { projects } from "./projects";
+export { notes, noteLinks } from "./notes";
 export {
   memoryEntities,
   memoryObservations,
@@ -20,6 +21,8 @@ export {
   gmailMessages,
   gmailAttachments,
   gmailSyncState,
+  gmailFetchState,
+  gmailAnalysisState,
   gmailSyncFailures,
 } from "./gmail";
 

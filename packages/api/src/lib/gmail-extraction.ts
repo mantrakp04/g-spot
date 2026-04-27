@@ -1,11 +1,12 @@
 import { env } from "@g-spot/env/server";
 import {
   getGmailThreadStats,
-  incrementSyncProgress,
+  incrementAnalysisProgress,
   listMessagesByThreadIds,
   listUnprocessedInboxThreadsBatch,
+  listUnprocessedInboxThreadsByGmailIds,
   markThreadProcessed,
-  upsertSyncState,
+  upsertAnalysisState,
 } from "@g-spot/db/gmail";
 
 import {
@@ -114,16 +115,14 @@ export class GmailExtractionOrchestrator {
       error: null,
     };
 
-    await upsertSyncState(this.accountId, {
+    await upsertAnalysisState(this.accountId, {
       completedAt: null,
       failedThreads: 0,
-      fetchedThreads: 0,
       lastError: null,
-      processableThreads: this.progress.totalThreads,
-      processedThreads: 0,
+      analyzedThreads: 0,
       startedAt: this.progress.startedAt ?? undefined,
       status: "running",
-      totalThreads: 0,
+      totalThreads: this.progress.totalThreads,
     });
   }
 
@@ -179,13 +178,17 @@ export class GmailExtractionOrchestrator {
 
   private async bumpProgress(field: "processedThreads" | "failedThreads"): Promise<void> {
     this.progress[field] += 1;
-    await incrementSyncProgress(this.accountId, field, 1);
+    await incrementAnalysisProgress(
+      this.accountId,
+      field === "processedThreads" ? "analyzedThreads" : "failedThreads",
+      1,
+    );
   }
 
   private async markCompleted(): Promise<void> {
     this.progress.status = "completed";
     this.progress.error = null;
-    await upsertSyncState(this.accountId, {
+    await upsertAnalysisState(this.accountId, {
       completedAt: new Date().toISOString(),
       lastError: null,
       status: "completed",
@@ -195,7 +198,7 @@ export class GmailExtractionOrchestrator {
   private async markPaused(): Promise<void> {
     this.progress.status = "paused";
     this.progress.error = null;
-    await upsertSyncState(this.accountId, {
+    await upsertAnalysisState(this.accountId, {
       completedAt: null,
       lastError: null,
       status: "paused",
@@ -205,7 +208,7 @@ export class GmailExtractionOrchestrator {
   private async markErrored(message: string): Promise<void> {
     this.progress.status = "error";
     this.progress.error = message;
-    await upsertSyncState(this.accountId, {
+    await upsertAnalysisState(this.accountId, {
       completedAt: null,
       lastError: message,
       status: "error",
@@ -244,4 +247,78 @@ export async function cancelGmailExtraction(accountId: string): Promise<boolean>
   if (!orch) return false;
   orch.cancel();
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// Scoped extraction (auto-triggered by incremental sync)
+//
+// Decoupled from `syncState` on purpose — it never writes to the sync row, so
+// gmail-sync's status stays authoritative. If a manual full extraction is
+// already running, this is a no-op: the running orchestrator's batch loop
+// will pick the freshly-stored unprocessed inbox threads up on its own.
+// ---------------------------------------------------------------------------
+
+const activeScopedExtractions = new Map<string, Promise<void>>();
+
+async function processScopedThreads(
+  accountId: string,
+  gmailThreadIds: string[],
+): Promise<void> {
+  const batch = await listUnprocessedInboxThreadsByGmailIds(
+    accountId,
+    gmailThreadIds,
+  );
+  if (batch.length === 0) return;
+
+  const messages = await listMessagesByThreadIds(batch.map((t) => t.id));
+  const messagesByThreadId = new Map<string, StoredThreadMessage[]>();
+  for (const message of messages) {
+    const threadMessages = messagesByThreadId.get(message.threadId) ?? [];
+    threadMessages.push(message);
+    messagesByThreadId.set(message.threadId, threadMessages);
+  }
+
+  let nextIndex = 0;
+  const workerCount = Math.min(env.MEMORY_WORKER_CONCURRENCY, batch.length);
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (true) {
+      const thread = batch[nextIndex++];
+      if (!thread) return;
+      try {
+        const parsed = (messagesByThreadId.get(thread.id) ?? []).map(
+          storedMessageToParsedMessage,
+        );
+        const content = threadToText(thread.subject, parsed);
+        await extractAndIngestThread(content, thread.gmailThreadId);
+        await markThreadProcessed(thread.id);
+      } catch (error) {
+        console.error(
+          `[gmail-extraction:scoped] Skipped ${thread.gmailThreadId}:`,
+          error instanceof Error ? error.message : error,
+        );
+      }
+    }
+  });
+
+  await Promise.all(workers);
+}
+
+export function runScopedGmailExtraction(
+  accountId: string,
+  gmailThreadIds: string[],
+): void {
+  if (gmailThreadIds.length === 0) return;
+  if (activeExtractions.has(accountId)) return;
+  if (activeScopedExtractions.has(accountId)) return;
+
+  const run = processScopedThreads(accountId, gmailThreadIds)
+    .catch((error) => {
+      console.error("[gmail-extraction:scoped] Run failed:", error);
+    })
+    .finally(() => {
+      if (activeScopedExtractions.get(accountId) === run) {
+        activeScopedExtractions.delete(accountId);
+      }
+    });
+  activeScopedExtractions.set(accountId, run);
 }

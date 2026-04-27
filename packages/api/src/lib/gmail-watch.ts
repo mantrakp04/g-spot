@@ -11,7 +11,7 @@ import { getProfile, watchMailbox } from "./gmail-client";
 import { listStackGmailAccounts } from "./stack-client-api";
 
 const WATCH_RENEWAL_WINDOW_MS = 24 * 60 * 60 * 1000;
-const ENSURE_THROTTLE_MS = 5 * 60 * 1000;
+const ENSURE_THROTTLE_MS = 6 * 60 * 60 * 1000;
 
 type EnsureWatchResult = {
   checkedAccounts: number;
@@ -49,7 +49,9 @@ export async function ensureLocalGmailWatches(
   }
 
   const existing = inflightByAuthRef.get(authRef);
-  if (existing) return existing;
+  if (existing) {
+    return existing;
+  }
 
   const promise = ensureLocalGmailWatchesNow(authHeader, topicName)
     .then((result) => {

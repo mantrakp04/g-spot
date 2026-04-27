@@ -2,6 +2,7 @@ import {
   createFileMetadata,
   ensureFileHash,
   getFileById,
+  getFileByFilename,
 } from "@g-spot/db/files";
 
 import { detectDocumentKind, extractDocumentText } from "./lib/extract-document";
@@ -108,6 +109,17 @@ export async function handleFileDownload(fileId: string): Promise<Response> {
       "cache-control": "public, max-age=31536000, immutable",
     },
   });
+}
+
+/**
+ * GET /api/notes/attachments/:filename — resolves vault-style `![[file]]`
+ * embeds. Looks up the most recent upload with this filename and streams it.
+ * 404 if no upload matches.
+ */
+export async function handleAttachmentByName(filename: string): Promise<Response> {
+  const file = await getFileByFilename(decodeURIComponent(filename));
+  if (!file) return new Response("Not found", { status: 404 });
+  return handleFileDownload(file.id);
 }
 
 /** GET /api/files/:fileId/extracted-text — extracts preview text on demand. */

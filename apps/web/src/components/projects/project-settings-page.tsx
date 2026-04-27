@@ -27,6 +27,7 @@ import { toast } from "sonner";
 import { PiAgentConfigForm } from "@/components/pi/pi-agent-config-form";
 import { PiAddonsView } from "@/components/pi/pi-addons-page";
 import { SkillsView } from "@/components/skills/skills-page";
+import { useConfirmDialog } from "@/contexts/confirm-dialog-context";
 import { usePiCatalog } from "@/hooks/use-pi";
 import {
   useDeleteProjectMutation,
@@ -59,6 +60,7 @@ export function ProjectSettingsPage({
   tab,
   onTabChange,
 }: ProjectSettingsPageProps) {
+  const confirm = useConfirmDialog();
   const navigate = useNavigate();
   const projectQuery = useProject(projectId);
   const chatCountQuery = useProjectChatCount(projectId);
@@ -158,9 +160,13 @@ export function ProjectSettingsPage({
       chatCount > 0
         ? `This will permanently delete the project and all ${chatCount} chat${chatCount === 1 ? "" : "s"} inside it. Continue?`
         : "Permanently delete this project?";
-    if (typeof window !== "undefined" && !window.confirm(confirmMessage)) {
-      return;
-    }
+    const confirmed = await confirm({
+      title: "Delete project?",
+      description: confirmMessage,
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!confirmed) return;
     setDeleting(true);
     try {
       await deleteProject.mutateAsync({ id: projectId, force: chatCount > 0 });

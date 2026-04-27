@@ -30,7 +30,7 @@ export const stackClientApp = new StackClientApp({
   oauthScopesOnSignIn: {
     google: [...googleOAuthScopes],
     github: [...githubOAuthScopes],
-  },
+  }
 });
 function isDesktopRenderer(): boolean {
   return (

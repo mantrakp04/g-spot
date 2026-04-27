@@ -205,6 +205,62 @@ export const gmailSyncState = sqliteTable(
 );
 
 // ---------------------------------------------------------------------------
+// gmail_fetch_state — fetch progress per account and sync mode
+// ---------------------------------------------------------------------------
+export const gmailFetchState = sqliteTable(
+  "gmail_fetch_state",
+  {
+    id: text("id").primaryKey(),
+    accountId: text("account_id")
+      .notNull()
+      .references(() => gmailAccounts.id, { onDelete: "cascade" }),
+    mode: text("mode").notNull(), // full|incremental
+    status: text("status").notNull().default("idle"), // idle|running|paused|interrupted|completed|error
+    totalThreads: integer("total_threads").notNull().default(0),
+    fetchedThreads: integer("fetched_threads").notNull().default(0),
+    failedThreads: integer("failed_threads").notNull().default(0),
+    startedAt: text("started_at"),
+    completedAt: text("completed_at"),
+    lastError: text("last_error"),
+    updatedAt: text("updated_at")
+      .notNull()
+      .default(sql`(current_timestamp)`),
+  },
+  (table) => [
+    uniqueIndex("gmail_fetch_state_account_mode_idx").on(
+      table.accountId,
+      table.mode,
+    ),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// gmail_analysis_state — inbox analysis progress per account
+// ---------------------------------------------------------------------------
+export const gmailAnalysisState = sqliteTable(
+  "gmail_analysis_state",
+  {
+    id: text("id").primaryKey(),
+    accountId: text("account_id")
+      .notNull()
+      .references(() => gmailAccounts.id, { onDelete: "cascade" }),
+    status: text("status").notNull().default("idle"), // idle|running|paused|completed|error
+    totalThreads: integer("total_threads").notNull().default(0),
+    analyzedThreads: integer("analyzed_threads").notNull().default(0),
+    failedThreads: integer("failed_threads").notNull().default(0),
+    startedAt: text("started_at"),
+    completedAt: text("completed_at"),
+    lastError: text("last_error"),
+    updatedAt: text("updated_at")
+      .notNull()
+      .default(sql`(current_timestamp)`),
+  },
+  (table) => [
+    uniqueIndex("gmail_analysis_state_account_idx").on(table.accountId),
+  ],
+);
+
+// ---------------------------------------------------------------------------
 // gmail_sync_failures — dead-letter queue
 // ---------------------------------------------------------------------------
 export const gmailSyncFailures = sqliteTable(
@@ -242,4 +298,6 @@ export type GmailThreadRow = typeof gmailThreads.$inferSelect;
 export type GmailMessageRow = typeof gmailMessages.$inferSelect;
 export type GmailAttachmentRow = typeof gmailAttachments.$inferSelect;
 export type GmailSyncStateRow = typeof gmailSyncState.$inferSelect;
+export type GmailFetchStateRow = typeof gmailFetchState.$inferSelect;
+export type GmailAnalysisStateRow = typeof gmailAnalysisState.$inferSelect;
 export type GmailSyncFailureRow = typeof gmailSyncFailures.$inferSelect;

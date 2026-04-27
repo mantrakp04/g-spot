@@ -329,32 +329,32 @@ export type ColumnMeta = {
 };
 
 export const PR_COLUMN_META: Record<PrColumnId, ColumnMeta> = {
-  title:      { id: "title",      label: "Title",      defaultVisible: true,  sizing: "fill",  minWidth: 280, align: "left", truncation: "end", breakpoint: "always" },
-  reviewers:  { id: "reviewers",  label: "Reviewers",  defaultVisible: true,  sizing: "fixed", width: 112, align: "left", truncation: "middle", breakpoint: "md" },
-  ci:         { id: "ci",         label: "CI",         defaultVisible: true,  sizing: "fixed", width: 48,  align: "center", breakpoint: "sm" },
-  review:     { id: "review",     label: "Review",     defaultVisible: true,  sizing: "fixed", width: 48,  minWidth: 72, align: "center", breakpoint: "sm" },
-  labels:     { id: "labels",     label: "Labels",     defaultVisible: false, sizing: "fit",   maxWidth: 144, align: "left", breakpoint: "lg" },
-  changes:    { id: "changes",    label: "Changes",    defaultVisible: true,  sizing: "fit",   maxWidth: 112, align: "right", truncation: "end", breakpoint: "lg" },
-  updated:    { id: "updated",    label: "Updated",    defaultVisible: true,  sizing: "fixed", width: 64,  align: "right", truncation: "end", breakpoint: "always" },
+  title:      { id: "title",      label: "Title",      defaultVisible: true,  sizing: "fill",  width: 360, minWidth: 220, maxWidth: 720, align: "left", truncation: "end", breakpoint: "always" },
+  reviewers:  { id: "reviewers",  label: "Reviewers",  defaultVisible: true,  sizing: "fixed", width: 160, minWidth: 120, maxWidth: 260, align: "left", truncation: "middle", breakpoint: "md" },
+  ci:         { id: "ci",         label: "CI",         defaultVisible: true,  sizing: "fixed", width: 44,  minWidth: 44, maxWidth: 44, align: "center", breakpoint: "sm" },
+  review:     { id: "review",     label: "Review",     defaultVisible: true,  sizing: "fixed", width: 44,  minWidth: 44, maxWidth: 44, align: "center", breakpoint: "sm" },
+  labels:     { id: "labels",     label: "Labels",     defaultVisible: false, sizing: "fit",   width: 120, minWidth: 96, maxWidth: 180, align: "left", breakpoint: "lg" },
+  changes:    { id: "changes",    label: "Changes",    defaultVisible: true,  sizing: "fit",   width: 96, minWidth: 80, maxWidth: 120, align: "right", truncation: "end", breakpoint: "lg" },
+  updated:    { id: "updated",    label: "Updated",    defaultVisible: true,  sizing: "fixed", width: 140, minWidth: 110, maxWidth: 180, align: "right", truncation: "end", breakpoint: "always" },
 };
 
 export const ISSUE_COLUMN_META: Record<IssueColumnId, ColumnMeta> = {
-  title:      { id: "title",      label: "Title",      defaultVisible: true,  sizing: "fill",  minWidth: 280, align: "left", truncation: "end", breakpoint: "always" },
-  labels:     { id: "labels",     label: "Labels",     defaultVisible: true,  sizing: "fixed", width: 72,     align: "left",   breakpoint: "lg" },
-  assignees:  { id: "assignees",  label: "Assignees",  defaultVisible: false, sizing: "fixed", width: 96,     align: "left", truncation: "middle", breakpoint: "md" },
-  status:     { id: "status",     label: "Status",     defaultVisible: true,  sizing: "fixed", width: 112,    align: "left",   breakpoint: "sm" },
-  reactions:  { id: "reactions",  label: "Reactions",  defaultVisible: false, sizing: "fixed", width: 72,     minWidth: 88, align: "center", breakpoint: "sm" },
-  comments:   { id: "comments",   label: "Comments",   defaultVisible: true,  sizing: "fixed", width: 64,     minWidth: 80, align: "center", truncation: "end", breakpoint: "md" },
-  milestone:  { id: "milestone",  label: "Milestone",  defaultVisible: false, sizing: "fit",   maxWidth: 128, align: "left", truncation: "middle", breakpoint: "lg" },
-  created:    { id: "created",    label: "Created",    defaultVisible: false, sizing: "fixed", width: 64,     align: "right", truncation: "end", breakpoint: "md" },
-  updated:    { id: "updated",    label: "Updated",    defaultVisible: true,  sizing: "fixed", width: 64,     align: "right", truncation: "end", breakpoint: "always" },
+  title:      { id: "title",      label: "Title",      defaultVisible: true,  sizing: "fill",  width: 360, minWidth: 220, maxWidth: 720, align: "left", truncation: "end", breakpoint: "always" },
+  labels:     { id: "labels",     label: "Labels",     defaultVisible: true,  sizing: "fixed", width: 120, minWidth: 96, maxWidth: 180, align: "left",   breakpoint: "lg" },
+  assignees:  { id: "assignees",  label: "Assignees",  defaultVisible: false, sizing: "fixed", width: 160, minWidth: 120, maxWidth: 260, align: "left", truncation: "middle", breakpoint: "md" },
+  status:     { id: "status",     label: "Status",     defaultVisible: true,  sizing: "fixed", width: 120, minWidth: 96, maxWidth: 180, align: "left",   breakpoint: "sm" },
+  reactions:  { id: "reactions",  label: "Reactions",  defaultVisible: false, sizing: "fixed", width: 80, minWidth: 64, maxWidth: 110, align: "center", breakpoint: "sm" },
+  comments:   { id: "comments",   label: "Comments",   defaultVisible: true,  sizing: "fixed", width: 80, minWidth: 64, maxWidth: 110, align: "center", truncation: "end", breakpoint: "md" },
+  milestone:  { id: "milestone",  label: "Milestone",  defaultVisible: false, sizing: "fit",   width: 120, minWidth: 96, maxWidth: 180, align: "left", truncation: "middle", breakpoint: "lg" },
+  created:    { id: "created",    label: "Created",    defaultVisible: false, sizing: "fixed", width: 140, minWidth: 110, maxWidth: 180, align: "right", truncation: "end", breakpoint: "md" },
+  updated:    { id: "updated",    label: "Updated",    defaultVisible: true,  sizing: "fixed", width: 140, minWidth: 110, maxWidth: 180, align: "right", truncation: "end", breakpoint: "always" },
 };
 
 export const GMAIL_COLUMN_META: Record<GmailColumnId, ColumnMeta> = {
-  from:       { id: "from",       label: "From",        defaultVisible: true,  sizing: "fixed", width: 176, align: "left", truncation: "middle", breakpoint: "always" },
-  labels:     { id: "labels",     label: "Labels",     defaultVisible: false, sizing: "fit",   maxWidth: 112, align: "left", truncation: "middle", breakpoint: "md" },
-  subject:    { id: "subject",    label: "Subject",    defaultVisible: true,  sizing: "fill",  minWidth: 320, align: "left", truncation: "end", breakpoint: "always" },
-  date:       { id: "date",       label: "Date",       defaultVisible: true,  sizing: "fixed", width: 80,  align: "right", truncation: "end", breakpoint: "always" },
+  from:       { id: "from",       label: "From",        defaultVisible: true,  sizing: "fixed", width: 160, minWidth: 120, maxWidth: 260, align: "left", truncation: "middle", breakpoint: "always" },
+  labels:     { id: "labels",     label: "Labels",     defaultVisible: false, sizing: "fit",   width: 120, minWidth: 96, maxWidth: 180, align: "left", truncation: "middle", breakpoint: "md" },
+  subject:    { id: "subject",    label: "Subject",    defaultVisible: true,  sizing: "fill",  width: 360, minWidth: 220, maxWidth: 720, align: "left", truncation: "end", breakpoint: "always" },
+  date:       { id: "date",       label: "Date",       defaultVisible: true,  sizing: "fixed", width: 140, minWidth: 110, maxWidth: 180, align: "right", truncation: "end", breakpoint: "always" },
 };
 
 const LEGACY_PRIMARY_COLUMN_IDS: Partial<Record<SectionSource, string>> = {

@@ -38,8 +38,15 @@ export function GoogleAccountRow({
         providerAccountId: account.providerAccountId,
       }),
     refetchInterval: (query) => {
-      const status = query.state.data?.status;
-      return status === "running" ? 1500 : false;
+      const data = query.state.data;
+      return data
+        && (
+          data.fetch.full.status === "running"
+          || data.fetch.incremental.status === "running"
+          || data.analysis.status === "running"
+        )
+        ? 1500
+        : false;
     },
   });
 
@@ -128,12 +135,15 @@ export function GoogleAccountRow({
       ? email
       : null;
 
-  const isSyncing = syncProgress.data?.status === "running";
   const syncData = syncProgress.data;
-  const remainingInboxAnalysis =
-    syncData?.local.unprocessedInboxThreads
-    ?? syncData?.extraction.remainingInboxThreads
-    ?? 0;
+  const isSyncing = Boolean(
+    syncData
+    && (
+      syncData.fetch.full.status === "running"
+      || syncData.fetch.incremental.status === "running"
+      || syncData.analysis.status === "running"
+    ),
+  );
   const showSyncControls = Boolean(syncData || !q.isError);
 
   return (
@@ -202,7 +212,6 @@ export function GoogleAccountRow({
             || cancelSyncMutation.isPending
           }
           isSyncing={isSyncing}
-          remainingInboxAnalysis={remainingInboxAnalysis}
           onStartSync={(intent) => startSyncMutation.mutate(intent)}
           onStartExtraction={() => startExtractionMutation.mutate()}
           onCancel={() => cancelSyncMutation.mutate()}
@@ -210,9 +219,9 @@ export function GoogleAccountRow({
       )}
 
       {/* Sync error */}
-      {syncData?.status === "error" && syncData.error && (
+      {getProgressError(syncData) && (
         <div className="mt-1.5 ml-10 rounded-sm border border-destructive/20 bg-destructive/5 px-2 py-1">
-          <p className="text-[10px] text-destructive">{syncData.error}</p>
+          <p className="text-[10px] text-destructive">{getProgressError(syncData)}</p>
         </div>
       )}
 
@@ -226,7 +235,6 @@ function SyncControls({
   syncData,
   isBusy,
   isSyncing,
-  remainingInboxAnalysis,
   onStartSync,
   onStartExtraction,
   onCancel,
@@ -234,30 +242,30 @@ function SyncControls({
   syncData: SyncProgressData | null | undefined;
   isBusy: boolean;
   isSyncing: boolean;
-  remainingInboxAnalysis: number;
   onStartSync: (intent: SyncIntent) => void;
   onStartExtraction: () => void;
   onCancel: () => void;
 }) {
+  const full = syncData?.fetch.full;
+  const incremental = syncData?.fetch.incremental;
+  const analysis = syncData?.analysis;
   const activeKind = getActiveOperation(syncData);
-  const displayedActiveKind = activeKind ?? getPausedOperation(syncData);
-  const isPaused = syncData?.status === "paused" || syncData?.status === "interrupted";
   const disableStart = isBusy || isSyncing;
   const localThreadCount = syncData?.local.totalThreads ?? 0;
   const inboxThreadCount = syncData?.local.inboxThreads ?? 0;
-  const unprocessedInboxThreadCount =
-    syncData?.local.unprocessedInboxThreads
-    ?? syncData?.extraction.remainingInboxThreads
-    ?? 0;
-  const analyzedInboxThreadCount = Math.max(
-    0,
-    inboxThreadCount - unprocessedInboxThreadCount,
+  const remainingInboxAnalysis = analysis?.remainingInboxThreads ?? 0;
+  const fullState = getFetchOperationState(
+    full?.status,
+    Boolean(syncData?.account.hasCompletedFullSync),
   );
-  const showingFullRun = displayedActiveKind === "full" && syncData?.mode === "full";
-  const showingIncrementalRun =
-    displayedActiveKind === "incremental"
-    && syncData?.mode === "incremental"
-    && syncData.phase !== "extracting";
+  const incrementalState = getFetchOperationState(
+    incremental?.status,
+    Boolean(syncData?.account.hasCompletedIncrementalSync),
+  );
+  const analysisState = getAnalysisOperationState(analysis?.status);
+  const showingFullRun = isLiveState(fullState);
+  const showingIncrementalRun = isLiveState(incrementalState);
+  const showingAnalysisRun = isLiveState(analysisState);
 
   return (
     <div className="mt-2 ml-10 space-y-1.5">
@@ -265,39 +273,41 @@ function SyncControls({
         title="Full sync"
         detail="All Gmail threads"
         tone="blue"
-        total={showingFullRun ? syncData.mail.totalThreads : localThreadCount}
-        done={showingFullRun ? syncData.mail.syncedThreads : localThreadCount}
-        state={getOperationState("full", displayedActiveKind, syncData)}
-        actionLabel={isPaused && syncData?.mode === "full" ? "Resume" : "Run"}
-        actionIcon={isPaused && syncData?.mode === "full" ? "resume" : "start"}
-        disabled={disableStart && displayedActiveKind !== "full"}
-        busy={isBusy && displayedActiveKind === "full"}
+        total={showingFullRun ? (full?.totalThreads ?? 0) : localThreadCount}
+        done={showingFullRun ? (full?.syncedThreads ?? 0) : localThreadCount}
+        state={fullState}
+        actionLabel={fullState === "paused" || fullState === "interrupted" ? "Resume" : "Run"}
+        actionIcon={fullState === "paused" || fullState === "interrupted" ? "resume" : "start"}
+        disabled={disableStart && activeKind !== "full"}
+        busy={isBusy && activeKind === "full"}
         onAction={() => {
-          if (displayedActiveKind === "full" && isSyncing) onCancel();
-          else onStartSync(isPaused && syncData?.mode === "full" ? "auto" : "full");
+          if (activeKind === "full" && isSyncing) onCancel();
+          else onStartSync(fullState === "paused" || fullState === "interrupted" ? "auto" : "full");
         }}
       />
       <OperationRow
         title="Incremental sync"
         detail="Automatic changes"
         tone="amber"
-        total={showingIncrementalRun ? syncData.mail.totalThreads : 0}
-        done={showingIncrementalRun ? syncData.mail.syncedThreads : 0}
-        state={getOperationState("incremental", displayedActiveKind, syncData)}
+        total={showingIncrementalRun ? (incremental?.totalThreads ?? 0) : 0}
+        done={showingIncrementalRun ? (incremental?.syncedThreads ?? 0) : 0}
+        state={incrementalState}
       />
       <OperationRow
         title="Inbox analysis"
         detail={`${remainingInboxAnalysis} remaining`}
         tone="emerald"
-        total={inboxThreadCount}
-        done={analyzedInboxThreadCount}
-        state={getOperationState("extract", displayedActiveKind, syncData)}
-        actionLabel={isPaused && displayedActiveKind === "extract" ? "Resume" : "Analyze"}
-        actionIcon={isPaused && displayedActiveKind === "extract" ? "resume" : "start"}
-        disabled={disableStart && displayedActiveKind !== "extract"}
-        busy={isBusy && displayedActiveKind === "extract"}
+        total={showingAnalysisRun ? (analysis?.totalInboxThreads ?? 0) : inboxThreadCount}
+        done={showingAnalysisRun
+          ? (analysis?.analyzedInboxThreads ?? 0)
+          : Math.max(0, inboxThreadCount - remainingInboxAnalysis)}
+        state={analysisState}
+        actionLabel={analysisState === "paused" ? "Resume" : "Analyze"}
+        actionIcon={analysisState === "paused" ? "resume" : "start"}
+        disabled={disableStart && activeKind !== "extract"}
+        busy={isBusy && activeKind === "extract"}
         onAction={() => {
-          if (displayedActiveKind === "extract" && isSyncing) onCancel();
+          if (activeKind === "extract" && isSyncing) onCancel();
           else onStartExtraction();
         }}
       />
@@ -311,6 +321,7 @@ type SyncProgressData = NonNullable<
 
 type OperationKind = "full" | "incremental" | "extract";
 type OperationState = "idle" | "running" | "paused" | "interrupted" | "completed" | "blocked";
+type ProgressStatus = "idle" | "running" | "paused" | "interrupted" | "completed" | "error";
 
 function OperationRow({
   title,
@@ -435,66 +446,52 @@ function StatusPill({ state }: { state: OperationState }) {
 function getActiveOperation(
   syncData: SyncProgressData | null | undefined,
 ): OperationKind | null {
-  if (!syncData || syncData.status !== "running") return null;
-  if (syncData.phase === "extracting") return "extract";
-  return syncData.mode;
+  if (!syncData) return null;
+  if (syncData.fetch.activeMode) return syncData.fetch.activeMode;
+  if (syncData.analysis.status === "running") return "extract";
+  return null;
 }
 
-function getPausedOperation(
-  syncData: SyncProgressData | null | undefined,
-): OperationKind | null {
-  if (
-    !syncData
-    || (syncData.status !== "paused" && syncData.status !== "interrupted")
-  ) {
-    return null;
-  }
-  if (
-    syncData.mail.totalThreads === 0
-    && (
-      syncData.extraction.remainingInboxThreads > 0
-      || syncData.local.unprocessedInboxThreads > 0
-    )
-  ) {
-    return "extract";
-  }
-  return syncData.mode;
-}
-
-function getOperationState(
-  kind: OperationKind,
-  activeKind: OperationKind | null,
-  syncData: SyncProgressData | null | undefined,
+function getFetchOperationState(
+  status: ProgressStatus | undefined,
+  completed: boolean,
 ): OperationState {
-  if (!syncData) return "idle";
-  if (syncData.status === "error") return "blocked";
-  if (activeKind === kind) {
-    if (syncData.status === "paused" || syncData.status === "interrupted") {
-      return syncData.status;
-    }
-    return "running";
-  }
+  if (status === "error") return "blocked";
   if (
-    (syncData.status === "paused" || syncData.status === "interrupted")
-    && (
-      syncData.mode === kind
-      || (kind === "extract" && syncData.phase === "extracting")
-    )
+    status === "running"
+    || status === "paused"
+    || status === "interrupted"
+    || status === "completed"
   ) {
-    return syncData.status;
+    return status;
   }
-  if (kind === "full") {
-    return syncData.account.hasCompletedFullSync
-      ? "completed"
-      : "idle";
+  return completed ? "completed" : "idle";
+}
+
+function getAnalysisOperationState(
+  status: Exclude<ProgressStatus, "interrupted"> | undefined,
+): OperationState {
+  if (status === "error") return "blocked";
+  if (
+    status === "running"
+    || status === "paused"
+    || status === "completed"
+  ) {
+    return status;
   }
-  if (kind === "incremental") {
-    return syncData.account.hasCompletedIncrementalSync
-      ? "completed"
-      : "idle";
-  }
-  return syncData.local.inboxThreads > 0
-    && syncData.local.unprocessedInboxThreads === 0
-    ? "completed"
-    : "idle";
+  return "idle";
+}
+
+function isLiveState(state: OperationState): boolean {
+  return state === "running" || state === "paused" || state === "interrupted" || state === "blocked";
+}
+
+function getProgressError(
+  syncData: SyncProgressData | null | undefined,
+): string | null {
+  if (!syncData) return null;
+  return syncData.fetch.full.error
+    ?? syncData.fetch.incremental.error
+    ?? syncData.analysis.error
+    ?? null;
 }

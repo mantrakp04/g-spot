@@ -31,6 +31,7 @@ import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
 
 import { PiAddonExplorerDialog } from "@/components/pi/pi-addon-explorer-dialog";
+import { useConfirmDialog } from "@/contexts/confirm-dialog-context";
 import {
   useInstallPiAddonMutation,
   usePiAddons,
@@ -52,6 +53,7 @@ export function PiAddonsView({ projectId, description }: PiAddonsViewProps) {
   const projectQuery = useProject(projectId);
   const addonsQuery = usePiAddons(projectId);
   const removeAddon = useRemovePiAddonMutation();
+  const confirm = useConfirmDialog();
 
   const [explorerOpen, setExplorerOpen] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
@@ -69,12 +71,13 @@ export function PiAddonsView({ projectId, description }: PiAddonsViewProps) {
   const hasAny = packages.length + dropIns.length > 0;
 
   async function handleRemove(addonSource: string) {
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm(`Remove "${addonSource}" from ${scopeLabel.toLowerCase()}?`)
-    ) {
-      return;
-    }
+    const confirmed = await confirm({
+      title: "Remove add-on?",
+      description: `Remove "${addonSource}" from ${scopeLabel.toLowerCase()}?`,
+      confirmLabel: "Remove",
+      destructive: true,
+    });
+    if (!confirmed) return;
     try {
       await removeAddon.mutateAsync({ projectId, source: addonSource });
       toast.success("Add-on removed");

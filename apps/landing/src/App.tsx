@@ -24,12 +24,20 @@ const FEATURES: { title: string; body: string }[] = [
     body: "Gmail threads, GitHub PRs, and issues triaged side-by-side. Sectioned, filterable, reorderable. No two tabs, no context-switch tax.",
   },
   {
+    title: "Pi builds your filters",
+    body: "Describe the slice you want — \"unread PRs from my team waiting on me\" — and the agent assembles the filter rules, account, and columns for you.",
+  },
+  {
     title: "Review PRs without leaving home",
     body: "Inline comment threads, CI checks, timelines, stack visualization, and a quiet keyboard-driven action bar.",
   },
   {
+    title: "Notes that link back",
+    body: "CodeMirror markdown editor with wikilinks, tags, KaTeX math, Mermaid diagrams, daily notes, embeds, and full-text search. Stored locally, linked everywhere.",
+  },
+  {
     title: "An agent you actually approve",
-    body: "Tool calls surface as approval cards before they run. Per-chat sandbox, network toggle, and tool whitelist. The agent asks; you decide.",
+    body: "Tool calls surface as approval cards before they run. Per-chat sandbox, network toggle, and tool whitelist. Bring your own MCP servers. The agent asks; you decide.",
   },
   {
     title: "A memory that actually remembers",
@@ -41,7 +49,7 @@ const FEATURES: { title: string; body: string }[] = [
   },
   {
     title: "Local-first by default",
-    body: "Ships as an Electrobun desktop app with auto-updates. Your data lives in a SQLite file you can cp. Only the Gmail relay phones home — and only for push.",
+    body: "Ships as an Electrobun desktop app with auto-updates. Your data lives in a SQLite file you can cp. Only the relay phones home — and only for push.",
   },
 ];
 
@@ -50,7 +58,8 @@ const STACK: [string, string][] = [
   ["server", "elysia · tRPC"],
   ["web", "react 19 · tanstack router · tailwind v4"],
   ["data", "drizzle · sqlite · sqlite-vec"],
-  ["agent", "pi sdk · approval-gated tool calls"],
+  ["agent", "pi sdk · approval-gated tool calls · mcp"],
+  ["notes", "codemirror 6 · katex · mermaid · wikilinks"],
   ["desktop", "electrobun · auto-update"],
   ["license", "MIT"],
 ];

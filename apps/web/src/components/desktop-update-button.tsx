@@ -106,7 +106,7 @@ export function DesktopUpdateButton() {
     }
   }, []);
 
-  if (!isDesktop) return null;
+  if (!isDesktop || (!state.updateAvailable && !state.updateReady && !isBusy)) return null;
 
   return (
     <Button

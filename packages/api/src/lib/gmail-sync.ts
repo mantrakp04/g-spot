@@ -2,8 +2,14 @@
  * Gmail sync orchestrator.
  *
  * Fetches threads from Gmail API and stores them in the local DB.
- * Memory extraction is intentionally handled by gmail-extraction.ts so sync
- * never auto-runs analysis.
+ *
+ * Analysis policy:
+ * - Full sync: never auto-runs analysis. Manual extraction only.
+ * - Incremental sync: on successful completion, auto-runs a scoped extraction
+ *   (`runScopedGmailExtraction`) for *only* the threads it just fetched. The
+ *   scoped runner is decoupled from `syncState` and skips itself if a manual
+ *   full extraction is already active (that orchestrator's batch loop will
+ *   pick the freshly-stored unprocessed inbox threads up on its own).
  *
  * Circuit breaker: 429s pause all fetching.
  */
@@ -11,15 +17,18 @@
 import { AsyncQueuer } from "@tanstack/pacer";
 import { env } from "@g-spot/env/server";
 
+import { runScopedGmailExtraction } from "./gmail-extraction";
+
 import {
   deleteMissingThreadMessages,
+  getFetchState,
   getFetchedGmailThreadIds,
   getFetchedInboxGmailThreadIds,
   getGmailAccountById,
-  getRunningSyncStates,
-  getSyncState,
+  getRunningFetchStates,
   getUnprocessedInboxGmailThreadIds,
-  incrementSyncProgress,
+  incrementFetchProgress,
+  listFetchStates,
   markThreadUnprocessed,
   recordSyncFailure,
   resolveFailuresForThread,
@@ -28,9 +37,9 @@ import {
   syncLabels,
   updateGmailAccountHistoryId,
   updateGmailAccountSyncTimestamp,
+  upsertFetchState,
   upsertAttachments,
   upsertMessages,
-  upsertSyncState,
   upsertThread,
 } from "@g-spot/db/gmail";
 
@@ -109,11 +118,9 @@ type SyncStartPlanAccount = Pick<
 >;
 
 type SyncStartPlanState = Pick<
-  NonNullable<Awaited<ReturnType<typeof getSyncState>>>,
+  NonNullable<Awaited<ReturnType<typeof getFetchState>>>,
   "fetchedThreads"
   | "mode"
-  | "processableThreads"
-  | "processedThreads"
   | "status"
   | "totalThreads"
 >;
@@ -124,7 +131,7 @@ type SyncThreadResolution = {
   threadIds: string[];
 };
 
-type SyncStateWrite = Parameters<typeof upsertSyncState>[1];
+type FetchStateWrite = Parameters<typeof upsertFetchState>[2];
 type GmailProfile = Awaited<ReturnType<typeof getProfile>>;
 
 function getBootstrapProgress(
@@ -134,8 +141,8 @@ function getBootstrapProgress(
   return {
     totalThreads: syncState.totalThreads,
     fetchedThreads: syncState.fetchedThreads,
-    processableThreads: syncState.processableThreads,
-    processedThreads: syncState.processedThreads,
+    processableThreads: 0,
+    processedThreads: 0,
     failedThreads: 0,
   };
 }
@@ -234,10 +241,11 @@ async function resolveSyncExecutionPlan(
   accountId: string,
   intent: SyncStartIntent,
 ): Promise<SyncExecutionPlan | null> {
-  const [account, syncState] = await Promise.all([
+  const [account, fetchStates] = await Promise.all([
     getGmailAccountById(accountId),
-    getSyncState(accountId),
+    listFetchStates(accountId),
   ]);
+  const syncState = getRelevantFetchState(intent, fetchStates);
 
   return resolveSyncStartPlan(intent, {
     account: account
@@ -250,14 +258,29 @@ async function resolveSyncExecutionPlan(
     syncState: syncState
       ? {
         fetchedThreads: syncState.fetchedThreads,
-        mode: syncState.mode,
-        processableThreads: syncState.processableThreads,
-        processedThreads: syncState.processedThreads,
+        mode: syncState.mode === "incremental" ? "incremental" : "full",
         status: syncState.status,
         totalThreads: syncState.totalThreads,
       }
       : null,
   });
+}
+
+function getRelevantFetchState(
+  intent: SyncStartIntent,
+  states: Array<Pick<SyncStartPlanState, "fetchedThreads" | "mode" | "status" | "totalThreads">>,
+): SyncStartPlanState | null {
+  const paused = states.find((state) =>
+    state.status === "paused" || state.status === "interrupted"
+  );
+  if (intent === "resume" || intent === "auto") return paused ?? null;
+  if (intent === "full") {
+    return states.find((state) => state.mode === "full") ?? null;
+  }
+  if (intent === "incremental" || intent === "push") {
+    return states.find((state) => state.mode === "incremental") ?? null;
+  }
+  return null;
 }
 
 export function getScopedSyncResumeState(
@@ -418,6 +441,7 @@ export class GmailSyncOrchestrator {
   private accountId: string;
   private token: string;
   private initialProfile: GmailProfile | null;
+  private extractableGmailThreadIds = new Set<string>();
 
   constructor(
     accountId: string,
@@ -521,8 +545,9 @@ export class GmailSyncOrchestrator {
     this.cancelled = false;
     this.rateLimitStreak = 0;
     this.circuitState = "closed";
+    this.extractableGmailThreadIds.clear();
 
-    await this.persistSyncState({
+    await this.persistFetchState({
       completedAt: null,
       lastError: null,
       status: "running",
@@ -670,7 +695,7 @@ export class GmailSyncOrchestrator {
     this.progress.processedThreads = scope.processedThreads;
     this.progress.failedThreads = scope.failedThreads;
 
-    await this.persistSyncState({
+    await this.persistFetchState({
       completedAt: null,
       lastError: null,
       status: "running",
@@ -698,6 +723,16 @@ export class GmailSyncOrchestrator {
 
     await this.syncDrafts();
     await this.markCompleted();
+
+    if (
+      resolution.completedMode === "incremental"
+      && this.extractableGmailThreadIds.size > 0
+    ) {
+      runScopedGmailExtraction(
+        this.accountId,
+        [...this.extractableGmailThreadIds],
+      );
+    }
   }
 
   private async syncDrafts(): Promise<void> {
@@ -709,18 +744,18 @@ export class GmailSyncOrchestrator {
     }
   }
 
-  private async persistSyncState(
-    overrides: SyncStateWrite = {},
+  private async persistFetchState(
+    overrides: FetchStateWrite = {},
   ): Promise<void> {
-    await upsertSyncState(this.accountId, {
+    if (!this.progress.mode) {
+      throw new Error("Cannot persist Gmail fetch state without a sync mode");
+    }
+    await upsertFetchState(this.accountId, this.progress.mode, {
       status: this.progress.status,
       totalThreads: this.progress.totalThreads,
       fetchedThreads: this.progress.fetchedThreads,
-      processableThreads: this.progress.processableThreads,
-      processedThreads: this.progress.processedThreads,
       failedThreads: this.progress.failedThreads,
       lastError: this.progress.error,
-      ...(this.progress.mode ? { mode: this.progress.mode } : {}),
       ...(this.progress.startedAt ? { startedAt: this.progress.startedAt } : {}),
       ...overrides,
     });
@@ -729,7 +764,7 @@ export class GmailSyncOrchestrator {
   private async markCompleted(): Promise<void> {
     this.progress.status = "completed";
     this.progress.error = null;
-    await this.persistSyncState({
+    await this.persistFetchState({
       completedAt: new Date().toISOString(),
       lastError: null,
       status: "completed",
@@ -739,7 +774,7 @@ export class GmailSyncOrchestrator {
   private async markPaused(): Promise<void> {
     this.progress.status = "paused";
     this.progress.error = null;
-    await this.persistSyncState({
+    await this.persistFetchState({
       completedAt: null,
       lastError: null,
       status: "paused",
@@ -749,7 +784,7 @@ export class GmailSyncOrchestrator {
   private async markErrored(message: string): Promise<void> {
     this.progress.status = "error";
     this.progress.error = message;
-    await this.persistSyncState({
+    await this.persistFetchState({
       completedAt: null,
       lastError: message,
       status: "error",
@@ -772,12 +807,15 @@ export class GmailSyncOrchestrator {
     amount = 1,
   ): void {
     this.progress[field] = Math.max(0, this.progress[field] + amount);
-    incrementSyncProgress(this.accountId, field, amount).catch((error) => {
-      console.error(
-        `[gmail-sync] Failed to persist ${field} progress for account ${this.accountId}:`,
-        error,
-      );
-    });
+    if (field !== "fetchedThreads" && field !== "failedThreads") return;
+    if (!this.progress.mode) return;
+    incrementFetchProgress(this.accountId, this.progress.mode, field, amount)
+      .catch((error) => {
+        console.error(
+          `[gmail-sync] Failed to persist ${field} progress for account ${this.accountId}:`,
+          error,
+        );
+      });
   }
 
   private handleFetchSuccess(gmailThreadId: string): void {
@@ -808,6 +846,7 @@ export class GmailSyncOrchestrator {
 
     if (!shouldExtract) return;
 
+    this.extractableGmailThreadIds.add(item.gmailThreadId);
     this.bumpProgress("processableThreads");
   }
 
@@ -956,18 +995,14 @@ export async function cancelSync(accountId: string): Promise<boolean> {
     return true;
   }
 
-  // Orphaned "running" state in DB (likely from a previous server process).
-  // Force-reconcile so the UI stops showing it as active.
-  const state = await getSyncState(accountId);
-  if (
-    state
-    && (
-      state.status === "running"
-      || state.status === "paused"
-      || state.status === "interrupted"
-    )
-  ) {
-    await upsertSyncState(accountId, {
+  const states = await listFetchStates(accountId);
+  const activeState = states.find((state) =>
+    state.status === "running"
+    || state.status === "paused"
+    || state.status === "interrupted"
+  );
+  if (activeState?.mode === "full" || activeState?.mode === "incremental") {
+    await upsertFetchState(accountId, activeState.mode, {
       status: "paused",
       completedAt: null,
       lastError: null,
@@ -984,10 +1019,11 @@ export async function cancelSync(accountId: string): Promise<boolean> {
  */
 async function reconcileOrphanedSyncs(): Promise<void> {
   try {
-    const stuck = await getRunningSyncStates();
+    const stuck = await getRunningFetchStates();
     if (stuck.length === 0) return;
     for (const state of stuck) {
-      await upsertSyncState(state.accountId, {
+      if (state.mode !== "full" && state.mode !== "incremental") continue;
+      await upsertFetchState(state.accountId, state.mode, {
         status: "interrupted",
         completedAt: null,
         lastError: null,

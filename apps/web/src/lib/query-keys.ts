@@ -34,6 +34,16 @@ export const projectKeys = {
     ["projects", "chat-count", projectId] as const,
 };
 
+export const noteKeys = {
+  all: () => ["notes"] as const,
+  list: () => ["notes", "list"] as const,
+  detail: (noteId: string) => ["notes", "detail", noteId] as const,
+  search: (query: string) => ["notes", "search", query] as const,
+  backlinks: (noteId: string) => ["notes", "backlinks", noteId] as const,
+  outgoingLinks: (noteId: string) => ["notes", "outgoing", noteId] as const,
+  tags: () => ["notes", "tags"] as const,
+};
+
 export const skillsKeys = {
   global: () => ["skills", "list", "global"] as const,
   project: (projectId: string) => ["skills", "list", "project", projectId] as const,

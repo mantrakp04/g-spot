@@ -16,6 +16,7 @@ import { toast } from "sonner";
 
 import { SkillEditorDialog } from "@/components/skills/skill-editor-dialog";
 import { SkillExplorerDialog } from "@/components/skills/skill-explorer-dialog";
+import { useConfirmDialog } from "@/contexts/confirm-dialog-context";
 import {
   useDeleteSkillMutation,
   useGlobalSkills,
@@ -40,6 +41,7 @@ export function SkillsView({ projectId, description }: SkillsViewProps) {
   const globalQuery = useGlobalSkills();
   const projectQuery = useProjectSkills(projectId);
   const deleteSkill = useDeleteSkillMutation(projectId);
+  const confirm = useConfirmDialog();
 
   const skillsQuery = projectId === null ? globalQuery : projectQuery;
   const [editorOpen, setEditorOpen] = useState(false);
@@ -57,12 +59,13 @@ export function SkillsView({ projectId, description }: SkillsViewProps) {
   }
 
   async function handleDelete(skill: Skill) {
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm(`Delete skill "${skill.name}"?`)
-    ) {
-      return;
-    }
+    const confirmed = await confirm({
+      title: "Delete skill?",
+      description: `Delete "${skill.name}"?`,
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!confirmed) return;
     try {
       await deleteSkill.mutateAsync({ id: skill.id });
       toast.success("Skill deleted");

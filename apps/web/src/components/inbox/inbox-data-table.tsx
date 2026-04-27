@@ -15,6 +15,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type ReactElement,
   type ReactNode,
 } from "react";
@@ -80,6 +81,16 @@ const ALIGN_JUSTIFY: Record<InboxAlign, string> = {
   center: "justify-center",
   right: "justify-end",
 };
+
+const DEFAULT_COLUMN_SIZE = {
+  minSize: 64,
+  size: 180,
+  maxSize: 520,
+};
+
+function cssColumnVar(columnId: string) {
+  return `--inbox-col-${columnId.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+}
 
 function resolveMeta<TData>(
   column: { columnDef: { meta?: ColumnDef<TData, unknown>["meta"] } },
@@ -245,8 +256,9 @@ export function InboxDataTable<TData>({
     columns,
     getRowId: (row) => getRowId(row),
     getCoreRowModel: getCoreRowModel(),
+    defaultColumn: DEFAULT_COLUMN_SIZE,
     enableColumnResizing: true,
-    columnResizeMode: "onChange",
+    columnResizeMode: "onEnd",
     manualPagination: true,
     manualSorting: true,
     state: {
@@ -257,68 +269,64 @@ export function InboxDataTable<TData>({
     onColumnSizingChange: setColumnSizing,
   });
 
-  // ── Fill column: measure container and absorb remaining space ──────
-
   const [scrollContainer, setScrollContainer] = useState<HTMLElement | null>(null);
-  const [containerWidth, setContainerWidth] = useState(0);
-
-  useEffect(() => {
-    if (!scrollContainer) return;
-    const measure = () => {
-      const width = scrollContainer.clientWidth;
-      if (width > 0) {
-        setContainerWidth((prev) => (prev === width ? prev : width));
-      }
-    };
-
-    measure();
-
-    const ro = new ResizeObserver(() => {
-      measure();
-    });
-    ro.observe(scrollContainer);
-    return () => ro.disconnect();
-  }, [scrollContainer]);
-
   const visibleLeafColumns = table.getVisibleLeafColumns();
-  const fillColumn = useMemo(
-    () =>
-      fillColumnId
-        ? visibleLeafColumns.find((column) => column.id === fillColumnId) ?? null
-        : null,
-    [fillColumnId, visibleLeafColumns],
+
+  const columnSizeVars = useMemo(() => {
+    const vars: Record<string, string> = {};
+    for (const column of visibleLeafColumns) {
+      vars[cssColumnVar(column.id)] = `${Math.round(column.getSize())}px`;
+    }
+    return vars as CSSProperties;
+  }, [visibleLeafColumns]);
+
+  const getColumnWidthStyle = useCallback(
+    (columnId: string): CSSProperties | undefined => {
+      if (
+        columnId === fillColumnId &&
+        !Object.prototype.hasOwnProperty.call(columnSizing, columnId)
+      ) {
+        return undefined;
+      }
+
+      return { width: `var(${cssColumnVar(columnId)})` };
+    },
+    [columnSizing, fillColumnId],
   );
-  const hasExplicitFillWidth = fillColumnId
-    ? Object.prototype.hasOwnProperty.call(columnSizing, fillColumnId)
-    : false;
-  const nonFillColumnsWidth = useMemo(
-    () =>
-      visibleLeafColumns.reduce(
-        (sum, column) => sum + (column.id === fillColumnId ? 0 : column.getSize()),
-        0,
-      ),
-    [fillColumnId, visibleLeafColumns],
+
+  const persistColumnSizing = useCallback(
+    (nextSizing: ColumnSizingState) => {
+      if (!onColumnConfigChange) return;
+
+      onColumnConfigChange(
+        columnConfig.map((column) => ({
+          ...column,
+          width: Object.prototype.hasOwnProperty.call(nextSizing, column.id)
+            ? Math.round(nextSizing[column.id]!)
+            : column.width,
+        })),
+      );
+    },
+    [columnConfig, onColumnConfigChange],
   );
-  const fillWidthFloor = fillColumnId
-    ? Math.max(120, Math.round(columnSizing[fillColumnId] ?? 120))
-    : 120;
-  const renderedFillWidth = fillColumn
-    ? containerWidth > 0
-      ? Math.max(
-          hasExplicitFillWidth ? fillWidthFloor : 120,
-          containerWidth - nonFillColumnsWidth,
-        )
-      : Math.max(fillColumn.getSize(), hasExplicitFillWidth ? fillWidthFloor : 120)
-    : null;
-  const renderedTableWidth = fillColumn
-    ? nonFillColumnsWidth + (renderedFillWidth ?? fillColumn.getSize())
-    : visibleLeafColumns.reduce((sum, column) => sum + column.getSize(), 0);
-  const getRenderedColumnWidth = useCallback(
-    (columnId: string, fallbackWidth: number) =>
-      columnId === fillColumnId && renderedFillWidth != null
-        ? renderedFillWidth
-        : fallbackWidth,
-    [fillColumnId, renderedFillWidth],
+
+  const resetColumnSize = useCallback(
+    (columnId: string, resetSize: () => void) => {
+      resetSize();
+      setColumnSizing((current) => {
+        const next = { ...current };
+        delete next[columnId];
+        return next;
+      });
+
+      if (!onColumnConfigChange) return;
+      onColumnConfigChange(
+        columnConfig.map((column) =>
+          column.id === columnId ? { ...column, width: null } : column,
+        ),
+      );
+    },
+    [columnConfig, onColumnConfigChange],
   );
 
   // ── Persist exactly once per drag, on release ───────────────────────
@@ -326,22 +334,14 @@ export function InboxDataTable<TData>({
   const isResizingColumn = Boolean(
     table.getState().columnSizingInfo.isResizingColumn,
   );
+  const resizeDeltaOffset = table.getState().columnSizingInfo.deltaOffset ?? 0;
   const wasResizingRef = useRef(false);
   useEffect(() => {
     const wasResizing = wasResizingRef.current;
     wasResizingRef.current = isResizingColumn;
     if (!wasResizing || isResizingColumn) return;
-    if (!onColumnConfigChange) return;
-
-    onColumnConfigChange(
-      columnConfig.map((column) => ({
-        ...column,
-        width: Object.prototype.hasOwnProperty.call(columnSizing, column.id)
-          ? Math.round(columnSizing[column.id]!)
-          : column.width,
-      })),
-    );
-  }, [isResizingColumn, columnSizing, columnConfig, onColumnConfigChange]);
+    persistColumnSizing(columnSizing);
+  }, [isResizingColumn, columnSizing, persistColumnSizing]);
   const sentinelRef = useInfiniteScroll({
     hasNextPage: hasNextPage ?? false,
     isFetchingNextPage: isFetchingNextPage ?? false,
@@ -393,10 +393,7 @@ export function InboxDataTable<TData>({
       >
         <Table
           className="table-fixed"
-          style={{
-            width: renderedTableWidth > 0 ? renderedTableWidth : undefined,
-            minWidth: "100%",
-          }}
+          style={columnSizeVars}
         >
           <TableHeader className="sticky top-0 z-10 bg-card">
             {headerGroups.map((group) => (
@@ -408,12 +405,8 @@ export function InboxDataTable<TData>({
                   return (
                     <TableHead
                       key={header.id}
-                      style={{
-                        width: getRenderedColumnWidth(
-                          header.column.id,
-                          header.getSize(),
-                        ),
-                      }}
+                      data-col={header.column.id}
+                      style={getColumnWidthStyle(header.column.id)}
                       className={cn(
                         "relative",
                         BREAKPOINT_CLASS[meta.breakpoint],
@@ -442,6 +435,13 @@ export function InboxDataTable<TData>({
                           role="separator"
                           aria-orientation="vertical"
                           aria-label={`Resize ${String(header.column.id)} column`}
+                          style={
+                            isResizing
+                              ? {
+                                  transform: `translate3d(${resizeDeltaOffset}px, 0, 0)`,
+                                }
+                              : undefined
+                          }
                           onMouseDown={(event) => {
                             event.stopPropagation();
                             header.getResizeHandler()(event);
@@ -450,13 +450,17 @@ export function InboxDataTable<TData>({
                             event.stopPropagation();
                             header.getResizeHandler()(event);
                           }}
-                          onDoubleClick={() => header.column.resetSize()}
+                          onDoubleClick={() =>
+                            resetColumnSize(header.column.id, () =>
+                              header.column.resetSize(),
+                            )
+                          }
                           className={cn(
-                            "absolute top-0 right-0 z-20 h-full w-1.5 cursor-col-resize touch-none select-none",
+                            "absolute top-0 right-0 z-20 h-full w-3 cursor-col-resize touch-none select-none will-change-transform",
                             "transition-colors",
                             isResizing
-                              ? "bg-foreground/60"
-                              : "bg-transparent hover:bg-foreground/30",
+                              ? "bg-foreground/50"
+                              : "bg-transparent hover:bg-foreground/25",
                           )}
                         />
                       )}
@@ -478,12 +482,8 @@ export function InboxDataTable<TData>({
                       return (
                         <TableCell
                           key={column.id}
-                          style={{
-                            width: getRenderedColumnWidth(
-                              column.id,
-                              column.getSize(),
-                            ),
-                          }}
+                          data-col={column.id}
+                          style={getColumnWidthStyle(column.id)}
                           className={cn(
                             "overflow-hidden",
                             BREAKPOINT_CLASS[meta.breakpoint],
@@ -531,12 +531,8 @@ export function InboxDataTable<TData>({
                           return (
                             <TableCell
                               key={cell.id}
-                              style={{
-                                width: getRenderedColumnWidth(
-                                  cell.column.id,
-                                  cell.column.getSize(),
-                                ),
-                              }}
+                              data-col={cell.column.id}
+                              style={getColumnWidthStyle(cell.column.id)}
                               className={cn(
                                 "overflow-hidden",
                                 BREAKPOINT_CLASS[meta.breakpoint],

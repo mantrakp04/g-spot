@@ -3,7 +3,9 @@ import { chatRouter } from "./chat";
 import { gitRouter } from "./git";
 import { gmailRouter } from "./gmail";
 import { gmailSyncRouter } from "./gmail-sync";
+import { mcpRouter } from "./mcp";
 import { memoryRouter } from "./memory";
+import { notesRouter } from "./notes";
 import { piRouter } from "./pi";
 import { projectsRouter } from "./projects";
 import { relayRouter } from "./relay";
@@ -21,8 +23,10 @@ export const appRouter = router({
   projects: projectsRouter,
   skills: skillsRouter,
   memory: memoryRouter,
+  notes: notesRouter,
   gmail: gmailRouter,
   gmailSync: gmailSyncRouter,
+  mcp: mcpRouter,
   relay: relayRouter,
 });
 

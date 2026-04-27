@@ -33,11 +33,16 @@ const WRITE_TOOLS = new Set(["edit", "write"]);
 
 /**
  * Tools that could do arbitrary things, including reach the network, write
- * files outside the workspace, or delete data. `bash` is the only one in
- * practice, but we keep this as a set to leave room for future mcp / custom
- * tools.
+ * files outside the workspace, or delete data. `bash` is the only built-in,
+ * but MCP-origin tools (any name prefixed `mcp__`) also count — they can
+ * shell out, hit the network, or mutate external systems and so should be
+ * funneled through the same approval gate.
  */
 const SHELL_TOOLS = new Set(["bash"]);
+
+function isMcpTool(toolName: string): boolean {
+  return toolName.startsWith("mcp__");
+}
 
 /**
  * Cheap heuristic for detecting commands that need network access. Used
@@ -97,6 +102,14 @@ function sandboxDecision(
           "Sandbox is read-only — shell commands that could mutate state are disabled. Switch the chat's permission mode to Auto or Bypass to run commands.",
       };
     }
+
+    if (isMcpTool(toolName)) {
+      return {
+        kind: "block",
+        reason:
+          "Sandbox is read-only — MCP tools may have side effects and are disabled. Switch the chat's permission mode to Auto or Bypass to use them.",
+      };
+    }
   }
 
   // workspace-write: writes and shell commands are allowed but confined to
@@ -135,8 +148,13 @@ function approvalDecision(
 
   // `approval-required` only gates tools that can have side effects. Pure
   // reads (grep/ls/find/read) still run without prompting to keep the
-  // conversation interactive.
-  if (WRITE_TOOLS.has(toolName) || SHELL_TOOLS.has(toolName)) {
+  // conversation interactive. MCP tools always go through approval here
+  // since their effects are server-defined and unknown to us.
+  if (
+    WRITE_TOOLS.has(toolName) ||
+    SHELL_TOOLS.has(toolName) ||
+    isMcpTool(toolName)
+  ) {
     return {
       kind: "require-approval",
       reason: `This chat is set to approval-required, so ${toolName} needs user approval before it can run.`,

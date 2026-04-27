@@ -17,8 +17,6 @@ describe("resolveSyncStartPlan", () => {
       syncState: {
         fetchedThreads: 4,
         mode: "full",
-        processableThreads: 4,
-        processedThreads: 3,
         status: "paused",
         totalThreads: 12,
       },
@@ -31,8 +29,8 @@ describe("resolveSyncStartPlan", () => {
       bootstrapProgress: {
         totalThreads: 12,
         fetchedThreads: 4,
-        processableThreads: 4,
-        processedThreads: 3,
+        processableThreads: 0,
+        processedThreads: 0,
         failedThreads: 0,
       },
     });
@@ -103,8 +101,6 @@ describe("resolveSyncStartPlan", () => {
       syncState: {
         fetchedThreads: 12,
         mode: "full",
-        processableThreads: 8,
-        processedThreads: 8,
         status: "completed",
         totalThreads: 12,
       },

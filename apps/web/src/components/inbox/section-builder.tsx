@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, type ReactNode } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef, type ReactNode } from "react";
 import {
   DndContext,
   KeyboardSensor,
@@ -104,11 +104,20 @@ import {
   useUpdateSectionMutation,
 } from "@/hooks/use-sections";
 import {
+  SectionFilterAiButton,
+} from "@/ai-flows/section-filters/section-filter-ai-button";
+import {
+  useSectionFilterAgent,
+  type QueryableFilterValue,
+} from "@/ai-flows/section-filters/use-section-filter-agent";
+import {
   useGitHubRepoSearch,
   useGitHubLabels,
+  useGitHubProfile,
 } from "@/hooks/use-github-options";
 import {
   useGmailLabels,
+  useGoogleProfile,
 } from "@/hooks/use-gmail-options";
 import { useSectionFilterSuggestions } from "@/hooks/use-filter-suggestions";
 import { ConnectedAccountSelect } from "./connected-account-select";
@@ -549,6 +558,7 @@ function SectionBuilderContent({
   const [name, setName] = useState("");
   const [source, setSource] = useState<SectionSource>("github_pr");
   const [filters, setFilters] = useState<FilterRule>(() => createBuilderGroup("and", "github_pr"));
+  const filtersRef = useRef(filters);
   const [filterSearchQueries, setFilterSearchQueries] = useState<Record<string, string>>({});
   const [repos, setRepos] = useState<string[]>([]);
   const [accountId, setAccountId] = useState<string | null>(null);
@@ -561,6 +571,11 @@ function SectionBuilderContent({
     useSensor(KeyboardSensor),
   );
 
+  // Keep the save path synced with the latest async AI result.
+  useEffect(() => {
+    filtersRef.current = filters;
+  }, [filters]);
+
   // Reset form when dialog opens
   useEffect(() => {
     if (open) {
@@ -570,6 +585,7 @@ function SectionBuilderContent({
       );
       setName(section?.name ?? "");
       setSource(nextSource);
+      filtersRef.current = nextFilters;
       setFilters(nextFilters);
       setFilterSearchQueries({});
       setRepos(section ? parseJson(section.repos, []) : []);
@@ -601,6 +617,15 @@ function SectionBuilderContent({
     if (!accountId) return null;
     return accounts.find((a) => a.providerAccountId === accountId) ?? null;
   }, [accounts, accountId]);
+  const { data: githubProfile } = useGitHubProfile(
+    isGitHubSource ? selectedAccount : null,
+  );
+  const { data: googleProfile } = useGoogleProfile(
+    source === "gmail" ? selectedAccount : null,
+  );
+  const selectedAccountLabel = isGitHubSource
+    ? githubProfile?.login ?? null
+    : googleProfile?.email ?? null;
 
   // Repo search with dynamic query + infinite pagination
   const [repoQuery, setRepoQuery] = useState("");
@@ -652,9 +677,70 @@ function SectionBuilderContent({
     gmailLabelOptions,
   });
 
+  const queryableFilterValues = useMemo<QueryableFilterValue[]>(() => {
+    const values: QueryableFilterValue[] = [];
+    const pushOption = (
+      field: string,
+      option: { value: string; label: string } | undefined,
+    ) => {
+      if (!option?.value) return;
+      values.push({
+        field,
+        value: option.value,
+        label: option.label || option.value,
+      });
+    };
+
+    for (const repo of repos) {
+      values.push({ field: "repo", value: repo, label: repo });
+    }
+    for (const repo of repoSearchResults) {
+      values.push({ field: "repo", value: repo.value, label: repo.label });
+    }
+    if (isGitHubSource && githubProfile?.login) {
+      const viewerFields = source === "github_pr"
+        ? ["author", "reviewer", "assignee", "mentions", "involves"]
+        : ["author", "assignee", "mentions", "involves"];
+      for (const field of viewerFields) {
+        values.push({
+          field,
+          value: githubProfile.login,
+          label: githubProfile.login,
+        });
+      }
+    }
+    for (const option of labelOptions ?? []) pushOption("label", option);
+    for (const option of gmailLabelOptions ?? []) pushOption("label", option);
+
+    flatFilterConditions.forEach((condition, index) => {
+      const state = suggestionStates[index];
+      state?.options?.forEach((option) => pushOption(condition.field, option));
+    });
+
+    return values;
+  }, [
+    flatFilterConditions,
+    gmailLabelOptions,
+    githubProfile?.login,
+    isGitHubSource,
+    labelOptions,
+    repoSearchResults,
+    repos,
+    source,
+    suggestionStates,
+  ]);
+
   const createMutation = useCreateSectionMutation();
   const updateMutation = useUpdateSectionMutation();
   const deleteMutation = useDeleteSectionMutation();
+  const buildFiltersMutation = useSectionFilterAgent({
+    onBuilt: (nextFilters) => {
+      const builderFilters = withFilterNodeIds(nextFilters);
+      filtersRef.current = builderFilters;
+      setFilters(builderFilters);
+      setFilterSearchQueries({});
+    },
+  });
 
   function updateColumn(id: string, updater: (column: ColumnConfig) => ColumnConfig) {
     setColumns((prev) => prev.map((column) => (
@@ -678,7 +764,7 @@ function SectionBuilderContent({
     const trimmedName = name.trim();
     if (!trimmedName) return;
 
-    const validFilters = stripFilterRuleIds(pruneEmptyFilterRule(filters));
+    const validFilters = stripFilterRuleIds(pruneEmptyFilterRule(filtersRef.current));
 
     if (isEdit && section) {
       await updateMutation.mutateAsync({
@@ -711,7 +797,22 @@ function SectionBuilderContent({
     onOpenChange(false);
   }
 
-  const isSaving = createMutation.isPending || updateMutation.isPending;
+  function handleBuildFilters() {
+    const trimmedName = name.trim();
+    if (!trimmedName || buildFiltersMutation.isPending) return;
+
+    buildFiltersMutation.mutate({
+      name: trimmedName,
+      source,
+      currentFilters: stripFilterRuleIds(pruneEmptyFilterRule(filters)),
+      repos,
+      accountId,
+      accountLabel: selectedAccountLabel,
+      queryableValues: queryableFilterValues,
+    });
+  }
+
+  const isSaving = createMutation.isPending || updateMutation.isPending || buildFiltersMutation.isPending;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -728,13 +829,25 @@ function SectionBuilderContent({
             <Label htmlFor="section-name" className="text-xs font-medium text-muted-foreground">
               Section name
             </Label>
-            <Input
-              id="section-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Needs your review"
-              className="h-9"
-            />
+            <div className="relative">
+              <Input
+                id="section-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+                  e.preventDefault();
+                  handleBuildFilters();
+                }}
+                placeholder="e.g. Needs your review"
+                className="h-9 pr-9"
+              />
+              <SectionFilterAiButton
+                disabled={!name.trim()}
+                isPending={buildFiltersMutation.isPending}
+                onClick={handleBuildFilters}
+              />
+            </div>
           </div>
 
           {/* Source + Account in a row */}

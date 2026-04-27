@@ -117,6 +117,7 @@ export default {
       [sharpNativeCopyPath]: `bun/node_modules/@img/sharp-${sharpSuffix}`,
       [sharpLibvipsCopyPath]: `bun/node_modules/@img/sharp-libvips-${sharpSuffix}`,
       [sqliteVecCopyPath]: `native/sqlite-vec/vec0.${sqliteVecExt}`,
+      "native/libgspot_window_tabs.dylib": "bun/native/libgspot_window_tabs.dylib",
     },
     watchIgnore: [`${webBuildDir}/**`],
     mac: {

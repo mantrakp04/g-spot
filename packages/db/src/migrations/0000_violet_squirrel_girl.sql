@@ -312,4 +312,4 @@ CREATE TABLE `sections` (
 	`updated_at` text DEFAULT (current_timestamp) NOT NULL
 );
 --> statement-breakpoint
-CREATE INDEX `sections_position_idx` ON `sections` (`position`);--> statement-breakpoint
+CREATE INDEX `sections_position_idx` ON `sections` (`position`);

@@ -22,6 +22,10 @@ import { refreshChatTitle } from "./chat-title";
 import { extractChatTurnToMemory } from "./lib/memory-ingest-hook";
 import { listWorkspaces } from "./lib/git";
 import {
+  getMcpToolsForProject,
+  loadProjectMcps,
+} from "./lib/mcp/manager";
+import {
   createPiAgentSession,
   normalizeStoredChatAgentConfig,
   type PiAgentSessionProject,
@@ -196,9 +200,17 @@ async function startChatRun(body: ChatStreamRequestBody): Promise<void> {
       message: serializePiMessage(userMessage),
     });
 
+    // First message in this project triggers MCP spawn (cached afterwards).
+    // Errors here are logged inside the manager and don't block the chat.
+    await loadProjectMcps({
+      projectId: project.id,
+      projectPath: projectRow.path,
+    });
+
     const { session, config } = await createPiAgentSession({
       config: chatConfig,
       project,
+      customTools: getMcpToolsForProject(project.id),
     });
 
     session.agent.state.messages = [...history];

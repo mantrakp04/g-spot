@@ -9,6 +9,7 @@ import {
   handleChatStatusSocketOpen,
 } from "@g-spot/api/chat-stream";
 import {
+  handleAttachmentByName,
   handleFileUpload,
   handleFileDownload,
   handleFileExtractedText,
@@ -17,6 +18,10 @@ import { createContext } from "@g-spot/api/context";
 import { appRouter } from "@g-spot/api/routers/index";
 import { env } from "@g-spot/env/server";
 import { startDecayCron } from "@g-spot/api/lib/memory-cron";
+import {
+  loadGlobalMcps,
+  shutdownAllMcps,
+} from "@g-spot/api/lib/mcp/manager";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { Elysia } from "elysia";
 import { existsSync } from "node:fs";
@@ -179,6 +184,9 @@ export const app = new Elysia()
     handleFileExtractedText(params.fileId),
   )
   .get("/api/files/:fileId", ({ params }) => handleFileDownload(params.fileId))
+  .get("/api/notes/attachments/:filename", ({ params }) =>
+    handleAttachmentByName(params.filename),
+  )
   .get("/assets/*", async ({ params }) => {
     const file = await serveWebAsset(`assets/${params["*"]}`);
     return file ?? new Response("Not found", { status: 404 });
@@ -191,4 +199,22 @@ export const app = new Elysia()
   .get("/", () => "OK")
   .listen(env.SERVER_PORT, () => {
     startDecayCron();
+    void loadGlobalMcps();
   });
+
+let mcpShutdownPromise: Promise<void> | null = null;
+function shutdownMcps() {
+  if (!mcpShutdownPromise) {
+    mcpShutdownPromise = shutdownAllMcps();
+  }
+  return mcpShutdownPromise;
+}
+
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.on(signal, () => {
+    void shutdownMcps().finally(() => process.exit(0));
+  });
+}
+process.on("beforeExit", () => {
+  void shutdownMcps();
+});

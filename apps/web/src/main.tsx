@@ -7,6 +7,13 @@ import { stackClientApp } from "./stack/client";
 import { routeTree } from "./routeTree.gen";
 import { queryClient, trpc } from "./utils/trpc";
 
+if (
+  window.location.protocol === "views:" &&
+  window.location.pathname === "/index.html"
+) {
+  window.history.replaceState(null, "", "/");
+}
+
 const router = createRouter({
   routeTree,
   defaultPreload: "intent",

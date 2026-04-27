@@ -314,6 +314,8 @@ export function buildGmailColumns({
             header: () => null,
             cell: ({ row }) => <UnreadDotCell thread={row.original} />,
             size: 32,
+            minSize: 32,
+            maxSize: 32,
             enableResizing: false,
             enableHiding: false,
             meta: {
@@ -329,6 +331,8 @@ export function buildGmailColumns({
       header: () => labelOverride("from") ?? GMAIL_COLUMN_META.from.label,
       cell: ({ row }) => <FromCell thread={row.original} truncation={truncationFor("from")} />,
       size: GMAIL_COLUMN_META.from.width ?? 176,
+      minSize: GMAIL_COLUMN_META.from.minWidth,
+      maxSize: GMAIL_COLUMN_META.from.maxWidth,
       meta: {
         align: GMAIL_COLUMN_META.from.align,
         truncation: GMAIL_COLUMN_META.from.truncation,
@@ -341,7 +345,9 @@ export function buildGmailColumns({
       id: "labels",
       header: () => labelOverride("labels") ?? GMAIL_COLUMN_META.labels.label,
       cell: ({ row }) => <LabelsCell thread={row.original} labelCatalog={labelCatalog} />,
-      size: 120,
+      size: GMAIL_COLUMN_META.labels.width ?? 120,
+      minSize: GMAIL_COLUMN_META.labels.minWidth,
+      maxSize: GMAIL_COLUMN_META.labels.maxWidth,
       meta: {
         align: GMAIL_COLUMN_META.labels.align,
         truncation: GMAIL_COLUMN_META.labels.truncation,
@@ -368,7 +374,9 @@ export function buildGmailColumns({
           )}
         </div>
       ),
-      size: 560,
+      size: GMAIL_COLUMN_META.subject.width ?? 360,
+      minSize: GMAIL_COLUMN_META.subject.minWidth,
+      maxSize: GMAIL_COLUMN_META.subject.maxWidth,
       meta: {
         align: GMAIL_COLUMN_META.subject.align,
         truncation: GMAIL_COLUMN_META.subject.truncation,
@@ -384,6 +392,8 @@ export function buildGmailColumns({
         </span>
       ),
       size: GMAIL_COLUMN_META.date.width ?? 80,
+      minSize: GMAIL_COLUMN_META.date.minWidth,
+      maxSize: GMAIL_COLUMN_META.date.maxWidth,
       meta: {
         align: GMAIL_COLUMN_META.date.align,
         truncation: GMAIL_COLUMN_META.date.truncation,
@@ -392,4 +402,3 @@ export function buildGmailColumns({
     },
   ];
 }
-

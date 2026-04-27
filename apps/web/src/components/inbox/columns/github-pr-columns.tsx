@@ -441,7 +441,9 @@ export function buildPrColumns({
           truncation={truncationFor("title")}
         />
       ),
-      size: 560,
+      size: metaFor("title").width ?? 360,
+      minSize: metaFor("title").minWidth,
+      maxSize: metaFor("title").maxWidth,
       meta: {
         align: metaFor("title").align,
         truncation: metaFor("title").truncation,
@@ -455,6 +457,8 @@ export function buildPrColumns({
       header: () => labelOverride("reviewers") ?? metaFor("reviewers").label,
       cell: ({ row }) => <ReviewersCell pr={row.original} />,
       size: metaFor("reviewers").width ?? 112,
+      minSize: metaFor("reviewers").minWidth,
+      maxSize: metaFor("reviewers").maxWidth,
       meta: {
         align: metaFor("reviewers").align,
         truncation: metaFor("reviewers").truncation,
@@ -466,6 +470,9 @@ export function buildPrColumns({
       header: () => labelOverride("ci") ?? metaFor("ci").label,
       cell: ({ row }) => <StatusCheckPopover pr={row.original} />,
       size: metaFor("ci").width ?? 48,
+      minSize: metaFor("ci").minWidth,
+      maxSize: metaFor("ci").maxWidth,
+      enableResizing: false,
       meta: {
         align: metaFor("ci").align,
         breakpoint: metaFor("ci").breakpoint,
@@ -476,6 +483,9 @@ export function buildPrColumns({
       header: () => labelOverride("review") ?? metaFor("review").label,
       cell: ({ row }) => <ReviewDecisionPopover pr={row.original} />,
       size: metaFor("review").width ?? 56,
+      minSize: metaFor("review").minWidth,
+      maxSize: metaFor("review").maxWidth,
+      enableResizing: false,
       meta: {
         align: metaFor("review").align,
         breakpoint: metaFor("review").breakpoint,
@@ -485,7 +495,9 @@ export function buildPrColumns({
       id: "labels",
       header: () => labelOverride("labels") ?? metaFor("labels").label,
       cell: ({ row }) => <GitHubLabels labels={row.original.labels} />,
-      size: 120,
+      size: metaFor("labels").width ?? 120,
+      minSize: metaFor("labels").minWidth,
+      maxSize: metaFor("labels").maxWidth,
       meta: {
         align: metaFor("labels").align,
         breakpoint: metaFor("labels").breakpoint,
@@ -504,7 +516,9 @@ export function buildPrColumns({
           </span>
         );
       },
-      size: 96,
+      size: metaFor("changes").width ?? 96,
+      minSize: metaFor("changes").minWidth,
+      maxSize: metaFor("changes").maxWidth,
       meta: {
         align: metaFor("changes").align,
         truncation: metaFor("changes").truncation,
@@ -520,6 +534,8 @@ export function buildPrColumns({
         </span>
       ),
       size: metaFor("updated").width ?? 80,
+      minSize: metaFor("updated").minWidth,
+      maxSize: metaFor("updated").maxWidth,
       meta: {
         align: metaFor("updated").align,
         truncation: metaFor("updated").truncation,
@@ -534,6 +550,8 @@ export function buildPrColumns({
         <ExternalLink className="size-3 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
       ),
       size: 32,
+      minSize: 32,
+      maxSize: 32,
       enableResizing: false,
       enableHiding: false,
       meta: {

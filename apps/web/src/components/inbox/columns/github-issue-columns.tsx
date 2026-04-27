@@ -175,7 +175,9 @@ export function buildIssueColumns({
           truncation={truncationFor("title")}
         />
       ),
-      size: 560,
+      size: metaFor("title").width ?? 360,
+      minSize: metaFor("title").minWidth,
+      maxSize: metaFor("title").maxWidth,
       meta: {
         align: metaFor("title").align,
         truncation: metaFor("title").truncation,
@@ -189,6 +191,8 @@ export function buildIssueColumns({
       header: () => labelOverride("labels") ?? metaFor("labels").label,
       cell: ({ row }) => <GitHubLabels labels={row.original.labels} />,
       size: metaFor("labels").width ?? 96,
+      minSize: metaFor("labels").minWidth,
+      maxSize: metaFor("labels").maxWidth,
       meta: {
         align: metaFor("labels").align,
         breakpoint: metaFor("labels").breakpoint,
@@ -199,6 +203,8 @@ export function buildIssueColumns({
       header: () => labelOverride("assignees") ?? metaFor("assignees").label,
       cell: ({ row }) => <AssigneesCell issue={row.original} />,
       size: metaFor("assignees").width ?? 120,
+      minSize: metaFor("assignees").minWidth,
+      maxSize: metaFor("assignees").maxWidth,
       meta: {
         align: metaFor("assignees").align,
         truncation: metaFor("assignees").truncation,
@@ -210,6 +216,8 @@ export function buildIssueColumns({
       header: () => labelOverride("status") ?? metaFor("status").label,
       cell: ({ row }) => <StatusCell issue={row.original} />,
       size: metaFor("status").width ?? 112,
+      minSize: metaFor("status").minWidth,
+      maxSize: metaFor("status").maxWidth,
       meta: {
         align: metaFor("status").align,
         breakpoint: metaFor("status").breakpoint,
@@ -220,6 +228,8 @@ export function buildIssueColumns({
       header: () => labelOverride("reactions") ?? metaFor("reactions").label,
       cell: ({ row }) => <ReactionsCell issue={row.original} />,
       size: metaFor("reactions").width ?? 88,
+      minSize: metaFor("reactions").minWidth,
+      maxSize: metaFor("reactions").maxWidth,
       meta: {
         align: metaFor("reactions").align,
         breakpoint: metaFor("reactions").breakpoint,
@@ -230,6 +240,8 @@ export function buildIssueColumns({
       header: () => labelOverride("comments") ?? metaFor("comments").label,
       cell: ({ row }) => <CommentsCell issue={row.original} />,
       size: metaFor("comments").width ?? 80,
+      minSize: metaFor("comments").minWidth,
+      maxSize: metaFor("comments").maxWidth,
       meta: {
         align: metaFor("comments").align,
         truncation: metaFor("comments").truncation,
@@ -242,7 +254,9 @@ export function buildIssueColumns({
       cell: ({ row }) => (
         <MilestoneCell issue={row.original} truncation={truncationFor("milestone")} />
       ),
-      size: 120,
+      size: metaFor("milestone").width ?? 120,
+      minSize: metaFor("milestone").minWidth,
+      maxSize: metaFor("milestone").maxWidth,
       meta: {
         align: metaFor("milestone").align,
         truncation: metaFor("milestone").truncation,
@@ -256,6 +270,8 @@ export function buildIssueColumns({
         <span className="text-xs text-muted-foreground">{relativeTime(row.original.createdAt)}</span>
       ),
       size: metaFor("created").width ?? 80,
+      minSize: metaFor("created").minWidth,
+      maxSize: metaFor("created").maxWidth,
       meta: {
         align: metaFor("created").align,
         truncation: metaFor("created").truncation,
@@ -271,6 +287,8 @@ export function buildIssueColumns({
         </span>
       ),
       size: metaFor("updated").width ?? 80,
+      minSize: metaFor("updated").minWidth,
+      maxSize: metaFor("updated").maxWidth,
       meta: {
         align: metaFor("updated").align,
         truncation: metaFor("updated").truncation,
@@ -284,6 +302,8 @@ export function buildIssueColumns({
         <ExternalLink className="size-3 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
       ),
       size: 32,
+      minSize: 32,
+      maxSize: 32,
       enableResizing: false,
       enableHiding: false,
       meta: {

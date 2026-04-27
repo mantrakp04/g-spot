@@ -8,6 +8,20 @@
       "when": 1777155748234,
       "tag": "0000_violet_squirrel_girl",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1777184880794,
+      "tag": "0001_foamy_havok",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1777257559011,
+      "tag": "0002_demonic_loners",
+      "breakpoints": true
     }
   ]
 }

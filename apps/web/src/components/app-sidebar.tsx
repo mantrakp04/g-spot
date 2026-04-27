@@ -23,6 +23,7 @@ import {
   ChevronsLeft,
   BrainIcon,
   Settings2,
+  NotebookText,
 } from "lucide-react";
 import { useDrafts } from "@/contexts/drafts-context";
 import { useSectionCounts } from "@/contexts/section-counts-context";
@@ -324,6 +325,13 @@ function AppSidebarContent({
 
       {/* Compose button */}
       <div className="flex flex-col border-b border-sidebar-border p-2">
+        <Link
+          to="/notes"
+          className="flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-sidebar-accent"
+        >
+          <NotebookText className="size-3 shrink-0 text-muted-foreground" />
+          <span>Notes</span>
+        </Link>
         <button
           type="button"
           onClick={handleCompose}

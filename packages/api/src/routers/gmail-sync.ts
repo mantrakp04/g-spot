@@ -1,9 +1,10 @@
 import { z } from "zod";
 
 import {
+  getAnalysisState,
   getGmailAccount,
   getGmailThreadStats,
-  getSyncState,
+  listFetchStates,
   upsertGmailAccount,
 } from "@g-spot/db/gmail";
 
@@ -21,21 +22,34 @@ import {
 } from "../lib/gmail-extraction";
 import { getProfile } from "../lib/gmail-client";
 
+type OperationStatus = "idle" | "running" | "paused" | "interrupted" | "completed" | "error";
+
+type FetchProgressResponse = {
+  status: OperationStatus;
+  totalThreads: number;
+  syncedThreads: number;
+  failedThreads: number;
+  startedAt: string | null;
+  error: string | null;
+};
+
+type AnalysisProgressResponse = {
+  status: Exclude<OperationStatus, "interrupted">;
+  totalInboxThreads: number;
+  analyzedInboxThreads: number;
+  failedInboxThreads: number;
+  remainingInboxThreads: number;
+  startedAt: string | null;
+  error: string | null;
+};
+
 type SyncProgressResponse = {
-  status: "idle" | "running" | "paused" | "interrupted" | "completed" | "error";
-  phase: "fetching" | "extracting" | null;
-  mode: "full" | "incremental" | null;
-  mail: {
-    totalThreads: number;
-    syncedThreads: number;
-    failedThreads: number;
+  fetch: {
+    activeMode: "full" | "incremental" | null;
+    full: FetchProgressResponse;
+    incremental: FetchProgressResponse;
   };
-  extraction: {
-    totalInboxThreads: number;
-    analyzedInboxThreads: number;
-    failedInboxThreads: number;
-    remainingInboxThreads: number;
-  };
+  analysis: AnalysisProgressResponse;
   account: {
     hasCompletedFullSync: boolean;
     hasCompletedIncrementalSync: boolean;
@@ -46,110 +60,193 @@ type SyncProgressResponse = {
     inboxThreads: number;
     unprocessedInboxThreads: number;
   };
-  startedAt: string | null;
-  error: string | null;
 };
 
-function toSyncProgressResponse(input: {
+function emptyFetchProgress(): FetchProgressResponse {
+  return {
+    status: "idle",
+    totalThreads: 0,
+    syncedThreads: 0,
+    failedThreads: 0,
+    startedAt: null,
+    error: null,
+  };
+}
+
+function emptyAnalysisProgress(local: {
+  inboxThreads: number;
+  unprocessedInboxThreads: number;
+}): AnalysisProgressResponse {
+  return {
+    status: local.inboxThreads > 0 && local.unprocessedInboxThreads === 0
+      ? "completed"
+      : "idle",
+    totalInboxThreads: local.inboxThreads,
+    analyzedInboxThreads: Math.max(0, local.inboxThreads - local.unprocessedInboxThreads),
+    failedInboxThreads: 0,
+    remainingInboxThreads: local.unprocessedInboxThreads,
+    startedAt: null,
+    error: null,
+  };
+}
+
+function toFetchProgressResponse(input: {
   status: string;
-  mode: string | null;
   totalThreads: number;
   fetchedThreads: number;
-  processableThreads: number;
-  processedThreads: number;
   failedThreads: number;
   startedAt: string | null;
   error: string | null;
-  account: {
-    lastFullSyncAt: string | null;
-    lastIncrementalSyncAt: string | null;
-    needsFullResync: boolean;
-  };
-  local: {
-    totalThreads: number;
-    inboxThreads: number;
-    unprocessedInboxThreads: number;
-  };
-}): SyncProgressResponse {
-  const status = isSyncStatus(input.status) ? input.status : "idle";
-  const phase =
-    status === "running"
-      ? input.totalThreads === 0 && input.processableThreads > 0
-        ? "extracting"
-        : "fetching"
-      : null;
-  const analyzedInboxThreads = input.processedThreads;
-  const remainingInboxThreads = input.local.unprocessedInboxThreads > 0
-    ? input.local.unprocessedInboxThreads
-    : Math.max(0, input.processableThreads - input.processedThreads);
+}): FetchProgressResponse {
+  const status = isOperationStatus(input.status) ? input.status : "idle";
 
   return {
     status,
-    phase,
-    mode: input.mode === "full" || input.mode === "incremental" ? input.mode : null,
-    mail: {
-      totalThreads: input.totalThreads,
-      syncedThreads: input.fetchedThreads,
-      failedThreads: phase === "fetching" ? input.failedThreads : 0,
-    },
-    extraction: {
-      totalInboxThreads: input.processableThreads,
-      analyzedInboxThreads,
-      failedInboxThreads: phase === "extracting" ? input.failedThreads : 0,
-      remainingInboxThreads,
-    },
-    account: {
-      hasCompletedFullSync: Boolean(input.account.lastFullSyncAt),
-      hasCompletedIncrementalSync: Boolean(input.account.lastIncrementalSyncAt),
-      needsFullResync: input.account.needsFullResync,
-    },
-    local: input.local,
+    totalThreads: input.totalThreads,
+    syncedThreads: input.fetchedThreads,
+    failedThreads: input.failedThreads,
     startedAt: input.startedAt,
     error: input.error,
   };
 }
 
-async function getProgressContext(account: {
+function toAnalysisProgressResponse(
+  input: {
+    status: string;
+    totalThreads: number;
+    analyzedThreads: number;
+    failedThreads: number;
+    startedAt: string | null;
+    error: string | null;
+  },
+  local: { inboxThreads: number; unprocessedInboxThreads: number },
+): AnalysisProgressResponse {
+  const status = isAnalysisStatus(input.status) ? input.status : "idle";
+  const totalInboxThreads = status === "running" || status === "paused" || status === "error"
+    ? input.totalThreads
+    : local.inboxThreads;
+  const analyzedInboxThreads = status === "running" || status === "paused" || status === "error"
+    ? input.analyzedThreads
+    : Math.max(0, local.inboxThreads - local.unprocessedInboxThreads);
+
+  return {
+    status,
+    totalInboxThreads,
+    analyzedInboxThreads,
+    failedInboxThreads: input.failedThreads,
+    remainingInboxThreads: local.unprocessedInboxThreads,
+    startedAt: input.startedAt,
+    error: input.error,
+  };
+}
+
+async function buildProgressResponse(account: {
   id: string;
   lastFullSyncAt: string | null;
   lastIncrementalSyncAt: string | null;
   needsFullResync: boolean;
-}) {
+}): Promise<SyncProgressResponse> {
+  const [local, fetchStates, analysisState] = await Promise.all([
+    getGmailThreadStats(account.id),
+    listFetchStates(account.id),
+    getAnalysisState(account.id),
+  ]);
+  const fetch = {
+    activeMode: null as "full" | "incremental" | null,
+    full: emptyFetchProgress(),
+    incremental: emptyFetchProgress(),
+  };
+
+  for (const state of fetchStates) {
+    if (state.mode !== "full" && state.mode !== "incremental") continue;
+    fetch[state.mode] = toFetchProgressResponse({
+      status: state.status,
+      totalThreads: state.totalThreads,
+      fetchedThreads: state.fetchedThreads,
+      failedThreads: state.failedThreads,
+      startedAt: state.startedAt,
+      error: state.lastError,
+    });
+    if (fetch[state.mode].status === "running") {
+      fetch.activeMode = state.mode;
+    }
+  }
+
+  const active = getActiveSync(account.id);
+  if (active) {
+    const progress = active.getProgress();
+    const mode = progress.mode;
+    if (mode === "full" || mode === "incremental") {
+      fetch[mode] = toFetchProgressResponse({
+        status: progress.status,
+        totalThreads: progress.totalThreads,
+        fetchedThreads: progress.fetchedThreads,
+        failedThreads: progress.failedThreads,
+        startedAt: progress.startedAt,
+        error: progress.error,
+      });
+      fetch.activeMode = mode;
+    }
+  }
+
+  let analysis = analysisState
+    ? toAnalysisProgressResponse(
+        {
+          status: analysisState.status,
+          totalThreads: analysisState.totalThreads,
+          analyzedThreads: analysisState.analyzedThreads,
+          failedThreads: analysisState.failedThreads,
+          startedAt: analysisState.startedAt,
+          error: analysisState.lastError,
+        },
+        local,
+      )
+    : emptyAnalysisProgress(local);
+
+  const activeExtraction = getActiveGmailExtraction(account.id);
+  if (activeExtraction) {
+    const progress = activeExtraction.getProgress();
+    analysis = toAnalysisProgressResponse(
+      {
+        status: progress.status,
+        totalThreads: progress.totalThreads,
+        analyzedThreads: progress.processedThreads,
+        failedThreads: progress.failedThreads,
+        startedAt: progress.startedAt,
+        error: progress.error,
+      },
+      local,
+    );
+  }
+
   return {
     account: {
-      lastFullSyncAt: account.lastFullSyncAt,
-      lastIncrementalSyncAt: account.lastIncrementalSyncAt,
+      hasCompletedFullSync: Boolean(account.lastFullSyncAt),
+      hasCompletedIncrementalSync: Boolean(account.lastIncrementalSyncAt),
       needsFullResync: account.needsFullResync,
     },
-    local: await getGmailThreadStats(account.id),
+    local,
+    fetch,
+    analysis,
   };
 }
 
-function getAccountProgressContext(account: {
-  lastFullSyncAt: string | null;
-  lastIncrementalSyncAt: string | null;
-  needsFullResync: boolean;
-}) {
-  return {
-    account: {
-      lastFullSyncAt: account.lastFullSyncAt,
-      lastIncrementalSyncAt: account.lastIncrementalSyncAt,
-      needsFullResync: account.needsFullResync,
-    },
-    local: {
-      totalThreads: 0,
-      inboxThreads: 0,
-      unprocessedInboxThreads: 0,
-    },
-  };
-}
-
-function isSyncStatus(value: string): value is SyncProgressResponse["status"] {
+function isOperationStatus(value: string): value is OperationStatus {
   return (
     value === "idle"
     || value === "running"
     || value === "paused"
     || value === "interrupted"
+    || value === "completed"
+    || value === "error"
+  );
+}
+
+function isAnalysisStatus(value: string): value is AnalysisProgressResponse["status"] {
+  return (
+    value === "idle"
+    || value === "running"
+    || value === "paused"
     || value === "completed"
     || value === "error"
   );
@@ -185,6 +282,9 @@ export const gmailSyncRouter = router({
           })
         ).id;
       }
+      if (getActiveGmailExtraction(accountId)) {
+        throw new Error("Inbox analysis is in progress for this account");
+      }
 
       const sync = await startSync(
         accountId,
@@ -193,28 +293,11 @@ export const gmailSyncRouter = router({
         initialProfile,
       );
       const account = existingAccount ?? await getGmailAccount(input.providerAccountId);
-      const context = account
-        ? await getProgressContext(account)
-        : {
-          account: {
-            lastFullSyncAt: null,
-            lastIncrementalSyncAt: null,
-            needsFullResync: false,
-          },
-          local: {
-            totalThreads: 0,
-            inboxThreads: 0,
-            unprocessedInboxThreads: 0,
-          },
-        };
 
       return {
         accountId,
         started: sync.started,
-        progress: toSyncProgressResponse({
-          ...sync.orchestrator.getProgress(),
-          ...context,
-        }),
+        progress: account ? await buildProgressResponse(account) : null,
       };
     }),
 
@@ -232,23 +315,11 @@ export const gmailSyncRouter = router({
         throw new Error("Gmail sync is in progress for this account");
       }
 
-      const orch = await startGmailExtraction(account.id);
-      const context = await getProgressContext(account);
+      await startGmailExtraction(account.id);
 
       return {
         accountId: account.id,
-        progress: toSyncProgressResponse({
-          status: orch.getProgress().status,
-          mode: null,
-          totalThreads: 0,
-          fetchedThreads: 0,
-          processableThreads: orch.getProgress().totalThreads,
-          processedThreads: orch.getProgress().processedThreads,
-          failedThreads: orch.getProgress().failedThreads,
-          startedAt: orch.getProgress().startedAt,
-          error: orch.getProgress().error,
-          ...context,
-        }),
+        progress: await buildProgressResponse(account),
       };
     }),
 
@@ -261,48 +332,7 @@ export const gmailSyncRouter = router({
       const account = await getGmailAccount(input.providerAccountId);
       if (!account) return null;
 
-      // Try in-memory first (active sync)
-      const active = getActiveSync(account.id);
-      if (active) {
-        return toSyncProgressResponse({
-          ...active.getProgress(),
-          ...getAccountProgressContext(account),
-        });
-      }
-      const activeExtraction = getActiveGmailExtraction(account.id);
-      if (activeExtraction) {
-        const progress = activeExtraction.getProgress();
-        return toSyncProgressResponse({
-          status: progress.status,
-          mode: null,
-          totalThreads: 0,
-          fetchedThreads: 0,
-          processableThreads: progress.totalThreads,
-          processedThreads: progress.processedThreads,
-          failedThreads: progress.failedThreads,
-          startedAt: progress.startedAt,
-          error: progress.error,
-          ...getAccountProgressContext(account),
-        });
-      }
-
-      // Fall back to DB state
-      const context = await getProgressContext(account);
-      const dbState = await getSyncState(account.id);
-      if (!dbState) return null;
-
-      return toSyncProgressResponse({
-        status: dbState.status,
-        mode: dbState.mode,
-        totalThreads: dbState.totalThreads,
-        fetchedThreads: dbState.fetchedThreads,
-        processableThreads: dbState.processableThreads,
-        processedThreads: dbState.processedThreads,
-        failedThreads: dbState.failedThreads,
-        startedAt: dbState.startedAt,
-        error: dbState.lastError,
-        ...context,
-      });
+      return buildProgressResponse(account);
     }),
 
   /**

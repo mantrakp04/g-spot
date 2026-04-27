@@ -1,22 +1,17 @@
-import {
-  PutObjectCommand,
-  GetObjectCommand,
-  DeleteObjectCommand,
-  HeadObjectCommand,
-} from "@aws-sdk/client-s3";
-import { createS3Client } from "mock-aws-s3-v3";
+import { createReadStream } from "node:fs";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const BUCKET = "file-storage";
 const LOCAL_STORAGE_PATH = "./local-storage";
-
-const s3 = createS3Client({
-  localDirectory: LOCAL_STORAGE_PATH,
-  bucket: BUCKET,
-});
+const CONTENT_TYPE_SUFFIX = ".content-type";
 
 export function getLocalObjectPath(key: string): string {
   return path.resolve(LOCAL_STORAGE_PATH, BUCKET, key);
+}
+
+function getContentTypePath(key: string): string {
+  return `${getLocalObjectPath(key)}${CONTENT_TYPE_SUFFIX}`;
 }
 
 export async function putObject(
@@ -25,31 +20,29 @@ export async function putObject(
   contentType: string,
 ): Promise<void> {
   const normalizedBody = Buffer.isBuffer(body) ? body : Buffer.from(body);
-  await s3.send(
-    new PutObjectCommand({
-      Bucket: BUCKET,
-      Key: key,
-      Body: normalizedBody,
-      ContentType: contentType,
-    }),
-  );
+  const filePath = getLocalObjectPath(key);
+
+  await mkdir(path.dirname(filePath), { recursive: true });
+  await writeFile(filePath, normalizedBody);
+  await writeFile(getContentTypePath(key), contentType);
 }
 
 export async function getObject(
   key: string,
 ): Promise<{ body: NodeJS.ReadableStream; contentType: string }> {
-  const result = await s3.send(
-    new GetObjectCommand({ Bucket: BUCKET, Key: key }),
+  const contentType = await readFile(getContentTypePath(key), "utf8").catch(
+    () => "application/octet-stream",
   );
+
   return {
-    body: result.Body as NodeJS.ReadableStream,
-    contentType: result.ContentType ?? "application/octet-stream",
+    body: createReadStream(getLocalObjectPath(key)),
+    contentType,
   };
 }
 
 export async function objectExists(key: string): Promise<boolean> {
   try {
-    await s3.send(new HeadObjectCommand({ Bucket: BUCKET, Key: key }));
+    await stat(getLocalObjectPath(key));
     return true;
   } catch {
     return false;
@@ -58,15 +51,16 @@ export async function objectExists(key: string): Promise<boolean> {
 
 export async function getObjectSize(key: string): Promise<number | null> {
   try {
-    const result = await s3.send(
-      new HeadObjectCommand({ Bucket: BUCKET, Key: key }),
-    );
-    return result.ContentLength ?? null;
+    const result = await stat(getLocalObjectPath(key));
+    return result.size;
   } catch {
     return null;
   }
 }
 
 export async function deleteObject(key: string): Promise<void> {
-  await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
+  await Promise.all([
+    rm(getLocalObjectPath(key), { force: true }),
+    rm(getContentTypePath(key), { force: true }),
+  ]);
 }

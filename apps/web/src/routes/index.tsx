@@ -2,13 +2,21 @@ import { useState, useCallback, useEffect, useRef, useMemo, useTransition, start
 
 import type { FilterRule, SectionSource, ColumnConfig } from "@g-spot/types/filters";
 import { normalizeFilterRule } from "@g-spot/types/filters";
+import { Button, buttonVariants } from "@g-spot/ui/components/button";
 import { Skeleton } from "@g-spot/ui/components/skeleton";
 import type { OAuthConnection } from "@stackframe/react";
 import { useUser } from "@stackframe/react";
 import { useHotkeys } from "@tanstack/react-hotkeys";
 import { useQueryClient } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
-import { Inbox } from "lucide-react";
+import { Link, createFileRoute } from "@tanstack/react-router";
+import {
+  Bot,
+  Inbox,
+  NotebookText,
+  PanelsTopLeft,
+  PlugZap,
+  Sparkles,
+} from "lucide-react";
 
 import { GitHubTable } from "@/components/inbox/github-table";
 import { GmailMailView } from "@/components/inbox/gmail-mail-view";
@@ -241,6 +249,7 @@ function InboxPageContent({
     accountId: string | null;
     showBadge: boolean;
   } | null>(null);
+  const [isCreatingSection, setIsCreatingSection] = useState(false);
 
   const [collapseState, setCollapseState] = useState<Record<string, boolean>>({});
 
@@ -430,9 +439,89 @@ function InboxPageContent({
 
   if (!sections || sections.length === 0) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
-        <Inbox className="size-10" strokeWidth={1.25} />
-        <p className="text-sm">Create your first section to get started</p>
+      <div className="h-full overflow-y-auto bg-background">
+        <div className="mx-auto flex min-h-full max-w-6xl flex-col px-6 py-10">
+          <div className="grid flex-1 items-center gap-10 lg:grid-cols-[minmax(0,1fr)_24rem]">
+            <section className="max-w-3xl">
+              <div className="mb-5 inline-flex items-center gap-2 rounded-full border bg-muted/35 px-3 py-1 text-xs font-medium text-muted-foreground">
+                <Sparkles className="size-3.5 text-primary" />
+                Inbox, notes, and Pi — running on your machine
+              </div>
+              <h1 className="text-balance text-4xl font-semibold tracking-tight text-foreground md:text-6xl">
+                One workspace for the stuff that needs action.
+              </h1>
+              <p className="mt-5 max-w-2xl text-pretty text-base leading-7 text-muted-foreground md:text-lg">
+                Slice Gmail, PRs, and issues into sections you actually read.
+                Keep linked notes beside the work. Hand the repetitive parts to
+                Pi.
+              </p>
+              <div className="mt-8 flex flex-wrap items-center gap-3">
+                <Button onClick={() => setIsCreatingSection(true)}>
+                  <PanelsTopLeft className="size-4" />
+                  Create section
+                </Button>
+                <Link
+                  to="/notes"
+                  className={buttonVariants({ variant: "outline" })}
+                >
+                  <NotebookText className="size-4" />
+                  Open notes
+                </Link>
+                <Link
+                  to="/settings/connections"
+                  className={buttonVariants({ variant: "ghost" })}
+                >
+                  <PlugZap className="size-4" />
+                  Connect accounts
+                </Link>
+              </div>
+            </section>
+
+            <section className="grid gap-3">
+              {[
+                {
+                  icon: Inbox,
+                  title: "Sections, not folders",
+                  text: "Filter Gmail threads, pull requests, and issues into focused views. Sort, badge, and triage from one list.",
+                },
+                {
+                  icon: Bot,
+                  title: "Pi builds your filters",
+                  text: "Describe the slice in plain English. Pi assembles the filter rules, accounts, and columns for you.",
+                },
+                {
+                  icon: NotebookText,
+                  title: "Notes that link back",
+                  text: "Markdown editor with wikilinks, tags, math, Mermaid diagrams, and daily notes — all stored locally.",
+                },
+              ].map((item) => {
+                const Icon = item.icon;
+                return (
+                  <article
+                    key={item.title}
+                    className="rounded-lg border bg-card p-4 text-card-foreground shadow-sm"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                        <Icon className="size-4" />
+                      </div>
+                      <div>
+                        <h2 className="text-sm font-semibold">{item.title}</h2>
+                        <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                          {item.text}
+                        </p>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </section>
+          </div>
+        </div>
+        <SectionBuilder
+          open={isCreatingSection}
+          onOpenChange={setIsCreatingSection}
+        />
       </div>
     );
   }

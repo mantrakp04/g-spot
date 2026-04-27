@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as ReviewRouteImport } from './routes/review'
 import { Route as ProjectsRouteImport } from './routes/projects'
+import { Route as NotesRouteImport } from './routes/notes'
 import { Route as ChatRouteImport } from './routes/chat'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ReviewIndexRouteImport } from './routes/review/index'
@@ -36,6 +37,11 @@ const ReviewRoute = ReviewRouteImport.update({
 const ProjectsRoute = ProjectsRouteImport.update({
   id: '/projects',
   path: '/projects',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const NotesRoute = NotesRouteImport.update({
+  id: '/notes',
+  path: '/notes',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ChatRoute = ChatRouteImport.update({
@@ -125,6 +131,7 @@ const ReviewKindOwnerRepoNumberRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/chat': typeof ChatRouteWithChildren
+  '/notes': typeof NotesRoute
   '/projects': typeof ProjectsRouteWithChildren
   '/review': typeof ReviewRouteWithChildren
   '/chat/$chatId': typeof ChatChatIdRoute
@@ -144,6 +151,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/notes': typeof NotesRoute
   '/chat/$chatId': typeof ChatChatIdRoute
   '/chat/settings': typeof ChatSettingsRoute
   '/handler/$': typeof HandlerSplatRoute
@@ -162,6 +170,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/chat': typeof ChatRouteWithChildren
+  '/notes': typeof NotesRoute
   '/projects': typeof ProjectsRouteWithChildren
   '/review': typeof ReviewRouteWithChildren
   '/chat/$chatId': typeof ChatChatIdRoute
@@ -184,6 +193,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/chat'
+    | '/notes'
     | '/projects'
     | '/review'
     | '/chat/$chatId'
@@ -203,6 +213,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/notes'
     | '/chat/$chatId'
     | '/chat/settings'
     | '/handler/$'
@@ -220,6 +231,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/chat'
+    | '/notes'
     | '/projects'
     | '/review'
     | '/chat/$chatId'
@@ -241,6 +253,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ChatRoute: typeof ChatRouteWithChildren
+  NotesRoute: typeof NotesRoute
   ProjectsRoute: typeof ProjectsRouteWithChildren
   ReviewRoute: typeof ReviewRouteWithChildren
   HandlerSplatRoute: typeof HandlerSplatRoute
@@ -262,6 +275,13 @@ declare module '@tanstack/react-router' {
       path: '/projects'
       fullPath: '/projects'
       preLoaderRoute: typeof ProjectsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/notes': {
+      id: '/notes'
+      path: '/notes'
+      fullPath: '/notes'
+      preLoaderRoute: typeof NotesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/chat': {
@@ -440,6 +460,7 @@ const ReviewRouteWithChildren =
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ChatRoute: ChatRouteWithChildren,
+  NotesRoute: NotesRoute,
   ProjectsRoute: ProjectsRouteWithChildren,
   ReviewRoute: ReviewRouteWithChildren,
   HandlerSplatRoute: HandlerSplatRoute,

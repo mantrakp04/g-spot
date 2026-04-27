@@ -1,8 +1,8 @@
 /**
  * Pi agent tools for autonomous memory graph operations.
  *
- * These tools are created per-session via `createMemoryTools(userId)` so the
- * userId is captured in a closure. They reuse existing logic from memory.ts
+ * These tools are created per-session so source metadata can be captured in a
+ * closure. They reuse existing logic from memory.ts
  * and embeddings.ts rather than reimplementing it.
  */
 
@@ -37,8 +37,26 @@ function md5(input: string): string {
   return createHash("md5").update(input).digest("hex");
 }
 
+const DAY_MS = 1000 * 60 * 60 * 24;
+
+interface MemoryToolContext {
+  sourceMessageId?: string;
+  sourceTimestamp?: number;
+}
+
 function now(): number {
   return Date.now();
+}
+
+function normalizeSourceTimestamp(value: number | undefined, indexedAt: number): number {
+  if (!value || !Number.isFinite(value) || value <= 0) return indexedAt;
+  return Math.min(value, indexedAt);
+}
+
+function precomputedSalience(decayRate: number, sourceTimestamp: number, indexedAt: number): number {
+  const days = Math.max(0, (indexedAt - sourceTimestamp) / DAY_MS);
+  const decay = Math.exp(-decayRate * days);
+  return decay + 0.08 * (1 - decay);
 }
 
 const DEDUP_COSINE_THRESHOLD = 0.85;
@@ -147,7 +165,7 @@ function vectorSearchObservations(
 // Tool factory
 // ---------------------------------------------------------------------------
 
-export function createMemoryTools(): ToolDefinition[] {
+export function createMemoryTools(context: MemoryToolContext = {}): ToolDefinition[] {
   // ------------------------------------------------------------------
   // 1. memory_search — vector + graph search
   // ------------------------------------------------------------------
@@ -483,6 +501,7 @@ export function createMemoryTools(): ToolDefinition[] {
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const ts = now();
+      const sourceTs = normalizeSourceTimestamp(context.sourceTimestamp, ts);
       const entHash = md5(
         `${params.name.toLowerCase()}:${params.entityType}`,
       );
@@ -625,13 +644,14 @@ export function createMemoryTools(): ToolDefinition[] {
       // New entity
       const id = nanoid();
       const decayRate = ENTITY_DECAY_RATES[params.entityType] ?? 0.005;
+      const salience = precomputedSalience(decayRate, sourceTs, ts);
 
       db()
         .prepare(
           `INSERT INTO memory_entities
            (id, name, entity_type, description, aliases, hash, valid_from,
             version, salience, decay_rate, last_accessed_at, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1.0, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
         )
         .run(
           id,
@@ -640,10 +660,11 @@ export function createMemoryTools(): ToolDefinition[] {
           params.description,
           JSON.stringify(params.aliases ?? []),
           entHash,
-          ts,
+          sourceTs,
+          salience,
           decayRate,
           ts,
-          ts,
+          sourceTs,
           ts,
         );
 
@@ -701,6 +722,7 @@ export function createMemoryTools(): ToolDefinition[] {
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const ts = now();
+      const sourceTs = normalizeSourceTimestamp(context.sourceTimestamp, ts);
       const obsHash = md5(params.content);
 
       // Check hash duplicate
@@ -760,24 +782,27 @@ export function createMemoryTools(): ToolDefinition[] {
       const id = nanoid();
       const decayRate =
         OBSERVATION_DECAY_RATES[params.observationType] ?? 0.005;
+      const salience = precomputedSalience(decayRate, sourceTs, ts);
 
       db()
         .prepare(
           `INSERT INTO memory_observations
            (id, content, observation_type, confidence, source_message_id, entity_ids, hash,
             valid_from, version, salience, decay_rate, last_accessed_at, created_at, updated_at)
-           VALUES (?, ?, ?, 0.8, NULL, ?, ?, ?, 1, 1.0, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, 0.8, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
         )
         .run(
           id,
           params.content,
           params.observationType,
+          context.sourceMessageId ?? null,
           JSON.stringify(entityIds),
           obsHash,
-          ts,
+          sourceTs,
+          salience,
           decayRate,
           ts,
-          ts,
+          sourceTs,
           ts,
         );
 
@@ -830,6 +855,7 @@ export function createMemoryTools(): ToolDefinition[] {
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const ts = now();
+      const sourceTs = normalizeSourceTimestamp(context.sourceTimestamp, ts);
 
       // Resolve source entity
       const source = db()
@@ -909,12 +935,13 @@ export function createMemoryTools(): ToolDefinition[] {
 
       // New edge
       const id = nanoid();
+      const weight = precomputedSalience(0.005, sourceTs, ts);
       db()
         .prepare(
           `INSERT INTO memory_edges
            (id, source_id, target_id, source_type, target_type, relationship_type, description,
             weight, confidence, triplet_text, valid_from, created_at, updated_at)
-           VALUES (?, ?, ?, 'entity', 'entity', ?, ?, 1.0, 0.8, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, 'entity', 'entity', ?, ?, ?, 0.8, ?, ?, ?, ?)`,
         )
         .run(
           id,
@@ -922,9 +949,10 @@ export function createMemoryTools(): ToolDefinition[] {
           target.id,
           params.relationshipType,
           params.description,
+          weight,
           tripletText,
-          ts,
-          ts,
+          sourceTs,
+          sourceTs,
           ts,
         );
 
@@ -974,6 +1002,7 @@ export function createMemoryTools(): ToolDefinition[] {
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const ts = now();
+      const sourceTs = normalizeSourceTimestamp(context.sourceTimestamp, ts);
 
       // Find the existing observation
       const existing = db()
@@ -1023,24 +1052,27 @@ export function createMemoryTools(): ToolDefinition[] {
       const obsVec = await embedOne(params.newContent);
       const obsBuf = toF32Buffer(obsVec);
       const obsHash = md5(params.newContent);
+      const salience = precomputedSalience(existing.decay_rate, sourceTs, ts);
 
       db()
         .prepare(
           `INSERT INTO memory_observations
            (id, content, observation_type, confidence, source_message_id, entity_ids, hash,
             valid_from, version, salience, decay_rate, last_accessed_at, created_at, updated_at)
-           VALUES (?, ?, ?, 0.9, NULL, ?, ?, ?, 1, 1.0, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, 0.9, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
         )
         .run(
           id,
           params.newContent,
           existing.observation_type,
+          context.sourceMessageId ?? null,
           existing.entity_ids,
           obsHash,
-          ts,
+          sourceTs,
+          salience,
           existing.decay_rate,
           ts,
-          ts,
+          sourceTs,
           ts,
         );
 

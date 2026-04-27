@@ -1,5 +1,10 @@
-import type { DesktopUpdateState, DesktopRpcSchema } from "@g-spot/types/desktop";
+import type {
+  DesktopStackAuthTokens,
+  DesktopUpdateState,
+  DesktopRpcSchema,
+} from "@g-spot/types/desktop";
 import { existsSync, mkdirSync } from "node:fs";
+import { chmod, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -62,6 +67,7 @@ let updateState: DesktopUpdateState = {
   error: null,
 };
 let updateTask: Promise<DesktopUpdateState> | null = null;
+let desktopDataDir: string | null = null;
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -163,9 +169,58 @@ async function configureDesktopDataEnv(): Promise<void> {
   const dataDir = resolveDesktopDataDir(channel);
 
   mkdirSync(dataDir, { recursive: true });
+  desktopDataDir = dataDir;
 
   process.env.DATABASE_URL ??= `file:${path.join(dataDir, "local.db")}`;
   process.env.CHAT_STATE_SQLITE_PATH ??= path.join(dataDir, "chat-state.db");
+}
+
+function getStackAuthFilePath(): string {
+  if (!desktopDataDir) {
+    throw new Error("Desktop data directory is not configured");
+  }
+  return path.join(desktopDataDir, "stack-auth.json");
+}
+
+function parseDesktopStackAuthTokens(value: unknown): DesktopStackAuthTokens | null {
+  if (!value || typeof value !== "object") return null;
+  const refreshToken = (value as { refreshToken?: unknown }).refreshToken;
+  if (typeof refreshToken !== "string" || refreshToken.length === 0) return null;
+  return { refreshToken };
+}
+
+async function getStackAuthTokens(): Promise<DesktopStackAuthTokens | null> {
+  try {
+    const raw = await readFile(getStackAuthFilePath(), "utf8");
+    return parseDesktopStackAuthTokens(JSON.parse(raw));
+  } catch (error) {
+    if ((error as { code?: unknown }).code === "ENOENT") return null;
+    console.warn("[desktop:auth] failed to read Stack auth tokens", error);
+    return null;
+  }
+}
+
+async function setStackAuthTokens(
+  tokens: DesktopStackAuthTokens,
+): Promise<{ ok: boolean; error: string | null }> {
+  try {
+    const filePath = getStackAuthFilePath();
+    await writeFile(`${filePath}.tmp`, `${JSON.stringify(tokens)}\n`, { mode: 0o600 });
+    await rename(`${filePath}.tmp`, filePath);
+    await chmod(filePath, 0o600).catch(() => undefined);
+    return { ok: true, error: null };
+  } catch (error) {
+    return { ok: false, error: errorMessage(error) };
+  }
+}
+
+async function clearStackAuthTokens(): Promise<{ ok: boolean; error: string | null }> {
+  try {
+    await rm(getStackAuthFilePath(), { force: true });
+    return { ok: true, error: null };
+  } catch (error) {
+    return { ok: false, error: errorMessage(error) };
+  }
 }
 
 function configureBundledWebEnv(): void {
@@ -260,6 +315,9 @@ const desktopRpc = BrowserView.defineRPC<DesktopRpcSchema>({
     requests: {
       getUpdateState: async () => readUpdateState(),
       openExternalUrl: async ({ url }) => openExternalUrl(url),
+      getStackAuthTokens,
+      setStackAuthTokens,
+      clearStackAuthTokens,
       runMigrations: async () => {
         await readUpdateState({ phase: "migrating", error: null });
         const result = await runDesktopMigrations();

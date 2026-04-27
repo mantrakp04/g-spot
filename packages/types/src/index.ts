@@ -3,6 +3,7 @@ export * from "./agent-metadata";
 export * from "./desktop";
 export * from "./filters";
 export * from "./gmail";
+export * from "./gmail-workflows";
 export * from "./github";
 export * from "./mcp";
 export * from "./note";

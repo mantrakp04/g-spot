@@ -52,6 +52,16 @@ function storedMessageToParsedMessage(message: StoredThreadMessage): ParsedMessa
   };
 }
 
+function latestMessageTimestamp(messages: ParsedMessage[]): number | undefined {
+  let latest: number | undefined;
+  for (const message of messages) {
+    const timestamp = Date.parse(message.date);
+    if (!Number.isFinite(timestamp)) continue;
+    latest = latest === undefined ? timestamp : Math.max(latest, timestamp);
+  }
+  return latest;
+}
+
 export class GmailExtractionOrchestrator {
   private cancelled = false;
   private skippedThreadIds = new Set<string>();
@@ -163,7 +173,11 @@ export class GmailExtractionOrchestrator {
     try {
       const messages = storedMessages.map(storedMessageToParsedMessage);
       const content = threadToText(thread.subject, messages);
-      await extractAndIngestThread(content, thread.gmailThreadId);
+      await extractAndIngestThread(
+        content,
+        thread.gmailThreadId,
+        latestMessageTimestamp(messages),
+      );
       await markThreadProcessed(thread.id);
       await this.bumpProgress("processedThreads");
     } catch (error) {
@@ -289,7 +303,11 @@ async function processScopedThreads(
           storedMessageToParsedMessage,
         );
         const content = threadToText(thread.subject, parsed);
-        await extractAndIngestThread(content, thread.gmailThreadId);
+        await extractAndIngestThread(
+          content,
+          thread.gmailThreadId,
+          latestMessageTimestamp(parsed),
+        );
         await markThreadProcessed(thread.id);
       } catch (error) {
         console.error(

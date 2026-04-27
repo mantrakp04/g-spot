@@ -38,6 +38,8 @@ import {
   X,
 } from "lucide-react";
 
+import { openExternalUrl } from "@/lib/external-url";
+
 import {
   Tooltip,
   TooltipContent,
@@ -397,7 +399,7 @@ blockquote {
       e.preventDefault();
       e.stopPropagation();
       if (dismissedRef.current) {
-        window.open(href, "_blank", "noopener,noreferrer");
+        void openExternalUrl(href);
       } else {
         setPendingUrl(href);
       }
@@ -506,7 +508,7 @@ blockquote {
 
   const openPendingUrl = () => {
     if (dontShowAgain) dismiss();
-    if (pendingUrl) window.open(pendingUrl, "_blank", "noopener,noreferrer");
+    if (pendingUrl) void openExternalUrl(pendingUrl);
     setPendingUrl(null);
     setDontShowAgain(false);
   };

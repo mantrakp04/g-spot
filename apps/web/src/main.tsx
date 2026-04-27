@@ -4,6 +4,7 @@ import { RouterProvider, createRouter } from "@tanstack/react-router";
 import ReactDOM from "react-dom/client";
 
 import { stackClientApp } from "./stack/client";
+import { restoreDesktopAuthSession } from "./lib/desktop-auth";
 import { routeTree } from "./routeTree.gen";
 import { queryClient, trpc } from "./utils/trpc";
 
@@ -42,6 +43,10 @@ if (!rootElement) {
 }
 
 if (!rootElement.innerHTML) {
+  await restoreDesktopAuthSession().catch((error) => {
+    console.warn("Failed to restore desktop auth session", error);
+  });
+
   const root = ReactDOM.createRoot(rootElement);
   root.render(<RouterProvider router={router} />);
 }

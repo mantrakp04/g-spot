@@ -24,6 +24,7 @@ import {
   BrainIcon,
   Settings2,
   NotebookText,
+  MailCheck,
 } from "lucide-react";
 import { useDrafts } from "@/contexts/drafts-context";
 import { useSectionCounts } from "@/contexts/section-counts-context";
@@ -179,6 +180,7 @@ function AppSidebarContent({
   const pathname = routerState.location.pathname;
   const isOnChat = pathname.startsWith("/chat") || pathname.startsWith("/projects");
   const isChatSettings = pathname === "/chat/settings";
+  const isGmailWorkflows = pathname === "/settings/gmail-workflows";
   const [chatListOpen, setChatListOpen] = useState(isOnChat);
   const params = useParams({ strict: false }) as {
     chatId?: string;
@@ -437,6 +439,19 @@ function AppSidebarContent({
                 render={<Link to="/chat/settings" />}
               >
                 <Settings2 className="size-3" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                className={cn(
+                  "size-6 shrink-0 text-muted-foreground hover:text-foreground",
+                  isGmailWorkflows && "bg-muted text-foreground",
+                )}
+                aria-label="Gmail workflows"
+                nativeButton={false}
+                render={<Link to="/settings/gmail-workflows" />}
+              >
+                <MailCheck className="size-3" />
               </Button>
               <Button
                 variant="ghost"

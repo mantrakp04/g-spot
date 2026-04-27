@@ -58,9 +58,13 @@ WORKFLOW:
  */
 export async function extractAndIngestThread(
   threadContent: string,
-  _sourceMessageId?: string,
+  sourceMessageId?: string,
+  sourceTimestamp?: number,
 ): Promise<void> {
-  const memoryTools = createMemoryTools();
+  const memoryTools = createMemoryTools({
+    ...(sourceMessageId ? { sourceMessageId } : {}),
+    ...(sourceTimestamp !== undefined ? { sourceTimestamp } : {}),
+  });
   const defaults = await getPiAgentDefaults();
   const workerConfig = normalizePiAgentConfig(defaults.worker);
 

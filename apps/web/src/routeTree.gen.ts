@@ -18,6 +18,7 @@ import { Route as ReviewIndexRouteImport } from './routes/review/index'
 import { Route as ProjectsIndexRouteImport } from './routes/projects/index'
 import { Route as ChatIndexRouteImport } from './routes/chat/index'
 import { Route as SettingsMemoryRouteImport } from './routes/settings/memory'
+import { Route as SettingsGmailWorkflowsRouteImport } from './routes/settings/gmail-workflows'
 import { Route as SettingsConnectionsRouteImport } from './routes/settings/connections'
 import { Route as ProjectsNewRouteImport } from './routes/projects/new'
 import { Route as ProjectsProjectIdRouteImport } from './routes/projects/$projectId'
@@ -72,6 +73,11 @@ const ChatIndexRoute = ChatIndexRouteImport.update({
 const SettingsMemoryRoute = SettingsMemoryRouteImport.update({
   id: '/settings/memory',
   path: '/settings/memory',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsGmailWorkflowsRoute = SettingsGmailWorkflowsRouteImport.update({
+  id: '/settings/gmail-workflows',
+  path: '/settings/gmail-workflows',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsConnectionsRoute = SettingsConnectionsRouteImport.update({
@@ -140,6 +146,7 @@ export interface FileRoutesByFullPath {
   '/projects/$projectId': typeof ProjectsProjectIdRouteWithChildren
   '/projects/new': typeof ProjectsNewRoute
   '/settings/connections': typeof SettingsConnectionsRoute
+  '/settings/gmail-workflows': typeof SettingsGmailWorkflowsRoute
   '/settings/memory': typeof SettingsMemoryRoute
   '/chat/': typeof ChatIndexRoute
   '/projects/': typeof ProjectsIndexRoute
@@ -157,6 +164,7 @@ export interface FileRoutesByTo {
   '/handler/$': typeof HandlerSplatRoute
   '/projects/new': typeof ProjectsNewRoute
   '/settings/connections': typeof SettingsConnectionsRoute
+  '/settings/gmail-workflows': typeof SettingsGmailWorkflowsRoute
   '/settings/memory': typeof SettingsMemoryRoute
   '/chat': typeof ChatIndexRoute
   '/projects': typeof ProjectsIndexRoute
@@ -179,6 +187,7 @@ export interface FileRoutesById {
   '/projects/$projectId': typeof ProjectsProjectIdRouteWithChildren
   '/projects/new': typeof ProjectsNewRoute
   '/settings/connections': typeof SettingsConnectionsRoute
+  '/settings/gmail-workflows': typeof SettingsGmailWorkflowsRoute
   '/settings/memory': typeof SettingsMemoryRoute
   '/chat/': typeof ChatIndexRoute
   '/projects/': typeof ProjectsIndexRoute
@@ -202,6 +211,7 @@ export interface FileRouteTypes {
     | '/projects/$projectId'
     | '/projects/new'
     | '/settings/connections'
+    | '/settings/gmail-workflows'
     | '/settings/memory'
     | '/chat/'
     | '/projects/'
@@ -219,6 +229,7 @@ export interface FileRouteTypes {
     | '/handler/$'
     | '/projects/new'
     | '/settings/connections'
+    | '/settings/gmail-workflows'
     | '/settings/memory'
     | '/chat'
     | '/projects'
@@ -240,6 +251,7 @@ export interface FileRouteTypes {
     | '/projects/$projectId'
     | '/projects/new'
     | '/settings/connections'
+    | '/settings/gmail-workflows'
     | '/settings/memory'
     | '/chat/'
     | '/projects/'
@@ -258,6 +270,7 @@ export interface RootRouteChildren {
   ReviewRoute: typeof ReviewRouteWithChildren
   HandlerSplatRoute: typeof HandlerSplatRoute
   SettingsConnectionsRoute: typeof SettingsConnectionsRoute
+  SettingsGmailWorkflowsRoute: typeof SettingsGmailWorkflowsRoute
   SettingsMemoryRoute: typeof SettingsMemoryRoute
 }
 
@@ -324,6 +337,13 @@ declare module '@tanstack/react-router' {
       path: '/settings/memory'
       fullPath: '/settings/memory'
       preLoaderRoute: typeof SettingsMemoryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings/gmail-workflows': {
+      id: '/settings/gmail-workflows'
+      path: '/settings/gmail-workflows'
+      fullPath: '/settings/gmail-workflows'
+      preLoaderRoute: typeof SettingsGmailWorkflowsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings/connections': {
@@ -465,6 +485,7 @@ const rootRouteChildren: RootRouteChildren = {
   ReviewRoute: ReviewRouteWithChildren,
   HandlerSplatRoute: HandlerSplatRoute,
   SettingsConnectionsRoute: SettingsConnectionsRoute,
+  SettingsGmailWorkflowsRoute: SettingsGmailWorkflowsRoute,
   SettingsMemoryRoute: SettingsMemoryRoute,
 }
 export const routeTree = rootRouteImport

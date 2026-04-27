@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@g-spot/ui/components/button";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup, type ResizablePanelHandle } from "@g-spot/ui/components/resizable";
@@ -18,9 +18,12 @@ import { DraftsProvider } from "@/contexts/drafts-context";
 import { PiCredentialFlowsProvider } from "@/contexts/pi-credential-flows-context";
 import { SectionCountsProvider } from "@/contexts/section-counts-context";
 import { ThemeProvider, ThemeScript } from "@/components/tweakcn-theme-provider";
+import { getExternalHttpUrl, openExternalUrl } from "@/lib/external-url";
 import type { trpc } from "@/utils/trpc";
 
 import "../index.css";
+
+const COLLAPSED_SIDEBAR_TRIGGER_DELAY_MS = 450;
 
 export interface RouterAppContext {
   trpc: typeof trpc;
@@ -51,7 +54,9 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
 
 function RootShell() {
   const sidebarPanelRef = useRef<ResizablePanelHandle | null>(null);
+  const collapsedSidebarTriggerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [showCollapsedSidebarTrigger, setShowCollapsedSidebarTrigger] = useState(false);
 
   const handleToggleSidebar = useCallback(() => {
     const sidebarPanel = sidebarPanelRef.current;
@@ -64,6 +69,26 @@ function RootShell() {
 
     sidebarPanel.collapse();
   }, []);
+
+  const clearCollapsedSidebarTriggerTimer = useCallback(() => {
+    if (!collapsedSidebarTriggerTimerRef.current) return;
+
+    clearTimeout(collapsedSidebarTriggerTimerRef.current);
+    collapsedSidebarTriggerTimerRef.current = null;
+  }, []);
+
+  const handleCollapsedSidebarTriggerEnter = useCallback(() => {
+    clearCollapsedSidebarTriggerTimer();
+    collapsedSidebarTriggerTimerRef.current = setTimeout(() => {
+      setShowCollapsedSidebarTrigger(true);
+      collapsedSidebarTriggerTimerRef.current = null;
+    }, COLLAPSED_SIDEBAR_TRIGGER_DELAY_MS);
+  }, [clearCollapsedSidebarTriggerTimer]);
+
+  const handleCollapsedSidebarTriggerLeave = useCallback(() => {
+    clearCollapsedSidebarTriggerTimer();
+    setShowCollapsedSidebarTrigger(false);
+  }, [clearCollapsedSidebarTriggerTimer]);
 
   const handleToggleSidebarHotkey = useCallback(() => {
     const activeElement = document.activeElement;
@@ -78,6 +103,15 @@ function RootShell() {
     handleToggleSidebar();
   }, [handleToggleSidebar]);
 
+  useEffect(() => {
+    if (isSidebarCollapsed) return;
+
+    clearCollapsedSidebarTriggerTimer();
+    setShowCollapsedSidebarTrigger(false);
+  }, [clearCollapsedSidebarTriggerTimer, isSidebarCollapsed]);
+
+  useEffect(() => clearCollapsedSidebarTriggerTimer, [clearCollapsedSidebarTriggerTimer]);
+
   useHotkeys([
     {
       hotkey: "Mod+B",
@@ -85,6 +119,33 @@ function RootShell() {
       options: { meta: { name: "Toggle sidebar" } },
     },
   ]);
+
+  useEffect(() => {
+    const handleClick = (event: MouseEvent) => {
+      if (event.defaultPrevented) return;
+      if (event.button !== 0 && event.button !== 1) return;
+
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+
+      const anchor = target.closest("a[href]");
+      if (!(anchor instanceof HTMLAnchorElement)) return;
+      if (anchor.hasAttribute("download")) return;
+
+      const externalUrl = getExternalHttpUrl(anchor.href);
+      if (!externalUrl) return;
+
+      event.preventDefault();
+      void openExternalUrl(externalUrl);
+    };
+
+    document.addEventListener("click", handleClick, true);
+    document.addEventListener("auxclick", handleClick, true);
+    return () => {
+      document.removeEventListener("click", handleClick, true);
+      document.removeEventListener("auxclick", handleClick, true);
+    };
+  }, []);
 
   return (
     <SectionCountsProvider>
@@ -105,12 +166,21 @@ function RootShell() {
             <ResizableHandle />
             <ResizablePanel defaultSize="85" className="overflow-hidden">
               {isSidebarCollapsed && (
-                <div className="fixed top-3 left-3 z-40">
+                <div
+                  className="fixed top-0 left-0 z-40 flex h-14 w-14 items-start justify-start p-3"
+                  onPointerEnter={handleCollapsedSidebarTriggerEnter}
+                  onPointerLeave={handleCollapsedSidebarTriggerLeave}
+                >
                   <Button
                     variant="outline"
                     size="icon-sm"
                     onClick={handleToggleSidebar}
                     aria-label="Expand sidebar"
+                    className={
+                      showCollapsedSidebarTrigger
+                        ? "opacity-100 transition-opacity duration-150"
+                        : "pointer-events-none opacity-0 transition-opacity duration-150"
+                    }
                   >
                     <ChevronsRight className="size-4" />
                   </Button>

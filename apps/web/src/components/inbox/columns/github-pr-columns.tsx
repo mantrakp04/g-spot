@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 
 import type { GitHubPullRequest, GitHubStatusCheck } from "@/lib/github/types";
+import { openExternalUrl } from "@/lib/external-url";
 import { ROW_PREVIEW_BLOCK_ATTR } from "../row-preview";
 import { GitHubLabels, relativeTime } from "../shared";
 import { TruncatedText } from "../truncated-text";
@@ -208,7 +209,7 @@ function StatusCheckPopover({ pr }: { pr: GitHubPullRequest }) {
             className="flex items-center justify-center rounded-sm p-1 transition-colors hover:bg-muted"
             onClick={(e) => {
               e.stopPropagation();
-              window.open(`${pr.url}/checks`, "_blank", "noopener");
+              void openExternalUrl(`${pr.url}/checks`);
             }}
           >
             {rollupIcon(pr.statusCheckRollup)}
@@ -290,7 +291,7 @@ function ReviewDecisionPopover({ pr }: { pr: GitHubPullRequest }) {
             className="flex items-center justify-center rounded-sm p-1 transition-colors hover:bg-muted"
             onClick={(e) => {
               e.stopPropagation();
-              window.open(pr.url, "_blank", "noopener");
+              void openExternalUrl(pr.url);
             }}
           >
             {reviewDecisionIcon(pr.reviewDecision)}

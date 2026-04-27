@@ -44,6 +44,11 @@ export const noteKeys = {
   tags: () => ["notes", "tags"] as const,
 };
 
+export const mcpKeys = {
+  list: () => ["mcp", "list"] as const,
+  config: (scope: "global" | string) => ["mcp", "config", scope] as const,
+};
+
 export const skillsKeys = {
   global: () => ["skills", "list", "global"] as const,
   project: (projectId: string) => ["skills", "list", "project", projectId] as const,
@@ -144,4 +149,7 @@ export const gmailKeys = {
     ["gmail", "draftCompose", draftId ?? null, accountId ?? null] as const,
   contacts: (accountId: string | null | undefined) =>
     ["gmail", "contacts", accountId ?? null] as const,
+  agentToolkit: () => ["gmail", "agent-toolkit"] as const,
+  agentWorkflows: (accountId: string | null | undefined) =>
+    ["gmail", "agent-workflows", accountId ?? null] as const,
 };

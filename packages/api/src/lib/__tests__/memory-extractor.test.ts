@@ -54,7 +54,7 @@ describe("createMemoryTools", () => {
     ];
     mockCreateMemoryTools.mockReturnValue(mockTools);
 
-    const tools = createMemoryTools("user1");
+    const tools = createMemoryTools();
     expect(tools).toHaveLength(10);
   });
 
@@ -74,7 +74,7 @@ describe("createMemoryTools", () => {
     const mockTools = expectedNames.map((name) => ({ name }));
     mockCreateMemoryTools.mockReturnValue(mockTools);
 
-    const tools = createMemoryTools("user1");
+    const tools = createMemoryTools();
     const names = tools.map((t: { name: string }) => t.name);
     expect(names).toEqual(expectedNames);
   });
@@ -96,12 +96,14 @@ describe("extractAndIngestThread", () => {
     const fakeTools = [{ name: "memory_search" }];
     mockCreateMemoryTools.mockReturnValue(fakeTools);
 
-    await extractAndIngestThread("user1", "Some conversation content");
+    await extractAndIngestThread("Some conversation content", "source-1", 123);
 
-    expect(mockCreateMemoryTools).toHaveBeenCalledWith("user1");
+    expect(mockCreateMemoryTools).toHaveBeenCalledWith({
+      sourceMessageId: "source-1",
+      sourceTimestamp: 123,
+    });
     expect(mockCreateSession).toHaveBeenCalledWith(
       expect.objectContaining({
-        userId: "user1",
         activeToolNames: [],
         disableProjectResources: true,
         customTools: fakeTools,
@@ -115,7 +117,7 @@ describe("extractAndIngestThread", () => {
       session: { prompt: mockPrompt, messages: [] },
     });
 
-    await extractAndIngestThread("user1", "Bob joined the team");
+    await extractAndIngestThread("Bob joined the team");
 
     expect(mockPrompt).toHaveBeenCalledOnce();
     const promptArg = mockPrompt.mock.calls[0]![0] as string;
@@ -124,7 +126,7 @@ describe("extractAndIngestThread", () => {
   });
 
   it("returns void (agent handles everything via tools)", async () => {
-    const result = await extractAndIngestThread("user1", "Some email");
+    const result = await extractAndIngestThread("Some email");
     expect(result).toBeUndefined();
   });
 });

@@ -49,6 +49,7 @@ import {
   usePRDraftMutation,
   useRequestReviewersMutation,
 } from "@/hooks/use-github-detail";
+import { openExternalUrl } from "@/lib/external-url";
 
 type PR = NonNullable<ReturnType<typeof useGitHubPRDetail>["data"]>;
 type Issue = NonNullable<ReturnType<typeof useGitHubIssueDetail>["data"]>;
@@ -199,9 +200,7 @@ function DeployGroup({
         return (
           <DropdownMenuItem
             key={d.id}
-            onClick={() =>
-              url ? window.open(url, "_blank", "noopener,noreferrer") : undefined
-            }
+            onClick={() => (url ? void openExternalUrl(url) : undefined)}
             className="flex items-start gap-2"
           >
             <span
@@ -331,7 +330,7 @@ export function PRActionBar({
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
-            onClick={() => window.open(pr.html_url, "_blank", "noopener,noreferrer")}
+            onClick={() => void openExternalUrl(pr.html_url)}
           >
             Open on GitHub
             <ExternalLink className="ml-auto size-3.5 opacity-60" />
@@ -752,7 +751,7 @@ export function IssueActionBar({
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
-            onClick={() => window.open(issue.html_url, "_blank", "noopener,noreferrer")}
+            onClick={() => void openExternalUrl(issue.html_url)}
           >
             Open on GitHub
             <ExternalLink className="ml-auto size-3.5 opacity-60" />

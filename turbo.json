@@ -32,6 +32,14 @@
       "cache": false,
       "persistent": true
     },
+    "dev:hmr": {
+      "cache": false,
+      "persistent": true
+    },
+    "dev:web": {
+      "cache": false,
+      "persistent": true
+    },
     "db:push": {
       "cache": false
     },

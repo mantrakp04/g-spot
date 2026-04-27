@@ -26,6 +26,7 @@ import { toast } from "sonner";
 
 import { PiAgentConfigForm } from "@/components/pi/pi-agent-config-form";
 import { PiAddonsView } from "@/components/pi/pi-addons-page";
+import { McpView } from "@/components/mcp/mcp-view";
 import { SkillsView } from "@/components/skills/skills-page";
 import { useConfirmDialog } from "@/contexts/confirm-dialog-context";
 import { usePiCatalog } from "@/hooks/use-pi";
@@ -41,9 +42,20 @@ import {
   normalizeAgentConfig,
 } from "@/lib/pi-agent-config";
 
-export type ProjectSettingsTab = "general" | "agent" | "addons" | "skills";
+export type ProjectSettingsTab =
+  | "general"
+  | "agent"
+  | "addons"
+  | "skills"
+  | "mcp";
 
-const TAB_VALUES: ProjectSettingsTab[] = ["general", "agent", "addons", "skills"];
+const TAB_VALUES: ProjectSettingsTab[] = [
+  "general",
+  "agent",
+  "addons",
+  "skills",
+  "mcp",
+];
 
 export function isProjectSettingsTab(value: unknown): value is ProjectSettingsTab {
   return typeof value === "string" && (TAB_VALUES as string[]).includes(value);
@@ -223,6 +235,7 @@ export function ProjectSettingsPage({
             <TabsTrigger value="agent">Agent</TabsTrigger>
             <TabsTrigger value="addons">Add-ons</TabsTrigger>
             <TabsTrigger value="skills">Skills</TabsTrigger>
+            <TabsTrigger value="mcp">MCP</TabsTrigger>
           </TabsList>
 
           <TabsContent value="general" className="space-y-6 pt-6">
@@ -404,6 +417,14 @@ export function ProjectSettingsPage({
             <SkillsView
               projectId={projectId}
               description="Skills scoped to this project. They show up in the slash-command menu inside any chat in this project, and shadow any global skill with the same name."
+            />
+          </TabsContent>
+
+          <TabsContent value="mcp" className="pt-6">
+            <McpView
+              projectId={projectId}
+              projectPath={project.path}
+              description="MCP servers spawned from this project's .mcp.json. They're added on top of the global servers configured at /chat/settings."
             />
           </TabsContent>
         </Tabs>

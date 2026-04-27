@@ -2,6 +2,7 @@ import { stackAppInternalsSymbol } from "@stackframe/react";
 import { env } from "@g-spot/env/web";
 
 import { getDesktopRpc } from "@/lib/desktop-rpc";
+import { openExternalUrl } from "@/lib/external-url";
 import { stackClientApp } from "@/stack/client";
 
 type CliLoginOptions = Parameters<typeof stackClientApp.promptCliLogin>[0] & {
@@ -46,6 +47,32 @@ async function getAccessTokenFromRefreshToken(refreshToken: string): Promise<str
   return data.access_token;
 }
 
+async function signInWithRefreshToken(refreshToken: string): Promise<void> {
+  const accessToken = await getAccessTokenFromRefreshToken(refreshToken);
+  const internals = stackClientApp[stackAppInternalsSymbol] as StackTokenInternals;
+  await internals.signInWithTokens({ accessToken, refreshToken });
+}
+
+export async function restoreDesktopAuthSession(): Promise<void> {
+  const rpc = await getDesktopRpc();
+  if (!rpc) return;
+
+  const tokens = await rpc.requestProxy.getStackAuthTokens();
+  if (!tokens) return;
+
+  try {
+    await signInWithRefreshToken(tokens.refreshToken);
+  } catch (error) {
+    await rpc.requestProxy.clearStackAuthTokens();
+    throw error;
+  }
+}
+
+export async function clearDesktopAuthSession(): Promise<void> {
+  const rpc = await getDesktopRpc();
+  await rpc?.requestProxy.clearStackAuthTokens();
+}
+
 export async function signInWithExternalBrowser(): Promise<void> {
   const rpc = await getDesktopRpc();
   if (!rpc) {
@@ -58,7 +85,7 @@ export async function signInWithExternalBrowser(): Promise<void> {
     expiresInMillis: 10 * 60 * 1000,
     waitTimeMillis: 1500,
     promptLink: async (url) => {
-      const openResult = await rpc.requestProxy.openExternalUrl({ url });
+      const openResult = await openExternalUrl(url);
       if (!openResult.ok) {
         throw new Error(openResult.error ?? "Failed to open browser");
       }
@@ -71,11 +98,9 @@ export async function signInWithExternalBrowser(): Promise<void> {
     throw result.error;
   }
 
-  const accessToken = await getAccessTokenFromRefreshToken(result.data);
-  const tokens = {
-    accessToken,
-    refreshToken: result.data,
-  };
-  const internals = stackClientApp[stackAppInternalsSymbol] as StackTokenInternals;
-  await internals.signInWithTokens(tokens);
+  await signInWithRefreshToken(result.data);
+  const stored = await rpc.requestProxy.setStackAuthTokens({ refreshToken: result.data });
+  if (!stored.ok) {
+    throw new Error(stored.error ?? "Failed to store Stack auth token");
+  }
 }

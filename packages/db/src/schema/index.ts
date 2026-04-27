@@ -24,6 +24,7 @@ export {
   gmailFetchState,
   gmailAnalysisState,
   gmailSyncFailures,
+  gmailAgentWorkflows,
 } from "./gmail";
 
 export const sections = sqliteTable(

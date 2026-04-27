@@ -290,6 +290,39 @@ export const gmailSyncFailures = sqliteTable(
 );
 
 // ---------------------------------------------------------------------------
+// gmail_agent_workflows — user-defined background workflows for Gmail sync
+// ---------------------------------------------------------------------------
+export const gmailAgentWorkflows = sqliteTable(
+  "gmail_agent_workflows",
+  {
+    id: text("id").primaryKey(),
+    accountId: text("account_id")
+      .notNull()
+      .references(() => gmailAccounts.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    enabled: integer("enabled", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    trigger: text("trigger").notNull().default("incremental_sync"),
+    prompt: text("prompt").notNull().default(""),
+    agentConfig: text("agent_config").notNull().default("{}"),
+    disabledToolNames: text("disabled_tool_names").notNull().default("[]"),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(current_timestamp)`),
+    updatedAt: text("updated_at")
+      .notNull()
+      .default(sql`(current_timestamp)`),
+  },
+  (table) => [
+    index("gmail_agent_workflows_account_idx").on(
+      table.accountId,
+      table.enabled,
+    ),
+  ],
+);
+
+// ---------------------------------------------------------------------------
 // Type helpers
 // ---------------------------------------------------------------------------
 export type GmailAccountRow = typeof gmailAccounts.$inferSelect;
@@ -301,3 +334,4 @@ export type GmailSyncStateRow = typeof gmailSyncState.$inferSelect;
 export type GmailFetchStateRow = typeof gmailFetchState.$inferSelect;
 export type GmailAnalysisStateRow = typeof gmailAnalysisState.$inferSelect;
 export type GmailSyncFailureRow = typeof gmailSyncFailures.$inferSelect;
+export type GmailAgentWorkflowRow = typeof gmailAgentWorkflows.$inferSelect;

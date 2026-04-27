@@ -4,9 +4,18 @@ import {
   getAnalysisState,
   getGmailAccount,
   getGmailThreadStats,
+  listGmailAgentWorkflows,
   listFetchStates,
+  deleteGmailAgentWorkflow,
+  upsertGmailAgentWorkflow,
   upsertGmailAccount,
 } from "@g-spot/db/gmail";
+import {
+  GMAIL_AGENT_TOOL_NAME_VALUES,
+  gmailAgentWorkflowUpsertSchema,
+  gmailAgentToolNameSchema,
+  piAgentConfigSchema,
+} from "@g-spot/types";
 
 import { publicProcedure, router } from "../index";
 import {
@@ -252,7 +261,94 @@ function isAnalysisStatus(value: string): value is AnalysisProgressResponse["sta
   );
 }
 
+function parseWorkflowAgentConfig(value: string) {
+  try {
+    const parsed = piAgentConfigSchema.safeParse(JSON.parse(value));
+    return parsed.success ? parsed.data : piAgentConfigSchema.parse({});
+  } catch {
+    return piAgentConfigSchema.parse({});
+  }
+}
+
+function parseDisabledToolNames(value: string) {
+  try {
+    const parsedJson = JSON.parse(value);
+    if (!Array.isArray(parsedJson)) return [];
+    return parsedJson.filter((toolName): toolName is typeof GMAIL_AGENT_TOOL_NAME_VALUES[number] =>
+      gmailAgentToolNameSchema.safeParse(toolName).success
+    );
+  } catch {
+    return [];
+  }
+}
+
+function mapWorkflow(row: Awaited<ReturnType<typeof listGmailAgentWorkflows>>[number]) {
+  return {
+    id: row.id,
+    accountId: row.accountId,
+    name: row.name,
+    enabled: row.enabled,
+    trigger: row.trigger,
+    prompt: row.prompt,
+    agentConfig: parseWorkflowAgentConfig(row.agentConfig),
+    disabledToolNames: parseDisabledToolNames(row.disabledToolNames),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
 export const gmailSyncRouter = router({
+  getAgentToolkit: publicProcedure.query(() => ({
+    trigger: "incremental_sync" as const,
+    tools: GMAIL_AGENT_TOOL_NAME_VALUES.map((name) => ({ name })),
+  })),
+
+  listAgentWorkflows: publicProcedure
+    .input(z.object({ providerAccountId: z.string() }))
+    .query(async ({ input }) => {
+      const account = await getGmailAccount(input.providerAccountId);
+      if (!account) return [];
+      const workflows = await listGmailAgentWorkflows(account.id);
+      return workflows.map(mapWorkflow);
+    }),
+
+  upsertAgentWorkflow: publicProcedure
+    .input(
+      z.object({
+        providerAccountId: z.string(),
+        workflow: gmailAgentWorkflowUpsertSchema,
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const account = await getGmailAccount(input.providerAccountId);
+      if (!account) {
+        throw new Error("Gmail account has not been synced yet");
+      }
+
+      const workflow = input.workflow;
+      const result = await upsertGmailAgentWorkflow(account.id, {
+        id: workflow.id,
+        name: workflow.name,
+        enabled: workflow.enabled,
+        prompt: workflow.prompt,
+        agentConfig: JSON.stringify(workflow.agentConfig),
+        disabledToolNames: JSON.stringify(workflow.disabledToolNames),
+      });
+
+      const workflows = await listGmailAgentWorkflows(account.id);
+      const saved = workflows.find((row) => row.id === result.id);
+      return saved ? mapWorkflow(saved) : { id: result.id };
+    }),
+
+  deleteAgentWorkflow: publicProcedure
+    .input(z.object({ providerAccountId: z.string(), workflowId: z.string() }))
+    .mutation(async ({ input }) => {
+      const account = await getGmailAccount(input.providerAccountId);
+      if (!account) return { deleted: false };
+      await deleteGmailAgentWorkflow(account.id, input.workflowId);
+      return { deleted: true };
+    }),
+
   /**
    * Start a Gmail sync.
    */

@@ -3,7 +3,7 @@
 > ⚠️ **Alpha.** Expect bugs, missing features, and breaking changes. Data
 > formats and APIs are not yet stable.
 
-A local-first desktop command center for email, code review, and an
+A local-first desktop command center for email, code review, notes, and an
 approval-gated AI agent — all in one quiet window.
 
 g-spot bundles a React app, local API, SQLite persistence, and an Electrobun
@@ -56,6 +56,12 @@ back to the model.
 Per-chat controls let you set the **sandbox** (read-only / workspace-write /
 full-access), toggle **network access**, and whitelist which built-in tools
 the agent can use.
+
+### Notes that link back
+An Obsidian-style local notes workspace built on CodeMirror 6: markdown
+with wikilinks (`[[note]]`), tags, KaTeX math, Mermaid diagrams, embeds,
+daily notes, and full-text search. Backlink and tag panels make the graph
+walkable. Notes are plain files on disk.
 
 ### Memory that actually remembers
 A local knowledge graph (entities + observations + relationships) backed by

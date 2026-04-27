@@ -18,6 +18,7 @@ import { AsyncQueuer } from "@tanstack/pacer";
 import { env } from "@g-spot/env/server";
 
 import { runScopedGmailExtraction } from "./gmail-extraction";
+import { triggerIncrementalGmailAgentWorkflows } from "./gmail-agent-workflows";
 
 import {
   deleteMissingThreadMessages,
@@ -704,7 +705,7 @@ export class GmailSyncOrchestrator {
 
   private async finishSuccessfulSync(
     plan: SyncExecutionPlan,
-    resolution: Pick<SyncThreadResolution, "completedMode" | "finalHistoryId">,
+    resolution: SyncThreadResolution,
   ): Promise<void> {
     if (this.progress.failedThreads > 0) {
       throw new Error(
@@ -732,6 +733,15 @@ export class GmailSyncOrchestrator {
         this.accountId,
         [...this.extractableGmailThreadIds],
       );
+    }
+
+    if (resolution.completedMode === "incremental") {
+      triggerIncrementalGmailAgentWorkflows({
+        accountId: this.accountId,
+        token: this.token,
+        changedGmailThreadIds: resolution.threadIds,
+        extractableGmailThreadIds: [...this.extractableGmailThreadIds],
+      });
     }
   }
 

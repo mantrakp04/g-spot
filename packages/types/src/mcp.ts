@@ -60,9 +60,15 @@ export type McpConfig = z.infer<typeof mcpConfigSchema>;
 
 export type McpServerStatus =
   | { kind: "disabled" }
-  | { kind: "starting" }
+  | { kind: "starting"; attempt: number }
   | { kind: "ready"; toolCount: number }
-  | { kind: "error"; message: string };
+  | {
+      kind: "error";
+      message: string;
+      attempt: number;
+      /** Unix ms timestamp of the next retry, or null if retries are exhausted. */
+      retryAt: number | null;
+    };
 
 export type McpServerSnapshot = {
   scope: "global" | "project";

@@ -13,6 +13,7 @@ import { BadgeCheck, ChevronsUpDown, Link2, LogOut } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 
 import { UserIdentity } from "@/components/user-identity";
+import { clearDesktopAuthSession } from "@/lib/desktop-auth";
 
 export function NavUser() {
   const user = useUser();
@@ -69,7 +70,9 @@ export function NavUser() {
         <DropdownMenuSeparator />
         <DropdownMenuItem
           className="gap-2"
-          onClick={() => void user.signOut()}
+          onClick={() => {
+            void clearDesktopAuthSession().finally(() => user.signOut());
+          }}
           variant="destructive"
         >
           <LogOut />

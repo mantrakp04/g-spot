@@ -18,6 +18,10 @@ export type DesktopUpdateState = {
   error: string | null;
 };
 
+export type DesktopStackAuthTokens = {
+  refreshToken: string;
+};
+
 export type DesktopRpcSchema = {
   bun: {
     requests: {
@@ -43,6 +47,18 @@ export type DesktopRpcSchema = {
       };
       openExternalUrl: {
         params: { url: string };
+        response: { ok: boolean; error: string | null };
+      };
+      getStackAuthTokens: {
+        params: undefined;
+        response: DesktopStackAuthTokens | null;
+      };
+      setStackAuthTokens: {
+        params: DesktopStackAuthTokens;
+        response: { ok: boolean; error: string | null };
+      };
+      clearStackAuthTokens: {
+        params: undefined;
         response: { ok: boolean; error: string | null };
       };
     };

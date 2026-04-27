@@ -37,6 +37,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { PiModelPicker } from "@/components/pi/pi-model-picker";
+import { McpView } from "@/components/mcp/mcp-view";
 import { PiAddonsView } from "@/components/pi/pi-addons-page";
 import { SkillsView } from "@/components/skills/skills-page";
 import {
@@ -56,9 +57,9 @@ import {
   updateAgentConfigModel,
 } from "@/lib/pi-agent-config";
 
-export type ChatSettingsTab = "agent" | "addons" | "skills";
+export type ChatSettingsTab = "agent" | "addons" | "skills" | "mcp";
 
-const TAB_VALUES: ChatSettingsTab[] = ["agent", "addons", "skills"];
+const TAB_VALUES: ChatSettingsTab[] = ["agent", "addons", "skills", "mcp"];
 
 export function isChatSettingsTab(value: unknown): value is ChatSettingsTab {
   return typeof value === "string" && (TAB_VALUES as string[]).includes(value);
@@ -585,6 +586,7 @@ export function ChatSettingsPage({ tab, onTabChange }: ChatSettingsPageProps) {
             <TabsTrigger value="agent">Agent</TabsTrigger>
             <TabsTrigger value="addons">Add-ons</TabsTrigger>
             <TabsTrigger value="skills">Skills</TabsTrigger>
+            <TabsTrigger value="mcp">MCP</TabsTrigger>
           </TabsList>
 
           <TabsContent value="agent" className="pt-6">
@@ -611,6 +613,13 @@ export function ChatSettingsPage({ tab, onTabChange }: ChatSettingsPageProps) {
             <SkillsView
               projectId={null}
               description="Skills you can use across every project. A project-scoped skill with the same name will shadow the global one inside that project."
+            />
+          </TabsContent>
+
+          <TabsContent value="mcp" className="pt-6">
+            <McpView
+              projectId={null}
+              description="Global MCP servers — they spawn on app start and are available to every chat in every project. Project-scoped servers from a project's .mcp.json layer on top."
             />
           </TabsContent>
         </Tabs>

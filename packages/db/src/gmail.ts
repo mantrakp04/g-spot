@@ -7,6 +7,7 @@ import {
   gmailAccounts,
   gmailAnalysisState,
   gmailAttachments,
+  gmailAgentWorkflows,
   gmailFetchState,
   gmailLabels,
   gmailMessages,
@@ -16,6 +17,7 @@ import {
 import type {
   GmailAccountRow,
   GmailAnalysisStateRow,
+  GmailAgentWorkflowRow,
   GmailFetchStateRow,
   GmailLabelRow,
   GmailMessageRow,
@@ -1101,6 +1103,102 @@ export async function getRetryableFailureThreadIds(
       ),
     );
   return Array.from(new Set(rows.map((r) => r.gmailThreadId)));
+}
+
+// ---------------------------------------------------------------------------
+// Agent Workflows
+// ---------------------------------------------------------------------------
+
+export async function listGmailAgentWorkflows(
+  accountId: string,
+): Promise<GmailAgentWorkflowRow[]> {
+  return db
+    .select()
+    .from(gmailAgentWorkflows)
+    .where(eq(gmailAgentWorkflows.accountId, accountId))
+    .orderBy(asc(gmailAgentWorkflows.createdAt));
+}
+
+export async function listEnabledIncrementalGmailAgentWorkflows(
+  accountId: string,
+): Promise<GmailAgentWorkflowRow[]> {
+  return db
+    .select()
+    .from(gmailAgentWorkflows)
+    .where(
+      and(
+        eq(gmailAgentWorkflows.accountId, accountId),
+        eq(gmailAgentWorkflows.enabled, true),
+        eq(gmailAgentWorkflows.trigger, "incremental_sync"),
+      ),
+    )
+    .orderBy(asc(gmailAgentWorkflows.createdAt));
+}
+
+export async function upsertGmailAgentWorkflow(
+  accountId: string,
+  input: {
+    id?: string;
+    name: string;
+    enabled: boolean;
+    prompt: string;
+    agentConfig?: string;
+    disabledToolNames?: string;
+  },
+): Promise<{ id: string }> {
+  const now = new Date().toISOString();
+
+  if (input.id) {
+    await db
+      .update(gmailAgentWorkflows)
+      .set({
+        name: input.name,
+        enabled: input.enabled,
+        prompt: input.prompt,
+        ...(input.agentConfig !== undefined ? { agentConfig: input.agentConfig } : {}),
+        ...(input.disabledToolNames !== undefined
+          ? { disabledToolNames: input.disabledToolNames }
+          : {}),
+        trigger: "incremental_sync",
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(gmailAgentWorkflows.id, input.id),
+          eq(gmailAgentWorkflows.accountId, accountId),
+        ),
+      );
+    return { id: input.id };
+  }
+
+  const id = nanoid();
+  await db.insert(gmailAgentWorkflows).values({
+    id,
+    accountId,
+    name: input.name,
+    enabled: input.enabled,
+    trigger: "incremental_sync",
+    prompt: input.prompt,
+    agentConfig: input.agentConfig ?? "{}",
+    disabledToolNames: input.disabledToolNames ?? "[]",
+    createdAt: now,
+    updatedAt: now,
+  });
+  return { id };
+}
+
+export async function deleteGmailAgentWorkflow(
+  accountId: string,
+  workflowId: string,
+): Promise<void> {
+  await db
+    .delete(gmailAgentWorkflows)
+    .where(
+      and(
+        eq(gmailAgentWorkflows.accountId, accountId),
+        eq(gmailAgentWorkflows.id, workflowId),
+      ),
+    );
 }
 
 export async function getFailuresByIds(

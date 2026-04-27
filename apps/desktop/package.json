@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build:native-tabs": "clang -dynamiclib -fobjc-arc -framework Cocoa native/window-tabs.m -o native/libgspot_window_tabs.dylib",
+    "build:native-tabs": "bun scripts/build-native-tabs.js",
     "start": "bun run build:native-tabs && turbo -F web build && electrobun dev",
     "dev": "bun run dev:hmr",
     "dev:hmr": "concurrently \"bun run hmr\" \"bun run start\"",

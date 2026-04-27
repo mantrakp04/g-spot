@@ -23,7 +23,7 @@
     },
     "apps/desktop": {
       "name": "desktop",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "dependencies": {
         "@g-spot/db": "workspace:*",
         "@g-spot/types": "workspace:*",

@@ -1,6 +1,7 @@
 {
   "name": "g-spot",
   "private": true,
+  "license": "MIT",
   "workspaces": {
     "packages": [
       "apps/*",

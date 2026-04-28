@@ -101,7 +101,7 @@ import {
 import {
   useCreateSectionMutation,
   useDeleteSectionMutation,
-  useUpdateSectionMutation,
+  useUpdateSectionDefinitionMutation,
 } from "@/hooks/use-sections";
 import {
   SectionFilterAiButton,
@@ -731,7 +731,7 @@ function SectionBuilderContent({
   ]);
 
   const createMutation = useCreateSectionMutation();
-  const updateMutation = useUpdateSectionMutation();
+  const updateMutation = useUpdateSectionDefinitionMutation();
   const deleteMutation = useDeleteSectionMutation();
   const buildFiltersMutation = useSectionFilterAgent({
     onBuilt: (nextFilters) => {

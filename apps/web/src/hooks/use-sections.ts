@@ -13,6 +13,7 @@ type SectionRecord = RouterOutputs["sections"]["list"][number];
 
 type CreateSectionInput = RouterInputs["sections"]["create"];
 type UpdateSectionInput = RouterInputs["sections"]["update"];
+type UpdateSectionDefinitionInput = RouterInputs["sections"]["updateDefinition"];
 type ReorderSectionsInput = RouterInputs["sections"]["reorder"];
 type ReorderSectionsMutationInput = ReorderSectionsInput & {
   nextSections: SectionRecord[];
@@ -37,15 +38,9 @@ function invalidateSectionDerivedData(
   ]);
 }
 
-function affectsSectionDerivedData(input: UpdateSectionInput) {
-  return input.filters !== undefined
-    || input.repos !== undefined
-    || input.accountId !== undefined;
-}
-
 function patchSectionList(
   sections: SectionRecord[] | undefined,
-  input: UpdateSectionInput,
+  input: UpdateSectionInput | UpdateSectionDefinitionInput,
 ) {
   if (!sections) return sections;
 
@@ -53,22 +48,29 @@ function patchSectionList(
     section.id === input.id
       ? {
           ...section,
-          ...(input.name !== undefined ? { name: input.name } : {}),
-          ...(input.filters !== undefined
+          ...("name" in input ? { name: input.name } : {}),
+          ...("filters" in input && input.filters !== undefined
             ? { filters: JSON.stringify(input.filters) }
             : {}),
-          ...(input.showBadge !== undefined
-            ? { showBadge: input.showBadge }
-            : {}),
-          ...(input.collapsed !== undefined
+          ...("showBadge" in input ? { showBadge: input.showBadge } : {}),
+          ...("collapsed" in input && input.collapsed !== undefined
             ? { collapsed: input.collapsed }
             : {}),
-          ...(input.repos !== undefined ? { repos: JSON.stringify(input.repos) } : {}),
-          ...(input.accountId !== undefined ? { accountId: input.accountId } : {}),
+          ...("repos" in input ? { repos: JSON.stringify(input.repos) } : {}),
+          ...("accountId" in input ? { accountId: input.accountId } : {}),
           ...(input.columns !== undefined ? { columns: JSON.stringify(input.columns) } : {}),
         }
       : section,
   );
+}
+
+async function refetchSectionList(
+  queryClient: ReturnType<typeof useQueryClient>,
+) {
+  await queryClient.invalidateQueries({
+    queryKey: sectionsKeys.list(),
+    exact: true,
+  });
 }
 
 export function useSections() {
@@ -104,10 +106,7 @@ export function useReorderSectionsMutation() {
       }
     },
     onSettled: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: sectionsKeys.list(),
-        exact: true,
-      });
+      await refetchSectionList(queryClient);
     },
   });
 }
@@ -155,10 +154,45 @@ export function useUpdateSectionMutation() {
         queryClient.setQueryData(sectionsKeys.list(), context.previousSections);
       }
     },
-    onSuccess: (_data, variables) => {
-      if (affectsSectionDerivedData(variables)) {
-        void invalidateSectionDerivedData(queryClient, variables.id);
+    onSettled: async () => {
+      await refetchSectionList(queryClient);
+    },
+  });
+}
+
+export function useUpdateSectionDefinitionMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (input: UpdateSectionDefinitionInput) =>
+      trpcClient.sections.updateDefinition.mutate(input),
+    onMutate: async (input) => {
+      await queryClient.cancelQueries({
+        queryKey: sectionsKeys.list(),
+        exact: true,
+      });
+
+      const previousSections = queryClient.getQueryData<SectionRecord[]>(
+        sectionsKeys.list(),
+      );
+
+      queryClient.setQueryData<SectionRecord[]>(
+        sectionsKeys.list(),
+        (current) => patchSectionList(current, input),
+      );
+
+      return { previousSections };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previousSections) {
+        queryClient.setQueryData(sectionsKeys.list(), context.previousSections);
       }
+    },
+    onSuccess: (_data, variables) => {
+      void invalidateSectionDerivedData(queryClient, variables.id);
+    },
+    onSettled: async () => {
+      await refetchSectionList(queryClient);
     },
   });
 }

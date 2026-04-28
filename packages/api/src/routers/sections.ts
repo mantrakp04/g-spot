@@ -49,13 +49,24 @@ export const sectionsRouter = router({
     .input(
       z.object({
         id: z.string(),
-        name: z.string().min(1).max(100).optional(),
-        filters: sectionFiltersSchema.optional(),
-        showBadge: z.boolean().optional(),
         collapsed: z.boolean().optional(),
-        repos: z.array(z.string()).optional(),
-        accountId: z.string().nullable().optional(),
         columns: sectionColumnsSchema.optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      return updateSection(input);
+    }),
+
+  updateDefinition: publicProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        name: z.string().min(1).max(100),
+        filters: sectionFiltersSchema,
+        showBadge: z.boolean(),
+        repos: z.array(z.string()),
+        accountId: z.string().nullable(),
+        columns: sectionColumnsSchema,
       }),
     )
     .mutation(async ({ input }) => {

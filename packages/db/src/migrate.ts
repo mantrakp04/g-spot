@@ -96,13 +96,11 @@ function bootstrapJournalIfNeeded(
     `[migrate] bootstrap check: journalExists=${journalExists} journalRows=${journalRowCount} appTables=${appTables}`,
   );
 
-  // Case 1: journal already populated — normal incremental path
-  if (journalRowCount > 0) return;
-
-  // Case 2: fresh DB with no app tables — let migrate() create everything
+  // Case 1: fresh DB with no app tables — let migrate() create everything
   if (appTables === 0) return;
 
-  // Case 3: pre-existing DB — seed the journal
+  // Case 2: pre-existing DB — reconcile the journal with the current
+  // migration lineage before Drizzle compares timestamps.
   db.exec(
     `CREATE TABLE IF NOT EXISTS ${DRIZZLE_MIGRATIONS_TABLE} (
        id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -119,11 +117,47 @@ function bootstrapJournalIfNeeded(
   for (const entry of journal.entries) {
     const sqlPath = path.join(migrationsFolder, `${entry.tag}.sql`);
     const sql = readFileSync(sqlPath, "utf8");
+    if (!migrationTablesExist(db, sql)) break;
+
+    const currentEntryExists = db
+      .prepare(
+        `SELECT count(*) AS count FROM ${DRIZZLE_MIGRATIONS_TABLE}
+         WHERE created_at = ?`,
+      )
+      .get(entry.when) as { count: number } | null;
+    if ((currentEntryExists?.count ?? 0) > 0) continue;
+
     const hash = createHash("sha256").update(sql).digest("hex");
     insert.run(hash, entry.when);
     seededTags.push(entry.tag);
   }
-  logger.log(
-    `bootstrapped journal with ${seededTags.length} existing migration(s): ${seededTags.join(", ")}`,
-  );
+
+  if (seededTags.length > 0) {
+    logger.log(
+      `bootstrapped journal with ${seededTags.length} existing migration(s): ${seededTags.join(", ")}`,
+    );
+  }
+}
+
+function migrationTablesExist(
+  db: ReturnType<typeof openNativeDb>,
+  migrationSql: string,
+): boolean {
+  const tableNames: string[] = [];
+  for (const match of migrationSql.matchAll(/CREATE TABLE `([^`]+)`/g)) {
+    const tableName = match[1];
+    if (tableName) tableNames.push(tableName);
+  }
+
+  if (tableNames.length === 0) return false;
+
+  return tableNames.every((tableName) => {
+    const row = db
+      .prepare(
+        `SELECT count(*) AS count FROM sqlite_master
+         WHERE type='table' AND name=?`,
+      )
+      .get(tableName) as { count: number } | null;
+    return (row?.count ?? 0) > 0;
+  });
 }

@@ -120,6 +120,11 @@ jobs:
             runner: windows-latest
     env:
       DESKTOP_RELEASE_TAG: ${{ needs.resolve.outputs.update_release_tag }}
+      ELECTROBUN_CODESIGN: "true"
+      ELECTROBUN_DEVELOPER_ID: ${{ secrets.ELECTROBUN_DEVELOPER_ID }}
+      ELECTROBUN_TEAMID: ${{ secrets.ELECTROBUN_TEAMID }}
+      ELECTROBUN_APPLEID: ${{ secrets.ELECTROBUN_APPLEID }}
+      ELECTROBUN_APPLEIDPASS: ${{ secrets.ELECTROBUN_APPLEIDPASS }}
     steps:
       - uses: actions/checkout@v4
 

@@ -10,6 +10,7 @@ const releaseRepository = process.env.GITHUB_REPOSITORY ?? "mantrakp04/g-spot";
 const releaseTag = process.env.DESKTOP_RELEASE_TAG ?? "desktop-stable";
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 const bunModulesDir = path.join(repoRoot, "node_modules", ".bun");
+const enableMacSigning = process.env.ELECTROBUN_CODESIGN === "true";
 
 // Map node platform/arch to the suffix conventions each native dep uses.
 // sharp + onnxruntime use `win32`; sqlite-vec uses `windows`.
@@ -112,6 +113,7 @@ export default {
     },
     copy: {
       [webBuildDir]: "views/mainview",
+      "package.json": "bun/package.json",
       "../../packages/db/src/migrations": "bun/migrations",
       [onnxRuntimeNativeCopyPath]: `bin/napi-v6/${nodePlatform}/${nodeArch}`,
       [sharpNativeCopyPath]: `bun/node_modules/@img/sharp-${sharpSuffix}`,
@@ -121,6 +123,8 @@ export default {
     },
     watchIgnore: [`${webBuildDir}/**`],
     mac: {
+      codesign: enableMacSigning,
+      notarize: enableMacSigning,
       bundleCEF: false,
       defaultRenderer: "native",
       icons: "icon.iconset",

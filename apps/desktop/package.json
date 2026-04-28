@@ -1,8 +1,12 @@
 {
   "name": "desktop",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "private": true,
   "type": "module",
+  "piConfig": {
+    "name": "g-spot",
+    "configDir": ".g-spot"
+  },
   "scripts": {
     "build:native-tabs": "bun scripts/build-native-tabs.js",
     "start": "bun run build:native-tabs && turbo -F web build && electrobun dev",

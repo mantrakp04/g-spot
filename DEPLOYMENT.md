@@ -117,6 +117,19 @@ bun run build:desktop
 bun run build:desktop:nightly
 ```
 
+macOS desktop releases are code signed and notarized by Electrobun. Configure
+these GitHub Actions secrets before publishing a macOS DMG:
+
+```text
+ELECTROBUN_DEVELOPER_ID
+ELECTROBUN_TEAMID
+ELECTROBUN_APPLEID
+ELECTROBUN_APPLEIDPASS
+```
+
+If these are missing, the macOS release build should fail instead of publishing
+an unsigned DMG that macOS Gatekeeper reports as damaged.
+
 Electrobun outputs artifacts to:
 
 ```text

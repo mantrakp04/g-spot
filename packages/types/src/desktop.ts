@@ -49,6 +49,10 @@ export type DesktopRpcSchema = {
         params: { url: string };
         response: { ok: boolean; error: string | null };
       };
+      chooseProjectDirectory: {
+        params: { startingFolder?: string };
+        response: { path: string | null; error: string | null };
+      };
       getStackAuthTokens: {
         params: undefined;
         response: DesktopStackAuthTokens | null;

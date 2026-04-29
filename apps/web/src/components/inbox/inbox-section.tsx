@@ -3,7 +3,13 @@ import type { ReactNode } from "react";
 import { Badge } from "@g-spot/ui/components/badge";
 import { Button } from "@g-spot/ui/components/button";
 import { cn } from "@g-spot/ui/lib/utils";
-import { ChevronDown, ChevronRight, ArrowUpDown, RefreshCw, Settings } from "lucide-react";
+import {
+  ArrowUpDown,
+  ChevronDown,
+  ChevronRight,
+  Cog,
+  RefreshCw,
+} from "lucide-react";
 
 export type InboxSectionData = {
   id: string;
@@ -106,7 +112,7 @@ export function InboxSection({
             className="text-muted-foreground hover:text-foreground"
             onClick={() => onEdit()}
           >
-            <Settings className="size-3" />
+            <Cog className="size-3" />
           </Button>
         </div>
       </div>

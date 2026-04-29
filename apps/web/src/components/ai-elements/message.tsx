@@ -17,9 +17,11 @@ import { code } from "@streamdown/code";
 import { math } from "@streamdown/math";
 import { mermaid } from "@streamdown/mermaid";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
-import type { ComponentProps, HTMLAttributes, ReactElement } from "react";
+import type { ComponentProps, HTMLAttributes, ReactElement, ReactNode } from "react";
 import {
+  Children,
   createContext,
+  isValidElement,
   memo,
   useCallback,
   useContext,
@@ -331,6 +333,94 @@ export type MessageResponseProps = ComponentProps<typeof Streamdown>;
 
 const streamdownPlugins = { cjk, code, math, mermaid };
 
+type StreamdownAnchorProps = ComponentProps<"a"> & { node?: unknown };
+type StreamdownImageProps = ComponentProps<"img"> & { node?: unknown };
+type StreamdownTableCellProps = ComponentProps<"td"> & { node?: unknown };
+type StreamdownTableHeaderCellProps = ComponentProps<"th"> & {
+  node?: unknown;
+};
+
+const hasInlineMedia = (children: ReactNode) =>
+  Children.toArray(children).some((child) => {
+    if (!isValidElement(child)) {
+      return false;
+    }
+
+    const tagName = (child.props as { node?: { tagName?: string } }).node
+      ?.tagName;
+    return child.type === "img" || child.type === "picture" || tagName === "img";
+  });
+
+const messageResponseComponents = {
+  a: ({
+    className,
+    href,
+    children,
+    node: _node,
+    ...props
+  }: StreamdownAnchorProps) => (
+    <a
+      className={cn(
+        hasInlineMedia(children) && "inline-flex items-center align-middle",
+        className
+      )}
+      href={href}
+      rel="noreferrer"
+      target="_blank"
+      {...props}
+    >
+      {children}
+    </a>
+  ),
+  img: ({ alt, className, node: _node, ...props }: StreamdownImageProps) => (
+    <img
+      alt={alt ?? ""}
+      className={cn("inline-block align-middle", className)}
+      loading="lazy"
+      {...props}
+    />
+  ),
+  td: ({
+    children,
+    className,
+    node: _node,
+    ...props
+  }: StreamdownTableCellProps) => (
+    <td
+      className={cn("px-4 py-2 text-sm", className)}
+      data-streamdown="table-cell"
+      {...props}
+    >
+      {hasInlineMedia(children) ? (
+        <span className="inline-flex items-center gap-1.5">{children}</span>
+      ) : (
+        children
+      )}
+    </td>
+  ),
+  th: ({
+    children,
+    className,
+    node: _node,
+    ...props
+  }: StreamdownTableHeaderCellProps) => (
+    <th
+      className={cn(
+        "whitespace-nowrap px-4 py-2 text-left font-semibold text-sm",
+        className
+      )}
+      data-streamdown="table-header-cell"
+      {...props}
+    >
+      {hasInlineMedia(children) ? (
+        <span className="inline-flex items-center gap-1.5">{children}</span>
+      ) : (
+        children
+      )}
+    </th>
+  ),
+} as const;
+
 export const MessageResponse = memo(
   ({ className, ...props }: MessageResponseProps) => (
     <Streamdown
@@ -338,6 +428,7 @@ export const MessageResponse = memo(
         "size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
         className
       )}
+      components={messageResponseComponents}
       plugins={streamdownPlugins}
       {...props}
     />

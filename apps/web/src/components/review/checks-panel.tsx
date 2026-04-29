@@ -83,6 +83,14 @@ export function ChecksPanel({
   headSha?: string;
 }) {
   const [showAll, setShowAll] = useState(false);
+  const targetKey = target
+    ? `${target.kind}:${target.owner}/${target.repo}#${target.number}:${headSha ?? ""}`
+    : headSha ?? "";
+
+  useEffect(() => {
+    setShowAll(false);
+  }, [targetKey]);
+
   const rerun = useRerunCheckMutation(
     target ?? { kind: "pr", owner: "", repo: "", number: 0 },
     account ?? null,
@@ -99,8 +107,8 @@ export function ChecksPanel({
   }
 
   const rollup = summarize(checks);
+  const hasPassingChecks = rollup.passed > 0;
   const visible = showAll ? checks : checks.filter((c) => !isPassing(c));
-  const hiddenCount = checks.length - visible.length;
 
   return (
     <div className="space-y-2">
@@ -108,17 +116,7 @@ export function ChecksPanel({
         <span className="text-muted-foreground/70">
           {rollup.passed} passed · {rollup.failed} failed · {rollup.pending} pending
         </span>
-        {hiddenCount > 0 ? (
-          <Button
-            type="button"
-            variant="link"
-            size="sm"
-            onClick={() => setShowAll(true)}
-            className="h-auto p-0"
-          >
-            View all
-          </Button>
-        ) : showAll && rollup.passed > 0 ? (
+        {showAll && hasPassingChecks ? (
           <Button
             type="button"
             variant="link"
@@ -128,12 +126,22 @@ export function ChecksPanel({
           >
             Hide passing
           </Button>
+        ) : hasPassingChecks ? (
+          <Button
+            type="button"
+            variant="link"
+            size="sm"
+            onClick={() => setShowAll(true)}
+            className="h-auto p-0"
+          >
+            View all
+          </Button>
         ) : null}
       </div>
       {visible.length > 0 ? (
         <ul className="space-y-0.5">
           {visible.map((c) => (
-            <li key={c.name}>
+            <li key={c.id}>
               <div className="group/check flex items-center gap-2 rounded-md px-2 py-1 text-[12px] hover:bg-muted">
                 <CheckIcon status={c.status} conclusion={c.conclusion} />
                 <a

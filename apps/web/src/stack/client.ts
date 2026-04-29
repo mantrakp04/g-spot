@@ -1,6 +1,8 @@
 import { env } from "@g-spot/env/web";
 import { StackClientApp, stackAppInternalsSymbol } from "@stackframe/react";
 
+import { getExternalHttpUrl, openExternalUrl } from "@/lib/external-url";
+
 const DESKTOP_AUTH_STORAGE_KEY = "g-spot.stack-auth";
 
 const githubOAuthScopes = [
@@ -18,10 +20,25 @@ const googleOAuthScopes = [
   "https://www.googleapis.com/auth/calendar",
 ] as const;
 
+function navigateOrOpenExternal(to: string): void {
+  if (typeof window === "undefined") return;
+
+  const externalUrl = getExternalHttpUrl(to);
+  if (externalUrl) {
+    void openExternalUrl(externalUrl);
+    return;
+  }
+
+  window.location.assign(to);
+}
+
 export const stackClientApp = new StackClientApp({
   projectId: env.VITE_STACK_PROJECT_ID,
   tokenStore: isDesktopRenderer() ? "memory" : "cookie",
-  redirectMethod: "window",
+  redirectMethod: {
+    useNavigate: () => navigateOrOpenExternal,
+    navigate: navigateOrOpenExternal,
+  },
   analytics: {
     replays: {
       enabled: false,

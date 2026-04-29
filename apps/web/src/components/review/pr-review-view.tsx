@@ -58,7 +58,11 @@ const STICKY_HEADER_OFFSET_PX = 96;
 
 import { PRActionBar } from "./action-bar";
 import { CommentsDrawer } from "./comments-drawer";
-import { DescriptionCard, SectionHeading } from "./overview-region";
+import {
+  ActivitySection,
+  DescriptionCard,
+  SectionHeading,
+} from "./overview-region";
 import {
   DiffModeToggle,
   DiffSkeleton,
@@ -441,8 +445,7 @@ export function PRReviewView({
         )}
       </section>
 
-      <section>
-        <SectionHeading>Activity</SectionHeading>
+      <ActivitySection>
         {timeline.isLoading ? (
           <TimelineSkeleton />
         ) : (
@@ -452,7 +455,7 @@ export function PRReviewView({
             account={account}
           />
         )}
-      </section>
+      </ActivitySection>
 
       <section ref={filesSectionRef}>
         <div className="sticky top-0 z-10 -mx-4 flex items-center justify-between border-b border-border/50 bg-background px-4 py-2 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">

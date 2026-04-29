@@ -9,7 +9,7 @@ import {
 } from "@g-spot/ui/components/collapsible";
 import { cn } from "@g-spot/ui/lib/utils";
 import type { LucideIcon } from "lucide-react";
-import { BrainIcon, ChevronDownIcon, DotIcon } from "lucide-react";
+import { ChevronDownIcon } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
 import { createContext, memo, useContext, useMemo } from "react";
 
@@ -60,7 +60,7 @@ export const ChainOfThought = memo(
 
     return (
       <ChainOfThoughtContext.Provider value={chainOfThoughtContext}>
-        <div className={cn("not-prose w-full space-y-4", className)} {...props}>
+        <div className={cn("not-prose w-full space-y-1.5", className)} {...props}>
           {children}
         </div>
       </ChainOfThoughtContext.Provider>
@@ -80,18 +80,17 @@ export const ChainOfThoughtHeader = memo(
       <Collapsible onOpenChange={setIsOpen} open={isOpen}>
         <CollapsibleTrigger
           className={cn(
-            "flex w-full items-center gap-2 text-muted-foreground text-sm transition-colors hover:text-foreground",
+            "flex w-full items-center gap-1.5 text-muted-foreground text-sm transition-colors hover:text-foreground",
             className
           )}
           {...props}
         >
-          <BrainIcon className="size-4" />
           <span className="flex-1 text-left">
-            {children ?? "Chain of Thought"}
+            {children ?? "Thought"}
           </span>
           <ChevronDownIcon
             className={cn(
-              "size-4 transition-transform",
+              "size-3.5 transition-transform",
               isOpen ? "rotate-180" : "rotate-0"
             )}
           />
@@ -117,7 +116,7 @@ const stepStatusStyles = {
 export const ChainOfThoughtStep = memo(
   ({
     className,
-    icon: Icon = DotIcon,
+    icon: Icon,
     label,
     description,
     status = "complete",
@@ -126,24 +125,23 @@ export const ChainOfThoughtStep = memo(
   }: ChainOfThoughtStepProps) => (
     <div
       className={cn(
-        "flex gap-2 text-sm",
+        "text-sm",
         stepStatusStyles[status],
-        "fade-in-0 slide-in-from-top-2 animate-in",
+        "fade-in-0 animate-in",
         className
       )}
       {...props}
     >
-      <div className="relative mt-0.5">
-        <Icon className="size-4" />
-        <div className="absolute top-7 bottom-0 left-1/2 -mx-px w-px bg-border" />
+      <div className="flex items-center gap-1.5">
+        {Icon && <Icon className="size-3.5 shrink-0" />}
+        <div className="flex-1 truncate">{label}</div>
       </div>
-      <div className="flex-1 space-y-2 overflow-hidden">
-        <div>{label}</div>
-        {description && (
-          <div className="text-muted-foreground text-xs">{description}</div>
-        )}
-        {children}
-      </div>
+      {description && (
+        <div className="mt-1 ml-2 border-muted border-l pl-3 text-muted-foreground text-xs">
+          {description}
+        </div>
+      )}
+      {children && <div className="mt-1">{children}</div>}
     </div>
   )
 );
@@ -185,7 +183,7 @@ export const ChainOfThoughtContent = memo(
       <Collapsible open={isOpen}>
         <CollapsibleContent
           className={cn(
-            "mt-2 space-y-3",
+            "mt-1.5 space-y-1.5",
             "data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 text-popover-foreground outline-none data-[state=closed]:animate-out data-[state=open]:animate-in",
             className
           )}

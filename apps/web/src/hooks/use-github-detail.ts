@@ -100,12 +100,84 @@ function encodeBase64Utf8(s: string): string {
   return btoa(bin);
 }
 
+const GITHUB_CONSISTENCY_OVERRIDE_TTL_MS = 2 * 60 * 1000;
+
+type DetailConsistencyOverride<T> = {
+  requestedAt: number;
+  apply: (data: T) => T;
+  isSatisfied: (data: T) => boolean;
+};
+
+const detailConsistencyOverrides = new Map<
+  string,
+  DetailConsistencyOverride<unknown>[]
+>();
+
+function detailConsistencyKey(queryKey: readonly unknown[]) {
+  return JSON.stringify(queryKey);
+}
+
+function rememberDetailConsistencyOverride<T>(
+  queryKey: readonly unknown[],
+  override: Omit<DetailConsistencyOverride<T>, "requestedAt">,
+) {
+  const key = detailConsistencyKey(queryKey);
+  const existing =
+    (detailConsistencyOverrides.get(key) as
+      | DetailConsistencyOverride<T>[]
+      | undefined) ?? [];
+  detailConsistencyOverrides.set(key, [
+    ...existing,
+    { ...override, requestedAt: Date.now() },
+  ] as DetailConsistencyOverride<unknown>[]);
+}
+
+function hasDetailConsistencyOverride(queryKey: readonly unknown[]) {
+  const overrides = detailConsistencyOverrides.get(detailConsistencyKey(queryKey));
+  return !!overrides && overrides.length > 0;
+}
+
+function applyDetailConsistencyOverrides<T>(
+  queryKey: readonly unknown[],
+  data: T,
+) {
+  const key = detailConsistencyKey(queryKey);
+  const overrides = detailConsistencyOverrides.get(key) as
+    | DetailConsistencyOverride<T>[]
+    | undefined;
+  if (!overrides?.length) return data;
+
+  const now = Date.now();
+  let next = data;
+  const active: DetailConsistencyOverride<T>[] = [];
+  for (const override of overrides) {
+    const expired =
+      now - override.requestedAt > GITHUB_CONSISTENCY_OVERRIDE_TTL_MS;
+    if (expired || override.isSatisfied(next)) continue;
+    next = override.apply(next);
+    active.push(override);
+  }
+
+  if (active.length > 0) {
+    detailConsistencyOverrides.set(
+      key,
+      active as DetailConsistencyOverride<unknown>[],
+    );
+  } else {
+    detailConsistencyOverrides.delete(key);
+  }
+
+  return next;
+}
+
 export function useGitHubPRDetail(
   target: ReviewTarget,
   account: OAuthConnection | null,
 ) {
+  const accountId = account?.providerAccountId;
+  const queryKey = githubDetailKeys.pr(target, accountId);
   return useQuery({
-    queryKey: githubDetailKeys.pr(target, account?.providerAccountId),
+    queryKey,
     enabled: !!account && target.kind === "pr",
     queryFn: async () => {
       const kit = await getGitHubOctokit(requireGitHubAccount(account));
@@ -114,8 +186,10 @@ export function useGitHubPRDetail(
         repo: target.repo,
         pull_number: target.number,
       });
-      return data;
+      return applyDetailConsistencyOverrides(queryKey, data);
     },
+    refetchInterval: () =>
+      hasDetailConsistencyOverride(queryKey) ? 3000 : false,
     ...persistedStaleWhileRevalidateQueryOptions,
   });
 }
@@ -360,16 +434,122 @@ export type CheckItem = {
   externalId: string | null;
 };
 
+const CHECK_RERUN_OVERRIDE_TTL_MS = 2 * 60 * 1000;
+
+type CheckRerunOverride = {
+  requestedAt: number;
+  previousCompletedAt: string | null;
+};
+
+const checkRerunOverrides = new Map<string, Map<number, CheckRerunOverride>>();
+
+function prChecksQueryKey(
+  target: ReviewTarget,
+  accountId: string | null | undefined,
+  headSha: string | null | undefined,
+) {
+  return [
+    ...githubDetailKeys.prChecks(target, accountId),
+    headSha ?? null,
+  ] as const;
+}
+
+function checkRerunOverrideKey(
+  target: ReviewTarget,
+  accountId: string | null | undefined,
+  headSha: string | null | undefined,
+) {
+  return JSON.stringify(prChecksQueryKey(target, accountId, headSha));
+}
+
+function hasCheckRerunOverride(
+  target: ReviewTarget,
+  accountId: string | null | undefined,
+  headSha: string | null | undefined,
+) {
+  const byCheck = checkRerunOverrides.get(
+    checkRerunOverrideKey(target, accountId, headSha),
+  );
+  return !!byCheck && byCheck.size > 0;
+}
+
+function rememberCheckRerun(
+  target: ReviewTarget,
+  accountId: string | null | undefined,
+  headSha: string | null | undefined,
+  check: CheckItem,
+) {
+  const key = checkRerunOverrideKey(target, accountId, headSha);
+  const byCheck =
+    checkRerunOverrides.get(key) ?? new Map<number, CheckRerunOverride>();
+  byCheck.set(check.id, {
+    requestedAt: Date.now(),
+    previousCompletedAt: check.completedAt,
+  });
+  checkRerunOverrides.set(key, byCheck);
+}
+
+function applyCheckRerunOverrides(
+  target: ReviewTarget,
+  accountId: string | null | undefined,
+  headSha: string | null | undefined,
+  checks: CheckItem[],
+) {
+  const key = checkRerunOverrideKey(target, accountId, headSha);
+  const byCheck = checkRerunOverrides.get(key);
+  if (!byCheck) return checks;
+
+  const now = Date.now();
+  let changed = false;
+  const next = checks.map((check) => {
+    const override = byCheck.get(check.id);
+    if (!override) return check;
+
+    const expired = now - override.requestedAt > CHECK_RERUN_OVERRIDE_TTL_MS;
+    const isFailedCompletion =
+      check.conclusion === "failure" ||
+      check.conclusion === "timed_out" ||
+      check.conclusion === "cancelled";
+    const completedAt = check.completedAt ? Date.parse(check.completedAt) : NaN;
+    const isFreshCompletion =
+      check.completedAt !== override.previousCompletedAt &&
+      (!Number.isFinite(completedAt) || completedAt > override.requestedAt - 1000);
+
+    if (
+      expired ||
+      check.status !== "completed" ||
+      !isFailedCompletion ||
+      isFreshCompletion
+    ) {
+      byCheck.delete(check.id);
+      return check;
+    }
+
+    changed = true;
+    return {
+      ...check,
+      status: "queued",
+      conclusion: null,
+      startedAt: null,
+      completedAt: null,
+    };
+  });
+
+  if (byCheck.size === 0) {
+    checkRerunOverrides.delete(key);
+  }
+
+  return changed ? next : checks;
+}
+
 export function useGitHubPRChecks(
   target: ReviewTarget,
   account: OAuthConnection | null,
   headSha: string | null | undefined,
 ) {
+  const accountId = account?.providerAccountId;
   return useQuery({
-    queryKey: [
-      ...githubDetailKeys.prChecks(target, account?.providerAccountId),
-      headSha ?? null,
-    ],
+    queryKey: prChecksQueryKey(target, accountId, headSha),
     enabled: !!account && !!headSha && target.kind === "pr",
     queryFn: async (): Promise<CheckItem[]> => {
       const kit = await getGitHubOctokit(requireGitHubAccount(account));
@@ -379,7 +559,7 @@ export function useGitHubPRChecks(
         ref: headSha!,
         per_page: 100,
       });
-      return data.check_runs.map((c) => ({
+      const checks = data.check_runs.map((c) => ({
         id: c.id,
         name: c.name,
         status: c.status,
@@ -391,6 +571,14 @@ export function useGitHubPRChecks(
         checkSuiteId: c.check_suite?.id ?? null,
         externalId: c.external_id ?? null,
       }));
+      return applyCheckRerunOverrides(target, accountId, headSha, checks);
+    },
+    refetchInterval: (query) => {
+      const checks = query.state.data;
+      if (hasCheckRerunOverride(target, accountId, headSha)) return 3000;
+      return checks?.some((check) => check.status !== "completed")
+        ? 3000
+        : false;
     },
     ...persistedStaleWhileRevalidateQueryOptions,
   });
@@ -569,8 +757,10 @@ export function useGitHubPRReviewComments(
   target: ReviewTarget,
   account: OAuthConnection | null,
 ) {
+  const accountId = account?.providerAccountId;
+  const queryKey = githubDetailKeys.prReviewComments(target, accountId);
   return useQuery({
-    queryKey: githubDetailKeys.prReviewComments(target, account?.providerAccountId),
+    queryKey,
     enabled: !!account && target.kind === "pr",
     queryFn: async (): Promise<Record<string, ReviewComment[]>> => {
       const kit = await getGitHubOctokit(requireGitHubAccount(account));
@@ -615,8 +805,10 @@ export function useGitHubPRReviewComments(
           return a.createdAt.localeCompare(b.createdAt);
         });
       }
-      return grouped;
+      return applyDetailConsistencyOverrides(queryKey, grouped);
     },
+    refetchInterval: () =>
+      hasDetailConsistencyOverride(queryKey) ? 3000 : false,
     ...persistedStaleWhileRevalidateQueryOptions,
   });
 }
@@ -638,19 +830,64 @@ export function useReplyReviewComment(
       });
       return data;
     },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: githubDetailKeys.prReviewComments(
+    onSuccess: async (comment) => {
+      rememberDetailConsistencyOverride(
+        githubDetailKeys.prReviewComments(
           target,
           account?.providerAccountId,
         ),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: githubDetailKeys.prTimeline(
-          target,
-          account?.providerAccountId,
-        ),
-      });
+        {
+          apply: (prev: Record<string, ReviewComment[]>) => {
+            const path = comment.path;
+            const existing = prev[path] ?? [];
+            if (existing.some((item) => item.id === comment.id)) return prev;
+            return {
+              ...prev,
+              [path]: [
+                ...existing,
+                {
+                  id: comment.id,
+                  htmlUrl: comment.html_url,
+                  inReplyToId: comment.in_reply_to_id ?? null,
+                  path,
+                  line: comment.line ?? null,
+                  originalLine: comment.original_line ?? null,
+                  side: (comment.side ?? "RIGHT") as "LEFT" | "RIGHT",
+                  position: comment.position ?? null,
+                  body: comment.body ?? "",
+                  createdAt: comment.created_at,
+                  user: comment.user
+                    ? {
+                        login: comment.user.login,
+                        avatarUrl: comment.user.avatar_url,
+                      }
+                    : null,
+                  threadId: null,
+                  isResolved: false,
+                },
+              ],
+            };
+          },
+          isSatisfied: (data: Record<string, ReviewComment[]>) =>
+            Object.values(data)
+              .flat()
+              .some((item) => item.id === comment.id),
+        },
+      );
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: githubDetailKeys.prReviewComments(
+            target,
+            account?.providerAccountId,
+          ),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: githubDetailKeys.prTimeline(
+            target,
+            account?.providerAccountId,
+          ),
+        }),
+      ]);
     },
   });
 }
@@ -692,8 +929,36 @@ export function useResolveReviewThread(
         );
       }
     },
-    onSettled: () => {
-      qc.invalidateQueries({
+    onSuccess: (_data, { threadId, resolve }) => {
+      const apply = (
+        prev: Record<string, ReviewComment[]>,
+      ): Record<string, ReviewComment[]> => {
+        const next: Record<string, ReviewComment[]> = {};
+        for (const path of Object.keys(prev)) {
+          next[path] = prev[path]!.map((comment) =>
+            comment.threadId === threadId
+              ? { ...comment, isResolved: resolve }
+              : comment,
+          );
+        }
+        return next;
+      };
+      const isSatisfied = (data: Record<string, ReviewComment[]>) => {
+        const matching = Object.values(data)
+          .flat()
+          .filter((comment) => comment.threadId === threadId);
+        return (
+          matching.length > 0 &&
+          matching.every((comment) => comment.isResolved === resolve)
+        );
+      };
+      rememberDetailConsistencyOverride(
+        githubDetailKeys.prReviewComments(target, accountId),
+        { apply, isSatisfied },
+      );
+    },
+    onSettled: async () => {
+      await qc.invalidateQueries({
         queryKey: githubDetailKeys.prReviewComments(target, accountId),
       });
     },
@@ -704,8 +969,10 @@ export function useGitHubIssueDetail(
   target: ReviewTarget,
   account: OAuthConnection | null,
 ) {
+  const accountId = account?.providerAccountId;
+  const queryKey = githubDetailKeys.issue(target, accountId);
   return useQuery({
-    queryKey: githubDetailKeys.issue(target, account?.providerAccountId),
+    queryKey,
     enabled: !!account && target.kind === "issue",
     queryFn: async () => {
       const kit = await getGitHubOctokit(requireGitHubAccount(account));
@@ -714,8 +981,10 @@ export function useGitHubIssueDetail(
         repo: target.repo,
         issue_number: target.number,
       });
-      return data;
+      return applyDetailConsistencyOverrides(queryKey, data);
     },
+    refetchInterval: () =>
+      hasDetailConsistencyOverride(queryKey) ? 3000 : false,
     ...persistedStaleWhileRevalidateQueryOptions,
   });
 }
@@ -888,14 +1157,18 @@ function invalidateIssueQueries(
   target: ReviewTarget,
   accountId: string | null | undefined,
 ) {
-  qc.invalidateQueries({ queryKey: githubDetailKeys.issue(target, accountId) });
-  qc.invalidateQueries({
-    queryKey: githubDetailKeys.issueTimeline(target, accountId),
-  });
-  qc.invalidateQueries({ queryKey: githubDetailKeys.pr(target, accountId) });
-  qc.invalidateQueries({
-    queryKey: githubDetailKeys.prTimeline(target, accountId),
-  });
+  return Promise.all([
+    qc.invalidateQueries({
+      queryKey: githubDetailKeys.issue(target, accountId),
+    }),
+    qc.invalidateQueries({
+      queryKey: githubDetailKeys.issueTimeline(target, accountId),
+    }),
+    qc.invalidateQueries({ queryKey: githubDetailKeys.pr(target, accountId) }),
+    qc.invalidateQueries({
+      queryKey: githubDetailKeys.prTimeline(target, accountId),
+    }),
+  ]);
 }
 
 type IssueDetail = NonNullable<ReturnType<typeof useGitHubIssueDetail>["data"]>;
@@ -941,6 +1214,41 @@ function rollbackIssueAndPR(
   if (snapshot.prevPR) {
     qc.setQueryData(githubDetailKeys.pr(target, accountId), snapshot.prevPR);
   }
+}
+
+function rememberIssueAndPRConsistency(
+  target: ReviewTarget,
+  accountId: string | null | undefined,
+  args: {
+    patchIssue: (prev: IssueDetail) => IssueDetail;
+    patchPR: (prev: PRDetail) => PRDetail;
+    issueSatisfied: (data: IssueDetail) => boolean;
+    prSatisfied: (data: PRDetail) => boolean;
+  },
+) {
+  rememberDetailConsistencyOverride(githubDetailKeys.issue(target, accountId), {
+    apply: args.patchIssue,
+    isSatisfied: args.issueSatisfied,
+  });
+  rememberDetailConsistencyOverride(githubDetailKeys.pr(target, accountId), {
+    apply: args.patchPR,
+    isSatisfied: args.prSatisfied,
+  });
+}
+
+function hasNamedItem(items: unknown[] | null | undefined, name: string) {
+  return (items ?? []).some((item) =>
+    typeof item === "string"
+      ? item === name
+      : (item as { name?: string }).name === name,
+  );
+}
+
+function hasLoginItem(
+  items: Array<{ login?: string }> | null | undefined,
+  login: string,
+) {
+  return (items ?? []).some((item) => item.login === login);
 }
 
 export function useIssueLabelsMutation(
@@ -1015,7 +1323,45 @@ export function useIssueLabelsMutation(
     onError: (_err, _vars, ctx) => {
       if (ctx) rollbackIssueAndPR(qc, target, accountId, ctx);
     },
-    onSettled: () => invalidateIssueQueries(qc, target, accountId),
+    onSuccess: (_data, { name, enabled }) => {
+      const repoLabels =
+        qc.getQueryData<RepoLabel[]>(
+          githubDetailKeys.repoLabels(target, accountId),
+        ) ?? [];
+      const labelObj = repoLabels.find((l) => l.name === name);
+      const applyLabels = <T extends { labels: unknown[] }>(src: T): T => {
+        const existing = src.labels;
+        if (enabled) {
+          if (hasNamedItem(existing, name)) return src;
+          return {
+            ...src,
+            labels: [
+              ...existing,
+              labelObj ?? { name, color: "ededed", description: null },
+            ],
+          };
+        }
+        return {
+          ...src,
+          labels: existing.filter((l) =>
+            typeof l === "string"
+              ? l !== name
+              : (l as { name?: string }).name !== name,
+          ),
+        };
+      };
+      const isSatisfied = <T extends { labels: unknown[] }>(data: T) =>
+        hasNamedItem(data.labels, name) === enabled;
+      rememberIssueAndPRConsistency(target, accountId, {
+        patchIssue: applyLabels,
+        patchPR: applyLabels,
+        issueSatisfied: isSatisfied,
+        prSatisfied: isSatisfied,
+      });
+    },
+    onSettled: async () => {
+      await invalidateIssueQueries(qc, target, accountId);
+    },
   });
 }
 
@@ -1094,7 +1440,48 @@ export function useIssueAssigneesMutation(
     onError: (_err, _vars, ctx) => {
       if (ctx) rollbackIssueAndPR(qc, target, accountId, ctx);
     },
-    onSettled: () => invalidateIssueQueries(qc, target, accountId),
+    onSuccess: (_data, { login, enabled }) => {
+      const repoAssignees =
+        qc.getQueryData<RepoAssignee[]>(
+          githubDetailKeys.repoAssignees(target, accountId),
+        ) ?? [];
+      const user = repoAssignees.find((a) => a.login === login);
+      const applyAssignees = <
+        T extends { assignees?: Array<{ login: string }> | null },
+      >(
+        src: T,
+      ): T => {
+        const existing = src.assignees ?? [];
+        if (enabled) {
+          if (hasLoginItem(existing, login)) return src;
+          const next = user ?? {
+            login,
+            id: -1,
+            avatar_url: "",
+            type: "User",
+          };
+          return { ...src, assignees: [...existing, next] as typeof existing };
+        }
+        return {
+          ...src,
+          assignees: existing.filter((a) => a.login !== login),
+        };
+      };
+      const isSatisfied = <
+        T extends { assignees?: Array<{ login: string }> | null },
+      >(
+        data: T,
+      ) => hasLoginItem(data.assignees, login) === enabled;
+      rememberIssueAndPRConsistency(target, accountId, {
+        patchIssue: applyAssignees,
+        patchPR: applyAssignees,
+        issueSatisfied: isSatisfied,
+        prSatisfied: isSatisfied,
+      });
+    },
+    onSettled: async () => {
+      await invalidateIssueQueries(qc, target, accountId);
+    },
   });
 }
 
@@ -1136,7 +1523,30 @@ export function useIssueMilestoneMutation(
     onError: (_err, _vars, ctx) => {
       if (ctx) rollbackIssueAndPR(qc, target, accountId, ctx);
     },
-    onSettled: () => invalidateIssueQueries(qc, target, accountId),
+    onSuccess: (_data, { milestone }) => {
+      const milestones =
+        qc.getQueryData<RepoMilestone[]>(
+          githubDetailKeys.repoMilestones(target, accountId),
+        ) ?? [];
+      const next =
+        milestone == null
+          ? null
+          : (milestones.find((m) => m.number === milestone) ?? null);
+      const apply = <T extends { milestone?: unknown }>(src: T): T =>
+        ({ ...src, milestone: next } as T);
+      const isSatisfied = <T extends { milestone?: { number?: number } | null }>(
+        data: T,
+      ) => (data.milestone?.number ?? null) === milestone;
+      rememberIssueAndPRConsistency(target, accountId, {
+        patchIssue: apply,
+        patchPR: apply,
+        issueSatisfied: isSatisfied,
+        prSatisfied: isSatisfied,
+      });
+    },
+    onSettled: async () => {
+      await invalidateIssueQueries(qc, target, accountId);
+    },
   });
 }
 
@@ -1170,7 +1580,21 @@ export function useIssueStateMutation(
     onError: (_err, _vars, ctx) => {
       if (ctx) rollbackIssueAndPR(qc, target, accountId, ctx);
     },
-    onSettled: () => invalidateIssueQueries(qc, target, accountId),
+    onSuccess: (_data, { state }) => {
+      const apply = <T extends { state?: string }>(src: T): T =>
+        ({ ...src, state } as T);
+      const isSatisfied = <T extends { state?: string }>(data: T) =>
+        data.state === state;
+      rememberIssueAndPRConsistency(target, accountId, {
+        patchIssue: apply,
+        patchPR: apply,
+        issueSatisfied: isSatisfied,
+        prSatisfied: isSatisfied,
+      });
+    },
+    onSettled: async () => {
+      await invalidateIssueQueries(qc, target, accountId);
+    },
   });
 }
 
@@ -1449,16 +1873,18 @@ export function useReactionMutation(
       }
       qc.setQueryData<MyReactions>(myKey, next);
     },
-    onSettled: () => {
-      qc.invalidateQueries({
-        queryKey: githubDetailKeys.prTimeline(target, accountId),
-      });
-      qc.invalidateQueries({
-        queryKey: githubDetailKeys.issueTimeline(target, accountId),
-      });
-      qc.invalidateQueries({
-        queryKey: githubDetailKeys.prReviewComments(target, accountId),
-      });
+    onSettled: async () => {
+      await Promise.all([
+        qc.invalidateQueries({
+          queryKey: githubDetailKeys.prTimeline(target, accountId),
+        }),
+        qc.invalidateQueries({
+          queryKey: githubDetailKeys.issueTimeline(target, accountId),
+        }),
+        qc.invalidateQueries({
+          queryKey: githubDetailKeys.prReviewComments(target, accountId),
+        }),
+      ]);
     },
   });
 }
@@ -1497,8 +1923,17 @@ export function usePRDraftMutation(
         qc.setQueryData(githubDetailKeys.pr(target, accountId), ctx.prev);
       }
     },
-    onSettled: () => {
-      qc.invalidateQueries({
+    onSuccess: (_data, { draft }) => {
+      rememberDetailConsistencyOverride<PRDetail>(
+        githubDetailKeys.pr(target, accountId),
+        {
+          apply: (prev) => ({ ...prev, draft } as PRDetail),
+          isSatisfied: (data) => data.draft === draft,
+        },
+      );
+    },
+    onSettled: async () => {
+      await qc.invalidateQueries({
         queryKey: githubDetailKeys.pr(target, accountId),
       });
     },
@@ -1582,10 +2017,7 @@ export function useRerunCheckMutation(
       });
     },
     onMutate: async ({ check }) => {
-      const key = [
-        ...githubDetailKeys.prChecks(target, accountId),
-        headSha ?? null,
-      ] as const;
+      const key = prChecksQueryKey(target, accountId, headSha);
       await qc.cancelQueries({ queryKey: key });
       const prev = qc.getQueryData<CheckItem[]>(key);
       if (prev) {
@@ -1604,12 +2036,16 @@ export function useRerunCheckMutation(
       }
       return { prev, key };
     },
+    onSuccess: (_data, { check }) => {
+      rememberCheckRerun(target, accountId, headSha, check);
+    },
     onError: (_err, _vars, ctx) => {
       if (ctx?.prev) qc.setQueryData(ctx.key, ctx.prev);
     },
-    onSettled: () => {
-      qc.invalidateQueries({
-        queryKey: githubDetailKeys.prChecks(target, accountId),
+    onSettled: async () => {
+      await qc.refetchQueries({
+        queryKey: prChecksQueryKey(target, accountId, headSha),
+        type: "active",
       });
     },
   });
@@ -1690,8 +2126,42 @@ export function useRequestReviewersMutation(
         qc.setQueryData(githubDetailKeys.pr(target, accountId), ctx.prev);
       }
     },
-    onSettled: () => {
-      qc.invalidateQueries({
+    onSuccess: (_data, { login, enabled }) => {
+      const repoAssignees =
+        qc.getQueryData<RepoAssignee[]>(
+          githubDetailKeys.repoAssignees(target, accountId),
+        ) ?? [];
+      const user = repoAssignees.find((a) => a.login === login);
+      rememberDetailConsistencyOverride<PRDetail>(
+        githubDetailKeys.pr(target, accountId),
+        {
+          apply: (prev) => {
+            const existing = (prev.requested_reviewers ?? []) as Array<{
+              login: string;
+              avatar_url?: string;
+              id?: number;
+            }>;
+            const next = enabled
+              ? hasLoginItem(existing, login)
+                ? existing
+                : [
+                    ...existing,
+                    user ?? {
+                      login,
+                      id: -1,
+                      avatar_url: "",
+                    },
+                  ]
+              : existing.filter((r) => r.login !== login);
+            return { ...prev, requested_reviewers: next } as PRDetail;
+          },
+          isSatisfied: (data) =>
+            hasLoginItem(data.requested_reviewers, login) === enabled,
+        },
+      );
+    },
+    onSettled: async () => {
+      await qc.invalidateQueries({
         queryKey: githubDetailKeys.pr(target, accountId),
       });
     },
@@ -1746,11 +2216,13 @@ export function useApplySuggestionMutation(
         branch,
       });
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["github", "pr-files"] });
-      qc.invalidateQueries({ queryKey: ["github", "pr-timeline"] });
-      qc.invalidateQueries({ queryKey: ["github", "pr-review-comments"] });
-      qc.invalidateQueries({ queryKey: ["github", "file-contents"] });
+    onSuccess: async () => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["github", "pr-files"] }),
+        qc.invalidateQueries({ queryKey: ["github", "pr-timeline"] }),
+        qc.invalidateQueries({ queryKey: ["github", "pr-review-comments"] }),
+        qc.invalidateQueries({ queryKey: ["github", "file-contents"] }),
+      ]);
     },
   });
 }
@@ -1793,22 +2265,24 @@ export function useUpdatePRBaseMutation(
       });
       return data;
     },
-    onSuccess: () => {
-      void qc.invalidateQueries({
-        queryKey: githubDetailKeys.pr(target, accountId),
-      });
-      void qc.invalidateQueries({
-        queryKey: githubDetailKeys.prFiles(target, accountId),
-      });
-      void qc.invalidateQueries({
-        queryKey: githubDetailKeys.prCommits(target, accountId),
-      });
-      void qc.invalidateQueries({
-        queryKey: githubDetailKeys.prTimeline(target, accountId),
-      });
-      void qc.invalidateQueries({
-        queryKey: githubDetailKeys.prStack(target, accountId),
-      });
+    onSuccess: async () => {
+      await Promise.all([
+        qc.invalidateQueries({
+          queryKey: githubDetailKeys.pr(target, accountId),
+        }),
+        qc.invalidateQueries({
+          queryKey: githubDetailKeys.prFiles(target, accountId),
+        }),
+        qc.invalidateQueries({
+          queryKey: githubDetailKeys.prCommits(target, accountId),
+        }),
+        qc.invalidateQueries({
+          queryKey: githubDetailKeys.prTimeline(target, accountId),
+        }),
+        qc.invalidateQueries({
+          queryKey: githubDetailKeys.prStack(target, accountId),
+        }),
+      ]);
     },
   });
 }

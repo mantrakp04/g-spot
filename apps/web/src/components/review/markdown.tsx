@@ -1,4 +1,11 @@
-import { createContext, memo, useContext, useState } from "react";
+import {
+  Children,
+  createContext,
+  isValidElement,
+  memo,
+  useContext,
+  useState,
+} from "react";
 import { Streamdown } from "streamdown";
 import { mermaid } from "@streamdown/mermaid";
 import { Check, Loader2 } from "lucide-react";
@@ -91,14 +98,88 @@ function SuggestionBlock({ code }: { code: string }) {
 // default `img` wraps in `<div data-streamdown="image-wrapper">` with a hover
 // overlay. Both explode in review markdown (`[![img](…)](…)` and `<img>`
 // inside `<p>`), so render plain elements instead.
+type StreamdownAnchorProps = React.AnchorHTMLAttributes<HTMLAnchorElement> & {
+  node?: unknown;
+};
+type StreamdownImageProps = React.ImgHTMLAttributes<HTMLImageElement> & {
+  node?: unknown;
+};
+type StreamdownTableCellProps = React.TdHTMLAttributes<HTMLTableCellElement> & {
+  node?: unknown;
+};
+type StreamdownTableHeaderCellProps =
+  React.ThHTMLAttributes<HTMLTableCellElement> & {
+    node?: unknown;
+  };
+
+const hasInlineMedia = (children: React.ReactNode) =>
+  Children.toArray(children).some((child) => {
+    if (!isValidElement(child)) {
+      return false;
+    }
+
+    const tagName = (child.props as { node?: { tagName?: string } }).node
+      ?.tagName;
+    return child.type === "img" || child.type === "picture" || tagName === "img";
+  });
+
 const components = {
-  a: ({ href, children, ...rest }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
-    <a href={href} target="_blank" rel="noreferrer" {...rest}>
+  a: ({
+    href,
+    children,
+    className,
+    node: _node,
+    ...rest
+  }: StreamdownAnchorProps) => (
+    <a
+      className={cn(
+        hasInlineMedia(children) && "inline-flex items-center align-middle",
+        className,
+      )}
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      {...rest}
+    >
       {children}
     </a>
   ),
-  img: ({ src, alt, ...rest }: React.ImgHTMLAttributes<HTMLImageElement>) => (
-    <img src={src} alt={alt ?? ""} loading="lazy" {...rest} />
+  img: ({ src, alt, className, node: _node, ...rest }: StreamdownImageProps) => (
+    <img
+      src={src}
+      alt={alt ?? ""}
+      className={cn("inline-block align-middle", className)}
+      loading="lazy"
+      {...rest}
+    />
+  ),
+  td: ({
+    children,
+    className,
+    node: _node,
+    ...rest
+  }: StreamdownTableCellProps) => (
+    <td className={className} data-streamdown="table-cell" {...rest}>
+      {hasInlineMedia(children) ? (
+        <span className="inline-flex items-center gap-1.5">{children}</span>
+      ) : (
+        children
+      )}
+    </td>
+  ),
+  th: ({
+    children,
+    className,
+    node: _node,
+    ...rest
+  }: StreamdownTableHeaderCellProps) => (
+    <th className={className} data-streamdown="table-header-cell" {...rest}>
+      {hasInlineMedia(children) ? (
+        <span className="inline-flex items-center gap-1.5">{children}</span>
+      ) : (
+        children
+      )}
+    </th>
   ),
   pre: (props: React.HTMLAttributes<HTMLPreElement>) => {
     // Detect fenced ```suggestion blocks and render a distinct apply UI.

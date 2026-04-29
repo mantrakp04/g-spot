@@ -8,9 +8,9 @@ import { cn } from "@g-spot/ui/lib/utils";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
   ChevronRight,
+  Cog,
   FolderIcon,
   Plus,
-  SettingsIcon,
   Trash2,
 } from "lucide-react";
 import { useCallback } from "react";
@@ -111,7 +111,7 @@ export function SidebarProjectItem({
           aria-label={`${project.name} settings`}
           title="Project settings"
         >
-          <SettingsIcon className="size-3" />
+          <Cog className="size-3" />
         </Link>
       </div>
 

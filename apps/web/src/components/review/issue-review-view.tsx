@@ -8,7 +8,11 @@ import {
 } from "@/hooks/use-github-detail";
 
 import { IssueActionBar } from "./action-bar";
-import { DescriptionCard, SectionHeading } from "./overview-region";
+import {
+  ActivitySection,
+  DescriptionCard,
+  SectionHeading,
+} from "./overview-region";
 import { IssueCondensedHeader, IssueFullHeader } from "./pr-header";
 import { IssueSidebar } from "./issue-sidebar";
 import { ReviewShell } from "./shell";
@@ -87,8 +91,7 @@ export function IssueReviewView({
         )}
       </section>
 
-      <section>
-        <SectionHeading>Activity</SectionHeading>
+      <ActivitySection>
         {timeline.isLoading ? (
           <TimelineSkeleton />
         ) : (
@@ -98,7 +101,7 @@ export function IssueReviewView({
             account={account}
           />
         )}
-      </section>
+      </ActivitySection>
     </div>
   );
 

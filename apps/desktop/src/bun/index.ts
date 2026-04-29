@@ -14,6 +14,7 @@ import Electrobun, {
   BrowserView,
   BrowserWindow,
   Updater,
+  Utils,
   type ApplicationMenuItemConfig,
 } from "electrobun/bun";
 
@@ -21,6 +22,12 @@ const DEV_SERVER_PORT = 3001;
 const DEV_SERVER_URL = `http://localhost:${DEV_SERVER_PORT}`;
 const APP_IDENTIFIER = "dev.bettertstack.g-spot.desktop";
 const WINDOW_TABBING_IDENTIFIER = "g-spot-main";
+const INTERNAL_NAVIGATION_RULES = [
+  "^*",
+  "views://*",
+  `http://localhost:${DEV_SERVER_PORT}/*`,
+  `http://127.0.0.1:${DEV_SERVER_PORT}/*`,
+] as const;
 const WINDOW_TABBING_MODE_PREFERRED = 1;
 const MAC_TAB_ORDER_ABOVE = 1;
 const MAC_KEY_CODE_T = 17;
@@ -309,12 +316,33 @@ async function openExternalUrl(url: string): Promise<{ ok: boolean; error: strin
   }
 }
 
+async function chooseProjectDirectory({
+  startingFolder,
+}: {
+  startingFolder?: string;
+}): Promise<{ path: string | null; error: string | null }> {
+  try {
+    const [selectedPath] = await Utils.openFileDialog({
+      startingFolder: startingFolder?.trim() || homedir(),
+      allowedFileTypes: "*",
+      canChooseFiles: false,
+      canChooseDirectory: true,
+      allowsMultipleSelection: false,
+    });
+
+    return { path: selectedPath?.trim() || null, error: null };
+  } catch (error) {
+    return { path: null, error: errorMessage(error) };
+  }
+}
+
 const desktopRpc = BrowserView.defineRPC<DesktopRpcSchema>({
   maxRequestTime: 300_000,
   handlers: {
     requests: {
       getUpdateState: async () => readUpdateState(),
       openExternalUrl: async ({ url }) => openExternalUrl(url),
+      chooseProjectDirectory,
       getStackAuthTokens,
       setStackAuthTokens,
       clearStackAuthTokens,
@@ -430,6 +458,14 @@ async function createDesktopWindow({
   });
 
   configureNativeWindowTabbing(win);
+  win.webview.setNavigationRules([...INTERNAL_NAVIGATION_RULES]);
+  win.webview.on("will-navigate", (event) => {
+    const data = (event as { data?: { url?: string; allowed?: boolean } }).data;
+    if (!data || data.allowed === undefined || data.allowed) return;
+    const url = data.url;
+    if (!url) return;
+    void openExternalUrl(url);
+  });
   desktopWindows.add(win);
   mainWindow ??= win;
   focusedWindow = win;

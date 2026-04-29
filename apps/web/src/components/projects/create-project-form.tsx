@@ -4,11 +4,23 @@ import { Input } from "@g-spot/ui/components/input";
 import { Label } from "@g-spot/ui/components/label";
 import { Textarea } from "@g-spot/ui/components/textarea";
 import { useNavigate } from "@tanstack/react-router";
-import { AlertTriangle, Loader2 } from "lucide-react";
+import { AlertTriangle, FolderOpen, Loader2 } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
 
 import { useCreateProjectMutation } from "@/hooks/use-projects";
+import { getDesktopRpc, isDesktopRuntime } from "@/lib/desktop-rpc";
+
+function desktopPickerErrorMessage(error: unknown): string {
+  const message =
+    error instanceof Error ? error.message : "Could not open the file picker";
+
+  if (message.includes("has no handler")) {
+    return "Restart the desktop app to enable folder browsing.";
+  }
+
+  return message;
+}
 
 interface CreateProjectFormProps {
   onCreated?: (projectId: string) => void;
@@ -27,6 +39,8 @@ export function CreateProjectForm({
   const [customInstructions, setCustomInstructions] = useState("");
   const [appendPrompt, setAppendPrompt] = useState("");
   const [serverError, setServerError] = useState<string | null>(null);
+  const [isChoosingPath, setIsChoosingPath] = useState(false);
+  const canChoosePath = isDesktopRuntime();
 
   const trimmedName = name.trim();
   const trimmedPath = path.trim();
@@ -68,6 +82,31 @@ export function CreateProjectForm({
     }
   }
 
+  async function handleChoosePath() {
+    setIsChoosingPath(true);
+    setServerError(null);
+
+    try {
+      const rpc = await getDesktopRpc();
+      const result = await rpc?.requestProxy.chooseProjectDirectory({
+        startingFolder: trimmedPath.length > 0 ? trimmedPath : undefined,
+      });
+
+      if (result?.error) {
+        setServerError(result.error);
+        return;
+      }
+
+      if (result?.path) {
+        setPath(result.path);
+      }
+    } catch (err) {
+      setServerError(desktopPickerErrorMessage(err));
+    } finally {
+      setIsChoosingPath(false);
+    }
+  }
+
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
       <div className="space-y-2">
@@ -83,13 +122,31 @@ export function CreateProjectForm({
 
       <div className="space-y-2">
         <Label htmlFor="project-path">Path</Label>
-        <Input
-          id="project-path"
-          placeholder="/Users/you/code/my-cool-project"
-          value={path}
-          onChange={(e) => setPath(e.target.value)}
-          className="font-mono text-xs"
-        />
+        <div className="flex gap-2">
+          <Input
+            id="project-path"
+            placeholder="/Users/you/code/my-cool-project"
+            value={path}
+            onChange={(e) => setPath(e.target.value)}
+            className="min-w-0 font-mono text-xs"
+          />
+          {canChoosePath ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleChoosePath}
+              disabled={isChoosingPath}
+              className="shrink-0 gap-2"
+            >
+              {isChoosingPath ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <FolderOpen className="size-4" />
+              )}
+              Browse
+            </Button>
+          ) : null}
+        </div>
         <p className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-500">
           <AlertTriangle className="size-3.5 shrink-0" />
           Absolute path on the server. <strong>This cannot be changed later.</strong>

@@ -1,6 +1,6 @@
 import { atom, useAtom, useAtomValue } from "jotai";
 import { atomWithStorage } from "jotai/utils";
-import { Settings2 } from "lucide-react";
+import { Cog } from "lucide-react";
 
 import { Button } from "@g-spot/ui/components/button";
 import {
@@ -90,7 +90,7 @@ export function DiffCustomizerMenu() {
             aria-label="Customize diff"
             title="Customize diff"
           >
-            <Settings2 />
+            <Cog />
           </Button>
         }
       />

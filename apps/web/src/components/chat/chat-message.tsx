@@ -15,7 +15,6 @@ import {
   GitForkIcon,
   PencilIcon,
   RefreshCwIcon,
-  WrenchIcon,
   XIcon,
 } from "lucide-react";
 import { useCallback, useMemo, useRef, useState, memo, type KeyboardEvent } from "react";
@@ -360,51 +359,33 @@ function ToolThoughtPart({
 }: {
   part: ToolUIPart | DynamicToolUIPart;
 }) {
-  const stepStatus: "pending" | "active" | "complete" =
-    part.state === "input-streaming"
-      ? "pending"
-      : part.state === "input-available" ||
-          part.state === "approval-requested" ||
-          part.state === "approval-responded"
-        ? "active"
-        : "complete";
-  const toolName =
-    part.toolName ??
-    (part.type.startsWith("tool-") ? part.type.slice("tool-".length) : "tool");
   const denialText =
     part.state === "approval-responded" && part.approval?.approved === false
       ? part.approval?.reason ?? "You denied this tool call."
       : null;
 
   return (
-    <ChainOfThoughtStep
-      icon={WrenchIcon}
-      label={toolName}
-      status={stepStatus}
-    >
-      <Tool>
-        {part.type === "dynamic-tool" ? (
-          <ToolHeader
-            type={part.type}
-            state={part.state}
-            toolName={part.toolName}
-          />
-        ) : (
-          <ToolHeader type={part.type} state={part.state} />
+    <Tool>
+      {part.type === "dynamic-tool" ? (
+        <ToolHeader
+          type={part.type}
+          state={part.state}
+          toolName={part.toolName}
+          input={part.input}
+        />
+      ) : (
+        <ToolHeader type={part.type} state={part.state} input={part.input} />
+      )}
+      <ToolContent>
+        {part.input !== undefined && <ToolInput input={part.input} />}
+        {denialText && (
+          <div className="text-xs text-muted-foreground">{denialText}</div>
         )}
-        <ToolContent>
-          {part.input !== undefined && <ToolInput input={part.input} />}
-          {denialText && (
-            <div className="border-t p-3 text-xs text-muted-foreground">
-              {denialText}
-            </div>
-          )}
-          {(part.output !== undefined || part.errorText) && (
-            <ToolOutput output={part.output} errorText={part.errorText} />
-          )}
-        </ToolContent>
-      </Tool>
-    </ChainOfThoughtStep>
+        {(part.output !== undefined || part.errorText) && (
+          <ToolOutput output={part.output} errorText={part.errorText} />
+        )}
+      </ToolContent>
+    </Tool>
   );
 }
 

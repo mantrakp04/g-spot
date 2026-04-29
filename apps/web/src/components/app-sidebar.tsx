@@ -22,7 +22,7 @@ import {
   Trash2,
   ChevronsLeft,
   BrainIcon,
-  Settings2,
+  Cog,
   NotebookText,
   MailCheck,
 } from "lucide-react";
@@ -412,7 +412,7 @@ function AppSidebarContent({
               <CollapsibleTrigger className="group flex min-w-0 flex-1 items-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground">
                 <ChevronRight className="size-3 shrink-0 transition-transform group-data-[panel-open]:rotate-90" />
                 <BotIcon className="size-3 shrink-0" />
-                <span>AI Chat</span>
+                <span>Agent</span>
               </CollapsibleTrigger>
               <Button
                 variant="ghost"
@@ -438,7 +438,7 @@ function AppSidebarContent({
                 nativeButton={false}
                 render={<Link to="/chat/settings" />}
               >
-                <Settings2 className="size-3" />
+                <Cog className="size-3" />
               </Button>
               <Button
                 variant="ghost"

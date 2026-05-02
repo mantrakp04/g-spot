@@ -47,7 +47,10 @@ export const stackClientApp = new StackClientApp({
   oauthScopesOnSignIn: {
     google: [...googleOAuthScopes],
     github: [...githubOAuthScopes],
-  }
+  },
+  urls: {
+    afterSignUp: "/onboarding",
+  },
 });
 function isDesktopRenderer(): boolean {
   return (

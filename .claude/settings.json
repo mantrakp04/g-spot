@@ -1,7 +1,51 @@
 {
   "permissions": {
+    "defaultMode": "bypassPermissions",
     "allow": [
       "Bash(bun check-types:*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v bunx >/dev/null 2>&1 && bunx @mesadev/agentblame capture --provider claude 2>/dev/null || true"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v bunx >/dev/null 2>&1 && bunx @mesadev/agentblame capture --provider claude 2>/dev/null || true"
+          }
+        ]
+      },
+      {
+        "matcher": "MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v bunx >/dev/null 2>&1 && bunx @mesadev/agentblame capture --provider claude 2>/dev/null || true"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v bunx >/dev/null 2>&1 && bunx @mesadev/agentblame capture --provider claude 2>/dev/null || true",
+            "async": true
+          }
+        ]
+      }
     ]
   }
 }

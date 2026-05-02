@@ -13,6 +13,7 @@ type CreateChatInput = {
   projectId: string;
   title?: string;
   agentConfig?: string;
+  agentContext?: string | null;
 };
 
 function getFallbackSerializedAgentConfig() {
@@ -108,6 +109,7 @@ export async function createChat(input: CreateChatInput) {
     projectId: input.projectId,
     title: input.title ?? "New Chat",
     agentConfig: input.agentConfig ?? getFallbackSerializedAgentConfig(),
+    agentContext: input.agentContext ?? null,
     createdAt: now,
     updatedAt: now,
   });
@@ -130,6 +132,19 @@ export async function updateChatAgentConfig(
     .update(chats)
     .set({
       agentConfig,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(chats.id, chatId));
+}
+
+export async function updateChatAgentContext(
+  chatId: string,
+  agentContext: string | null,
+) {
+  await db
+    .update(chats)
+    .set({
+      agentContext,
       updatedAt: new Date().toISOString(),
     })
     .where(eq(chats.id, chatId));
@@ -212,7 +227,7 @@ export async function replaceChatMessages(
 
     await tx
       .update(chats)
-      .set({ updatedAt: now })
+      .set({ agentContext: null, updatedAt: now })
       .where(eq(chats.id, chatId));
   });
 }
@@ -243,6 +258,7 @@ export async function forkChat(
       projectId,
       title: title ?? "New Chat",
       agentConfig: agentConfig ?? getFallbackSerializedAgentConfig(),
+      agentContext: null,
       createdAt: now,
       updatedAt: now,
     });

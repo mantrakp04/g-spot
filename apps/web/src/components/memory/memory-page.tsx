@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Skeleton } from "@g-spot/ui/components/skeleton";
 import { motion } from "motion/react";
@@ -202,12 +202,18 @@ function EmptyState() {
   );
 }
 
-export function MemoryPage() {
+export function MemoryPage({ selectedMemoryId }: { selectedMemoryId?: string }) {
   const graphQuery = useMemoryGraph();
   const statsQuery = useMemoryStats();
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [hiddenTypes, setHiddenTypes] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (selectedMemoryId) {
+      setSelectedNodeId(selectedMemoryId);
+    }
+  }, [selectedMemoryId]);
 
   const data = graphQuery.data;
   const isEmpty =

@@ -2,9 +2,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import {
+  DefaultResourceLoader,
   getAgentDir,
-  loadSkills,
-  loadSkillsFromDir,
   type Skill as PiSkill,
 } from "@mariozechner/pi-coding-agent";
 import type { Skill } from "@g-spot/types";
@@ -14,6 +13,7 @@ import { getProject } from "@g-spot/db/projects";
 import { buildSkillMarkdown, parseSkillMarkdown } from "./skill-markdown";
 
 const PI_CONFIG_DIR = ".pi";
+const DISCOVERED_SKILL_ID_PREFIX = "discovered:";
 
 export class SkillNameConflictError extends Error {
   constructor(name: string) {
@@ -30,13 +30,34 @@ function getProjectSkillsDir(projectPath: string) {
   return path.join(projectPath, PI_CONFIG_DIR, "skills");
 }
 
-function makeSkillId(projectId: string | null, name: string) {
-  return projectId === null ? `global:${name}` : `project:${projectId}:${name}`;
+function encodeSkillPath(filePath: string) {
+  return Buffer.from(path.resolve(filePath), "utf8").toString("base64url");
+}
+
+function makeSkillId(projectId: string | null, filePath: string) {
+  return `${DISCOVERED_SKILL_ID_PREFIX}${projectId ?? "global"}:${encodeSkillPath(filePath)}`;
 }
 
 function parseSkillId(id: string) {
+  if (id.startsWith(DISCOVERED_SKILL_ID_PREFIX)) {
+    const rest = id.slice(DISCOVERED_SKILL_ID_PREFIX.length);
+    const splitIndex = rest.indexOf(":");
+    if (splitIndex > 0) {
+      const projectKey = rest.slice(0, splitIndex);
+      return {
+        kind: "discovered" as const,
+        projectId: projectKey === "global" ? null : projectKey,
+      };
+    }
+  }
+
+  // Back-compat for skill IDs created before discovered-path IDs.
   if (id.startsWith("global:")) {
-    return { projectId: null, name: id.slice("global:".length) };
+    return {
+      kind: "legacy" as const,
+      projectId: null,
+      name: id.slice("global:".length),
+    };
   }
 
   if (id.startsWith("project:")) {
@@ -44,6 +65,7 @@ function parseSkillId(id: string) {
     const splitIndex = rest.indexOf(":");
     if (splitIndex > 0) {
       return {
+        kind: "legacy" as const,
         projectId: rest.slice(0, splitIndex),
         name: rest.slice(splitIndex + 1),
       };
@@ -66,7 +88,11 @@ function isWithin(root: string, target: string) {
   );
 }
 
-async function toAppSkill(piSkill: PiSkill, projectId: string | null): Promise<Skill> {
+async function toAppSkill(
+  piSkill: PiSkill,
+  projectId: string | null,
+  discoveryProjectId: string | null,
+): Promise<Skill> {
   const raw = await fs.readFile(piSkill.filePath, "utf8");
   const parsed = parseSkillMarkdown(raw);
   const stats = await fs.stat(piSkill.filePath);
@@ -76,7 +102,7 @@ async function toAppSkill(piSkill: PiSkill, projectId: string | null): Promise<S
       : stats.ctime;
 
   return {
-    id: makeSkillId(projectId, piSkill.name),
+    id: makeSkillId(discoveryProjectId, piSkill.filePath),
     userId: "local",
     projectId,
     name: piSkill.name,
@@ -90,16 +116,37 @@ async function toAppSkill(piSkill: PiSkill, projectId: string | null): Promise<S
   };
 }
 
-async function loadScopeSkills(
-  dir: string,
-  scope: "user" | "project",
+function getSkillProjectId(
+  piSkill: PiSkill,
   projectId: string | null,
+  projectSkillsDir: string | null,
 ) {
-  const result = loadSkillsFromDir({ dir, source: scope });
-  const skills = await Promise.all(
-    result.skills.map((skill) => toAppSkill(skill, projectId)),
+  if (!projectId) return null;
+  if (piSkill.sourceInfo.scope === "project") return projectId;
+  if (projectSkillsDir && isWithin(projectSkillsDir, piSkill.filePath)) {
+    return projectId;
+  }
+  return null;
+}
+
+async function loadDiscoveredSkills(
+  cwd: string,
+  projectId: string | null,
+): Promise<Array<{ appSkill: Skill; piSkill: PiSkill }>> {
+  const loader = new DefaultResourceLoader({ cwd, agentDir: getAgentDir() });
+  await loader.reload();
+  const projectSkillsDir = projectId ? getProjectSkillsDir(cwd) : null;
+  const rows = await Promise.all(
+    loader.getSkills().skills.map(async (skill) => ({
+      appSkill: await toAppSkill(
+        skill,
+        getSkillProjectId(skill, projectId, projectSkillsDir),
+        projectId,
+      ),
+      piSkill: skill,
+    })),
   );
-  return skills.sort((a, b) => a.name.localeCompare(b.name));
+  return rows.sort((a, b) => a.appSkill.name.localeCompare(b.appSkill.name));
 }
 
 async function getProjectPathOrThrow(projectId: string) {
@@ -137,69 +184,46 @@ async function writeSkillFile(
   return filePath;
 }
 
-async function cleanupSkillPath(filePath: string, root: string) {
-  await fs.rm(filePath, { force: true });
-  let dir = path.dirname(filePath);
-  const resolvedRoot = path.resolve(root);
-
-  while (isWithin(resolvedRoot, dir) && dir !== resolvedRoot) {
-    try {
-      await fs.rmdir(dir);
-    } catch {
-      break;
-    }
-    dir = path.dirname(dir);
-  }
+async function getDiscoveredSkillRows(projectId: string | null) {
+  const cwd = projectId ? await getProjectPathOrThrow(projectId) : process.cwd();
+  return loadDiscoveredSkills(cwd, projectId);
 }
 
-async function getSkillFileInfo(skill: Skill) {
-  const scopeSkills =
-    skill.projectId === null
-      ? loadSkillsFromDir({ dir: getGlobalSkillsDir(), source: "user" })
-      : loadSkillsFromDir({
-          dir: getProjectSkillsDir(await getProjectPathOrThrow(skill.projectId)),
-          source: "project",
-        });
+async function getSkillFileInfo(skillId: string) {
+  const parsed = parseSkillId(skillId);
+  if (!parsed) return null;
 
-  return scopeSkills.skills.find((entry) => entry.name === skill.name) ?? null;
+  const rows = await getDiscoveredSkillRows(parsed.projectId);
+  if (parsed.kind === "discovered") {
+    return rows.find((row) => row.appSkill.id === skillId)?.piSkill ?? null;
+  }
+  return rows.find((row) => row.appSkill.name === parsed.name)?.piSkill ?? null;
 }
 
 export async function listGlobalSkills(): Promise<Skill[]> {
-  return loadScopeSkills(getGlobalSkillsDir(), "user", null);
+  const rows = await loadDiscoveredSkills(process.cwd(), null);
+  return rows.map((row) => row.appSkill);
 }
 
 export async function listProjectSkills(projectId: string): Promise<Skill[]> {
   const projectPath = await getProjectPathOrThrow(projectId);
-  return loadScopeSkills(getProjectSkillsDir(projectPath), "project", projectId);
+  const rows = await loadDiscoveredSkills(projectPath, projectId);
+  return rows.map((row) => row.appSkill);
 }
 
 export async function listSkillsForAgent(projectId: string): Promise<Skill[]> {
-  const projectPath = await getProjectPathOrThrow(projectId);
-  const projectDir = getProjectSkillsDir(projectPath);
-  const result = loadSkills({
-    cwd: projectPath,
-    agentDir: getAgentDir(),
-  });
-
-  const skills = await Promise.all(
-    result.skills.map((skill) =>
-      toAppSkill(skill, isWithin(projectDir, skill.filePath) ? projectId : null),
-    ),
-  );
-
-  return skills.sort((a, b) => a.name.localeCompare(b.name));
+  return listProjectSkills(projectId);
 }
 
 export async function getSkill(skillId: string): Promise<Skill | null> {
   const parsed = parseSkillId(skillId);
   if (!parsed) return null;
 
-  const skills =
-    parsed.projectId === null
-      ? await listGlobalSkills()
-      : await listProjectSkills(parsed.projectId);
-
-  return skills.find((skill) => skill.name === parsed.name) ?? null;
+  const rows = await getDiscoveredSkillRows(parsed.projectId);
+  if (parsed.kind === "discovered") {
+    return rows.find((row) => row.appSkill.id === skillId)?.appSkill ?? null;
+  }
+  return rows.find((row) => row.appSkill.name === parsed.name)?.appSkill ?? null;
 }
 
 export async function createSkill(input: {
@@ -220,7 +244,7 @@ export async function createSkill(input: {
   }
 
   const root = await getScopeRoot(input.projectId);
-  await writeSkillFile(root, {
+  const filePath = await writeSkillFile(root, {
     name: input.name,
     description: input.description,
     content: input.content ?? "",
@@ -228,7 +252,7 @@ export async function createSkill(input: {
     disableModelInvocation: input.disableModelInvocation ?? false,
   });
 
-  return { id: makeSkillId(input.projectId, input.name) };
+  return { id: makeSkillId(input.projectId, filePath) };
 }
 
 export async function updateSkill(
@@ -251,10 +275,12 @@ export async function updateSkill(
   const nextDisableModelInvocation =
     input.disableModelInvocation ?? existing.disableModelInvocation;
 
+  const parsed = parseSkillId(skillId);
+  if (!parsed) return;
   const scopeSkills =
-    existing.projectId === null
+    parsed.projectId === null
       ? await listGlobalSkills()
-      : await listProjectSkills(existing.projectId);
+      : await listProjectSkills(parsed.projectId);
 
   const hasConflict = scopeSkills.some(
     (skill) => skill.name === nextName && skill.id !== existing.id,
@@ -263,28 +289,35 @@ export async function updateSkill(
     throw new SkillNameConflictError(nextName);
   }
 
-  const root = await getScopeRoot(existing.projectId);
-  const targetPath = await writeSkillFile(root, {
-    name: nextName,
-    description: nextDescription,
-    content: nextContent,
-    triggerKeywords: nextTriggerKeywords,
-    disableModelInvocation: nextDisableModelInvocation,
-  });
+  const current = await getSkillFileInfo(skillId);
+  if (!current) return;
 
-  const current = await getSkillFileInfo(existing);
-  if (current && path.resolve(current.filePath) !== path.resolve(targetPath)) {
-    await cleanupSkillPath(current.filePath, root);
-  }
+  await fs.writeFile(
+    current.filePath,
+    buildSkillMarkdown({
+      name: nextName,
+      description: nextDescription,
+      content: nextContent,
+      triggerKeywords: nextTriggerKeywords,
+      disableModelInvocation: nextDisableModelInvocation,
+    }),
+    "utf8",
+  );
 }
 
 export async function deleteSkill(skillId: string): Promise<void> {
   const existing = await getSkill(skillId);
   if (!existing) return;
 
-  const fileInfo = await getSkillFileInfo(existing);
+  const fileInfo = await getSkillFileInfo(skillId);
   if (!fileInfo) return;
 
-  const root = await getScopeRoot(existing.projectId);
-  await cleanupSkillPath(fileInfo.filePath, root);
+  await fs.rm(fileInfo.filePath, { force: true });
+  if (path.basename(fileInfo.filePath) === "SKILL.md") {
+    try {
+      await fs.rmdir(path.dirname(fileInfo.filePath));
+    } catch {
+      // Keep non-empty skill directories with assets/scripts intact.
+    }
+  }
 }

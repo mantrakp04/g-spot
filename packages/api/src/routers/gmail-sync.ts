@@ -14,7 +14,6 @@ import {
   GMAIL_AGENT_TOOL_NAME_VALUES,
   gmailAgentWorkflowUpsertSchema,
   gmailAgentToolNameSchema,
-  piAgentConfigSchema,
 } from "@g-spot/types";
 
 import { publicProcedure, router } from "../index";
@@ -261,15 +260,6 @@ function isAnalysisStatus(value: string): value is AnalysisProgressResponse["sta
   );
 }
 
-function parseWorkflowAgentConfig(value: string) {
-  try {
-    const parsed = piAgentConfigSchema.safeParse(JSON.parse(value));
-    return parsed.success ? parsed.data : piAgentConfigSchema.parse({});
-  } catch {
-    return piAgentConfigSchema.parse({});
-  }
-}
-
 function parseDisabledToolNames(value: string) {
   try {
     const parsedJson = JSON.parse(value);
@@ -290,7 +280,6 @@ function mapWorkflow(row: Awaited<ReturnType<typeof listGmailAgentWorkflows>>[nu
     enabled: row.enabled,
     trigger: row.trigger,
     prompt: row.prompt,
-    agentConfig: parseWorkflowAgentConfig(row.agentConfig),
     disabledToolNames: parseDisabledToolNames(row.disabledToolNames),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -331,7 +320,6 @@ export const gmailSyncRouter = router({
         name: workflow.name,
         enabled: workflow.enabled,
         prompt: workflow.prompt,
-        agentConfig: JSON.stringify(workflow.agentConfig),
         disabledToolNames: JSON.stringify(workflow.disabledToolNames),
       });
 

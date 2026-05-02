@@ -58,7 +58,7 @@ export function GitHubTable({
   const readStateKey = source === "github_pr" ? "github-prs" : "github-issues";
   const { isUnread, markAsRead } = useReadState(`${readStateKey}:${sectionId}`);
 
-  const updateSectionMutation = useUpdateSectionMutation();
+  const updateSectionMutation = useUpdateSectionMutation({ refetchOnSettled: false });
 
   // Key the memo on the *content* of columnsProp, not its reference — the
   // parent re-creates this array on every render (parseJson), so relying on

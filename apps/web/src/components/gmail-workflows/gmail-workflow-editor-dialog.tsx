@@ -1,5 +1,4 @@
-import type { PiAgentConfig, GmailAgentToolName } from "@g-spot/types";
-import { piAgentConfigSchema } from "@g-spot/types";
+import type { GmailAgentToolName } from "@g-spot/types";
 import { Badge } from "@g-spot/ui/components/badge";
 import { Button } from "@g-spot/ui/components/button";
 import { Checkbox } from "@g-spot/ui/components/checkbox";
@@ -20,13 +19,10 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 import type { GmailWorkflow, GmailWorkflowTool } from "./gmail-workflows-page";
 
-const DEFAULT_AGENT_CONFIG = piAgentConfigSchema.parse({});
-
 type FormState = {
   name: string;
   enabled: boolean;
   prompt: string;
-  agentConfigJson: string;
   disabledToolNames: GmailAgentToolName[];
 };
 
@@ -34,7 +30,6 @@ const EMPTY_FORM: FormState = {
   name: "Incoming triage",
   enabled: false,
   prompt: "",
-  agentConfigJson: JSON.stringify(DEFAULT_AGENT_CONFIG, null, 2),
   disabledToolNames: ["gmail_send_email"],
 };
 
@@ -49,7 +44,6 @@ type GmailWorkflowEditorDialogProps = {
     name: string;
     enabled: boolean;
     prompt: string;
-    agentConfig: PiAgentConfig;
     disabledToolNames: GmailAgentToolName[];
   }) => Promise<void>;
 };
@@ -60,7 +54,6 @@ function toForm(workflow: GmailWorkflow | null): FormState {
     name: workflow.name,
     enabled: workflow.enabled,
     prompt: workflow.prompt,
-    agentConfigJson: JSON.stringify(workflow.agentConfig, null, 2),
     disabledToolNames: workflow.disabledToolNames,
   };
 }
@@ -92,20 +85,6 @@ export function GmailWorkflowEditorDialog({
     event.preventDefault();
     setError(null);
 
-    let parsedJson: unknown;
-    try {
-      parsedJson = JSON.parse(form.agentConfigJson);
-    } catch {
-      setError("Agent config must be valid JSON.");
-      return;
-    }
-
-    const parsedConfig = piAgentConfigSchema.safeParse(parsedJson);
-    if (!parsedConfig.success) {
-      setError(parsedConfig.error.issues[0]?.message ?? "Invalid agent config.");
-      return;
-    }
-
     if (!form.name.trim()) {
       setError("Name is required.");
       return;
@@ -116,7 +95,6 @@ export function GmailWorkflowEditorDialog({
       name: form.name.trim(),
       enabled: form.enabled,
       prompt: form.prompt,
-      agentConfig: parsedConfig.data,
       disabledToolNames: form.disabledToolNames,
     });
   }
@@ -193,6 +171,9 @@ export function GmailWorkflowEditorDialog({
                 disabled={isPending}
                 className="max-h-72 font-mono text-xs [field-sizing:fixed]"
               />
+              <p className="text-muted-foreground text-xs">
+                Model and agent settings come from your global Pi defaults.
+              </p>
             </div>
 
             <div className="space-y-3">
@@ -232,23 +213,6 @@ export function GmailWorkflowEditorDialog({
                   );
                 })}
               </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="workflow-agent-config">Agent config</Label>
-              <Textarea
-                id="workflow-agent-config"
-                rows={7}
-                value={form.agentConfigJson}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    agentConfigJson: event.target.value,
-                  }))
-                }
-                disabled={isPending}
-                className="max-h-56 font-mono text-xs [field-sizing:fixed]"
-              />
             </div>
 
             {error ? (

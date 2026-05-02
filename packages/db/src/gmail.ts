@@ -1142,7 +1142,6 @@ export async function upsertGmailAgentWorkflow(
     name: string;
     enabled: boolean;
     prompt: string;
-    agentConfig?: string;
     disabledToolNames?: string;
   },
 ): Promise<{ id: string }> {
@@ -1155,7 +1154,6 @@ export async function upsertGmailAgentWorkflow(
         name: input.name,
         enabled: input.enabled,
         prompt: input.prompt,
-        ...(input.agentConfig !== undefined ? { agentConfig: input.agentConfig } : {}),
         ...(input.disabledToolNames !== undefined
           ? { disabledToolNames: input.disabledToolNames }
           : {}),
@@ -1179,7 +1177,6 @@ export async function upsertGmailAgentWorkflow(
     enabled: input.enabled,
     trigger: "incremental_sync",
     prompt: input.prompt,
-    agentConfig: input.agentConfig ?? "{}",
     disabledToolNames: input.disabledToolNames ?? "[]",
     createdAt: now,
     updatedAt: now,

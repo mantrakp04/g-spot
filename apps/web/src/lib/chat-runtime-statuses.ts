@@ -9,6 +9,7 @@ type RuntimeStatusSnapshot = Record<string, ChatRuntimeDotStatus>;
 const EMPTY_SNAPSHOT: RuntimeStatusSnapshot = {};
 let snapshot: RuntimeStatusSnapshot = EMPTY_SNAPSHOT;
 const listeners = new Set<() => void>();
+const finishedListeners = new Set<(chatId: string) => void>();
 let statusSocket: WebSocket | null = null;
 let activeChatId: string | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -21,7 +22,17 @@ function emit() {
 }
 
 function setSnapshot(next: RuntimeStatusSnapshot) {
+  const previous = snapshot;
   snapshot = next;
+
+  for (const [chatId, status] of Object.entries(next)) {
+    if (status === "finished-unread" && previous[chatId] !== "finished-unread") {
+      for (const listener of finishedListeners) {
+        listener(chatId);
+      }
+    }
+  }
+
   emit();
 }
 
@@ -143,6 +154,24 @@ function subscribe(listener: () => void) {
 
 export function getChatRuntimeStatuses() {
   return snapshot;
+}
+
+export function subscribeChatRuntimeFinished(
+  listener: (chatId: string) => void,
+): () => void {
+  finishedListeners.add(listener);
+  return () => {
+    finishedListeners.delete(listener);
+  };
+}
+
+export function useChatRuntimeStatus(chatId: string | null | undefined) {
+  const statuses = useSyncExternalStore(
+    subscribe,
+    getChatRuntimeStatuses,
+    () => EMPTY_SNAPSHOT,
+  );
+  return chatId ? statuses[chatId] : undefined;
 }
 
 export function useChatRuntimeStatuses(activeId: string | null | undefined) {

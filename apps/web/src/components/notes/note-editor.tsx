@@ -15,6 +15,7 @@ interface NoteEditorProps {
   noteId: string;
   initialDoc: string;
   knownTitles: Set<string>;
+  scrollToText?: string | null;
   onChange: (value: string) => void;
   onWikilinkClick: WikilinkClick;
 }
@@ -31,6 +32,7 @@ export function NoteEditor({
   noteId,
   initialDoc,
   knownTitles,
+  scrollToText,
   onChange,
   onWikilinkClick,
 }: NoteEditorProps) {
@@ -77,6 +79,19 @@ export function NoteEditor({
       ),
     });
   }, [knownTitles]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    const target = scrollToText?.trim();
+    if (!view || !target) return;
+    const index = view.state.doc.toString().toLowerCase().indexOf(target.toLowerCase());
+    if (index === -1) return;
+    view.dispatch({
+      selection: { anchor: index, head: index + target.length },
+      effects: EditorView.scrollIntoView(index, { y: "center" }),
+    });
+    view.focus();
+  }, [scrollToText, noteId]);
 
   // Update the wikilink handler on prop change.
   useEffect(() => {

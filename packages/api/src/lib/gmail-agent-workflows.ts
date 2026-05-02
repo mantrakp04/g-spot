@@ -5,7 +5,6 @@ import {
 import type { GmailAgentWorkflowRow } from "@g-spot/db/schema/gmail";
 import {
   gmailAgentToolNameSchema,
-  piAgentConfigSchema,
   type GmailAgentToolName,
 } from "@g-spot/types";
 import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent";
@@ -14,8 +13,7 @@ import type { Message } from "@mariozechner/pi-ai";
 import {
   createPiAgentSession,
   extractAssistantText,
-  getDefaultWorkerConfig,
-  normalizePiAgentConfig,
+  getPiAgentDefaults,
 } from "./pi";
 import { createGmailAgentTools, GMAIL_AGENT_TOOL_NAMES } from "./gmail-agent-tools";
 
@@ -39,21 +37,6 @@ function parseDisabledToolNames(value: string): GmailAgentToolName[] {
   if (!Array.isArray(parsedJson)) return [];
   return parsedJson.filter((toolName): toolName is GmailAgentToolName =>
     gmailAgentToolNameSchema.safeParse(toolName).success
-  );
-}
-
-function parseAgentConfig(value: string) {
-  let parsedJson: unknown;
-  try {
-    parsedJson = JSON.parse(value);
-  } catch {
-    parsedJson = {};
-  }
-
-  const parsed = piAgentConfigSchema.safeParse(parsedJson);
-  return normalizePiAgentConfig(
-    parsed.success ? parsed.data : {},
-    getDefaultWorkerConfig(),
   );
 }
 
@@ -111,8 +94,9 @@ async function runWorkflow(
       disabledToolNames,
     );
 
+    const defaults = await getPiAgentDefaults();
     const { session } = await createPiAgentSession({
-      config: parseAgentConfig(workflow.agentConfig),
+      config: defaults.worker,
       activeToolNames: [],
       disableProjectResources: true,
       customTools: tools,

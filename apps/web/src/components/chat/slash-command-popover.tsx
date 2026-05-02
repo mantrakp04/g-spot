@@ -70,13 +70,12 @@ export const SlashCommandPopover = forwardRef<
   const slashState = parseSlashQuery(value);
   const commandContext: SlashCommandContext = useMemo(
     () => ({
-      clearInput: clearValue,
       setInput: setValue,
       projectId,
       chatId,
       handlers,
     }),
-    [clearValue, setValue, projectId, chatId, handlers],
+    [setValue, projectId, chatId, handlers],
   );
 
   const visibleCommands = useMemo(() => {
@@ -136,9 +135,8 @@ export const SlashCommandPopover = forwardRef<
         clearValue();
         return;
       }
-      // Skill insert: replace the slash query with the literal `/skill:name `
-      // slash command. The Pi agent expands this server-side into the full
-      // SKILL.md block — we never ship skill content through the textarea.
+      // Skill insert: replace the slash query with the literal `/<skill-name> `
+      // slash command. We never ship skill content through the textarea.
       setValue(command.insertText);
     },
     [clearValue, commandContext, setValue],

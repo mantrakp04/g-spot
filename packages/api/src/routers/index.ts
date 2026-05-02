@@ -9,6 +9,7 @@ import { notesRouter } from "./notes";
 import { piRouter } from "./pi";
 import { projectsRouter } from "./projects";
 import { relayRouter } from "./relay";
+import { searchRouter } from "./search";
 import { sectionsRouter } from "./sections";
 import { skillsRouter } from "./skills";
 
@@ -28,6 +29,7 @@ export const appRouter = router({
   gmailSync: gmailSyncRouter,
   mcp: mcpRouter,
   relay: relayRouter,
+  search: searchRouter,
 });
 
 export type AppRouter = typeof appRouter;

@@ -1,3 +1,8 @@
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from "@g-spot/ui/components/avatar";
 import { Button } from "@g-spot/ui/components/button";
 import {
   DropdownMenu,
@@ -12,10 +17,10 @@ import { useStackApp, useUser } from "@stackframe/react";
 import { BadgeCheck, ChevronsUpDown, Link2, LogOut } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 
-import { UserIdentity } from "@/components/user-identity";
+import { UserIdentity, userIdentityInitials } from "@/components/user-identity";
 import { clearDesktopAuthSession } from "@/lib/desktop-auth";
 
-export function NavUser() {
+export function NavUser({ compact = false }: { compact?: boolean } = {}) {
   const user = useUser();
   const app = useStackApp();
 
@@ -27,14 +32,30 @@ export function NavUser() {
     <DropdownMenu>
       <DropdownMenuTrigger
         render={
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-auto w-full justify-start gap-2 px-2 py-1.5"
-          >
-            <UserIdentity user={user} />
-            <ChevronsUpDown className="ml-auto size-4" />
-          </Button>
+          compact ? (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="rounded-full p-0"
+              aria-label="Account menu"
+            >
+              <Avatar className="size-7">
+                <AvatarImage alt="" src={user.profileImageUrl ?? undefined} />
+                <AvatarFallback className="text-[10px]">
+                  {userIdentityInitials(user)}
+                </AvatarFallback>
+              </Avatar>
+            </Button>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-auto w-full justify-start gap-2 px-2 py-1.5"
+            >
+              <UserIdentity user={user} />
+              <ChevronsUpDown className="ml-auto size-4" />
+            </Button>
+          )
         }
       />
       <DropdownMenuContent

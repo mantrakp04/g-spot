@@ -22,28 +22,60 @@ async function sha256(buffer: ArrayBuffer): Promise<string> {
     .join("");
 }
 
+type DownloadChunk = Buffer | Uint8Array | ArrayBuffer | string;
+
 type DownloadBody =
   | ReadableStream
+  | AsyncIterable<DownloadChunk>
   | {
       transformToByteArray?: () => Promise<Uint8Array>;
       transformToWebStream?: () => ReadableStream;
     };
+
+function chunkToBytes(chunk: DownloadChunk): Uint8Array {
+  if (typeof chunk === "string") return new TextEncoder().encode(chunk);
+  if (chunk instanceof ArrayBuffer) return new Uint8Array(chunk);
+  return chunk;
+}
 
 async function toDownloadStream(body: DownloadBody): Promise<ReadableStream> {
   if (body instanceof ReadableStream) {
     return body;
   }
 
-  if (typeof body.transformToWebStream === "function") {
+  if (
+    "transformToWebStream" in body &&
+    typeof body.transformToWebStream === "function"
+  ) {
     return body.transformToWebStream();
   }
 
-  if (typeof body.transformToByteArray === "function") {
+  if (
+    "transformToByteArray" in body &&
+    typeof body.transformToByteArray === "function"
+  ) {
     const bytes = await body.transformToByteArray();
     return new ReadableStream({
       start(controller) {
         controller.enqueue(bytes);
         controller.close();
+      },
+    });
+  }
+
+  if (Symbol.asyncIterator in body) {
+    const iterator = body[Symbol.asyncIterator]();
+    return new ReadableStream({
+      async pull(controller) {
+        const result = await iterator.next();
+        if (result.done) {
+          controller.close();
+          return;
+        }
+        controller.enqueue(chunkToBytes(result.value));
+      },
+      async cancel(reason) {
+        await iterator.return?.(reason);
       },
     });
   }

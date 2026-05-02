@@ -1,11 +1,13 @@
 import {
   flexRender,
+  functionalUpdate,
   getCoreRowModel,
   useReactTable,
   type ColumnDef,
   type ColumnOrderState,
   type ColumnSizingState,
   type RowData,
+  type Updater,
   type VisibilityState,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -13,7 +15,6 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type CSSProperties,
   type ReactElement,
@@ -90,6 +91,36 @@ const DEFAULT_COLUMN_SIZE = {
 
 function cssColumnVar(columnId: string) {
   return `--inbox-col-${columnId.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+}
+
+function columnSizingFromConfig(columnConfig: ColumnConfig[]) {
+  const sizing: ColumnSizingState = {};
+  for (const column of columnConfig) {
+    if (column.width != null) sizing[column.id] = column.width;
+  }
+  return sizing;
+}
+
+function columnWidthKey(columnConfig: ColumnConfig[]) {
+  return columnConfig.map((column) => `${column.id}:${column.width ?? ""}`).join("|");
+}
+
+function applyColumnSizing(
+  columnConfig: ColumnConfig[],
+  sizing: ColumnSizingState,
+) {
+  return columnConfig.map((column) => ({
+    ...column,
+    width: Object.prototype.hasOwnProperty.call(sizing, column.id)
+      ? Math.round(sizing[column.id]!)
+      : column.width,
+  }));
+}
+
+function clearColumnWidth(columnConfig: ColumnConfig[], columnId: string) {
+  return columnConfig.map((column) =>
+    column.id === columnId ? { ...column, width: null } : column,
+  );
 }
 
 function resolveMeta<TData>(
@@ -227,29 +258,28 @@ export function InboxDataTable<TData>({
     return state;
   }, [columnConfig]);
 
-  const initialSizing = useMemo<ColumnSizingState>(() => {
-    const state: ColumnSizingState = {};
-    for (const column of columnConfig) {
-      if (column.width != null) state[column.id] = column.width;
-    }
-    return state;
-  }, [columnConfig]);
-
-  const [columnSizing, setColumnSizing] = useState<ColumnSizingState>(initialSizing);
-
-  // If the persisted config reference changes (e.g. section switched,
-  // another tab saved widths, etc.) re-seed the local sizing map.
-  const configKeyRef = useRef<string>("");
-  const configKey = useMemo(
-    () => columnConfig.map((c) => `${c.id}:${c.width ?? ""}`).join("|"),
+  const persistedColumnSizing = useMemo(
+    () => columnSizingFromConfig(columnConfig),
     [columnConfig],
   );
+  const [columnSizing, setColumnSizing] = useState<ColumnSizingState>(
+    persistedColumnSizing,
+  );
+
+  // Re-seed local table sizing when optimistic/server config changes.
+  const widthKey = useMemo(() => columnWidthKey(columnConfig), [columnConfig]);
   useEffect(() => {
-    if (configKeyRef.current !== configKey) {
-      configKeyRef.current = configKey;
-      setColumnSizing(initialSizing);
-    }
-  }, [configKey, initialSizing]);
+    setColumnSizing(persistedColumnSizing);
+  }, [widthKey, persistedColumnSizing]);
+
+  const handleColumnSizingChange = useCallback(
+    (updater: Updater<ColumnSizingState>) => {
+      const next = functionalUpdate(updater, columnSizing);
+      setColumnSizing(next);
+      onColumnConfigChange?.(applyColumnSizing(columnConfig, next));
+    },
+    [columnConfig, columnSizing, onColumnConfigChange],
+  );
 
   const table = useReactTable({
     data,
@@ -266,7 +296,7 @@ export function InboxDataTable<TData>({
       columnVisibility,
       columnSizing,
     },
-    onColumnSizingChange: setColumnSizing,
+    onColumnSizingChange: handleColumnSizingChange,
   });
 
   const [scrollContainer, setScrollContainer] = useState<HTMLElement | null>(null);
@@ -294,22 +324,6 @@ export function InboxDataTable<TData>({
     [columnSizing, fillColumnId],
   );
 
-  const persistColumnSizing = useCallback(
-    (nextSizing: ColumnSizingState) => {
-      if (!onColumnConfigChange) return;
-
-      onColumnConfigChange(
-        columnConfig.map((column) => ({
-          ...column,
-          width: Object.prototype.hasOwnProperty.call(nextSizing, column.id)
-            ? Math.round(nextSizing[column.id]!)
-            : column.width,
-        })),
-      );
-    },
-    [columnConfig, onColumnConfigChange],
-  );
-
   const resetColumnSize = useCallback(
     (columnId: string, resetSize: () => void) => {
       resetSize();
@@ -318,30 +332,12 @@ export function InboxDataTable<TData>({
         delete next[columnId];
         return next;
       });
-
-      if (!onColumnConfigChange) return;
-      onColumnConfigChange(
-        columnConfig.map((column) =>
-          column.id === columnId ? { ...column, width: null } : column,
-        ),
-      );
+      onColumnConfigChange?.(clearColumnWidth(columnConfig, columnId));
     },
     [columnConfig, onColumnConfigChange],
   );
 
-  // ── Persist exactly once per drag, on release ───────────────────────
-
-  const isResizingColumn = Boolean(
-    table.getState().columnSizingInfo.isResizingColumn,
-  );
   const resizeDeltaOffset = table.getState().columnSizingInfo.deltaOffset ?? 0;
-  const wasResizingRef = useRef(false);
-  useEffect(() => {
-    const wasResizing = wasResizingRef.current;
-    wasResizingRef.current = isResizingColumn;
-    if (!wasResizing || isResizingColumn) return;
-    persistColumnSizing(columnSizing);
-  }, [isResizingColumn, columnSizing, persistColumnSizing]);
   const sentinelRef = useInfiniteScroll({
     hasNextPage: hasNextPage ?? false,
     isFetchingNextPage: isFetchingNextPage ?? false,

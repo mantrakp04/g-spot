@@ -341,8 +341,6 @@ export const StackTraceCopyButton = memo(
       []
     );
 
-    const Icon = isCopied ? CheckIcon : CopyIcon;
-
     return (
       <Button
         className={cn("size-7", className)}
@@ -351,7 +349,12 @@ export const StackTraceCopyButton = memo(
         variant="ghost"
         {...props}
       >
-        {children ?? <Icon size={14} />}
+        {children ?? (
+          <span className="t-icon-swap" data-state={isCopied ? "b" : "a"}>
+            <CopyIcon className="t-icon" data-icon="a" size={14} />
+            <CheckIcon className="t-icon" data-icon="b" size={14} />
+          </span>
+        )}
       </Button>
     );
   }

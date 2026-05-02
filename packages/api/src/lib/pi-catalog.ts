@@ -230,8 +230,7 @@ export async function searchPiCatalog(
   // disable stemming, so we join as separate terms.
   const text = `${PI_KEYWORD_QUERY} ${query}`.trim();
   const raw = await searchRegistry(text, Math.max(limit, 25));
-  const sorted = raw
-    .sort((a, b) => b.monthlyDownloads - a.monthlyDownloads)
-    .slice(0, limit);
-  return enrichTypesFromManifests(sorted);
+  // Preserve the registry's relevance ranking for searches. Sorting by
+  // downloads here buries exact matches under popular unrelated packages.
+  return enrichTypesFromManifests(raw.slice(0, limit));
 }

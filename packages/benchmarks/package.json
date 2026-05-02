@@ -1,0 +1,13 @@
+{
+  "name": "@g-spot/benchmarks",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "bench": "bun run --cwd memorybench src/index.ts run -p gspot -b locomo -j openrouter-deepseek-v4-pro -m openrouter-deepseek-v4-pro --concurrency 1 --concurrency-ingest 1 --concurrency-search 1 --concurrency-answer 1 --concurrency-evaluate 1",
+    "bench:100:gspot": "bun run --cwd memorybench src/index.ts run -p gspot -b locomo -l 100 -j openrouter-deepseek-v4-pro -m openrouter-deepseek-v4-pro --concurrency 1 --concurrency-indexing 1 --concurrency-search 4 --concurrency-answer 4 --concurrency-evaluate 4",
+    "bench:100:supermemory": "bun run --cwd memorybench src/index.ts run -p supermemory -b locomo -l 100 -j openrouter-deepseek-v4-pro -m openrouter-deepseek-v4-pro --concurrency 1 --concurrency-indexing 1 --concurrency-search 4 --concurrency-answer 4 --concurrency-evaluate 4",
+    "bench:smoke": "bun run --cwd memorybench src/index.ts run -p gspot -b locomo -j openrouter-deepseek-v4-pro -m openrouter-deepseek-v4-pro -l 1 --force --concurrency 1 --concurrency-ingest 1 --concurrency-search 1 --concurrency-answer 1 --concurrency-evaluate 1",
+    "bench:questions": "bun run --cwd memorybench src/index.ts list-questions -b locomo -l 10",
+    "check-types": "bun run --cwd memorybench tsc --noEmit"
+  }
+}

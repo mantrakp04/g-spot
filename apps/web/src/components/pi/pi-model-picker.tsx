@@ -205,6 +205,8 @@ export function PiModelPicker({
       <PopoverContent
         align={align}
         className="w-[min(30rem,calc(100vw-2rem))] overflow-hidden p-0"
+        onClick={(event) => event.stopPropagation()}
+        onPointerDown={(event) => event.stopPropagation()}
         sideOffset={6}
       >
         <Command className="bg-transparent" shouldFilter={false}>

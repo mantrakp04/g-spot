@@ -9,6 +9,9 @@ import {
   applyPiToolResultToMessages,
   applyToolApprovalRequestToMessages,
   applyToolApprovalResolvedToMessages,
+  applyToolExecutionEndToMessages,
+  applyToolExecutionStartToMessages,
+  applyToolExecutionUpdateToMessages,
   piMessageToUiMessage,
 } from "@/lib/chat-ui";
 
@@ -17,6 +20,7 @@ type ChatReductionInput = {
   streamingMessage: UIMessage | null;
   event: ChatStreamEvent;
   streamingId: string;
+  isReconnect?: boolean;
 };
 
 export type ChatReduction = {
@@ -26,13 +30,35 @@ export type ChatReduction = {
   streamingChanged: boolean;
 };
 
-function unchanged(input: ChatReductionInput): ChatReduction {
+function reduceTo(
+  input: ChatReductionInput,
+  messages: UIMessage[],
+  streamingMessage: UIMessage | null,
+  options: { forceStreamingChanged?: boolean } = {},
+): ChatReduction {
   return {
-    messages: input.messages,
-    streamingMessage: input.streamingMessage,
-    messagesChanged: false,
-    streamingChanged: false,
+    messages,
+    streamingMessage,
+    messagesChanged: messages !== input.messages,
+    streamingChanged:
+      options.forceStreamingChanged || streamingMessage !== input.streamingMessage,
   };
+}
+
+function unchanged(input: ChatReductionInput): ChatReduction {
+  return reduceTo(input, input.messages, input.streamingMessage);
+}
+
+function reduceMessagesAndStreaming(
+  input: ChatReductionInput,
+  apply: (messages: UIMessage[]) => UIMessage[],
+): ChatReduction {
+  const messages = apply(input.messages);
+  const streamingMessage = input.streamingMessage
+    ? apply([input.streamingMessage])[0] ?? null
+    : null;
+
+  return reduceTo(input, messages, streamingMessage);
 }
 
 export function reduceChatHistory(
@@ -48,9 +74,7 @@ export function reduceChatHistory(
       continue;
     }
 
-    const ui = piMessageToUiMessage(piMessage, message.id, {
-      createdAt: message.createdAt,
-    });
+    const ui = piMessageToUiMessage(piMessage, message.id);
     if (ui) {
       messages = [...messages, ui];
     }
@@ -59,31 +83,54 @@ export function reduceChatHistory(
   return messages;
 }
 
+function createdAtKey(value: UIMessage["createdAt"]) {
+  if (!value) return "";
+  return value instanceof Date ? value.toISOString() : value;
+}
+
+function hasAssistantAtSameTime(messages: UIMessage[], candidate: UIMessage) {
+  if (candidate.role !== "assistant") return false;
+
+  const createdAt = createdAtKey(candidate.createdAt);
+  return messages.some(
+    (message) =>
+      message.role === "assistant" && createdAtKey(message.createdAt) === createdAt,
+  );
+}
+
 export function reduceChatStreamEvent(
   input: ChatReductionInput,
 ): ChatReduction {
   const { event } = input;
 
   if (event.type === "tool_approval_request") {
-    return {
-      messages: applyToolApprovalRequestToMessages(input.messages, event),
-      streamingMessage: input.streamingMessage
-        ? applyToolApprovalRequestToMessages([input.streamingMessage], event)[0] ?? null
-        : null,
-      messagesChanged: true,
-      streamingChanged: input.streamingMessage !== null,
-    };
+    return reduceMessagesAndStreaming(input, (messages) =>
+      applyToolApprovalRequestToMessages(messages, event),
+    );
   }
 
   if (event.type === "tool_approval_resolved") {
-    return {
-      messages: applyToolApprovalResolvedToMessages(input.messages, event),
-      streamingMessage: input.streamingMessage
-        ? applyToolApprovalResolvedToMessages([input.streamingMessage], event)[0] ?? null
-        : null,
-      messagesChanged: true,
-      streamingChanged: input.streamingMessage !== null,
-    };
+    return reduceMessagesAndStreaming(input, (messages) =>
+      applyToolApprovalResolvedToMessages(messages, event),
+    );
+  }
+
+  if (event.type === "tool_execution_start") {
+    return reduceMessagesAndStreaming(input, (messages) =>
+      applyToolExecutionStartToMessages(messages, event),
+    );
+  }
+
+  if (event.type === "tool_execution_update") {
+    return reduceMessagesAndStreaming(input, (messages) =>
+      applyToolExecutionUpdateToMessages(messages, event),
+    );
+  }
+
+  if (event.type === "tool_execution_end") {
+    return reduceMessagesAndStreaming(input, (messages) =>
+      applyToolExecutionEndToMessages(messages, event),
+    );
   }
 
   if (
@@ -105,14 +152,9 @@ export function reduceChatStreamEvent(
       return unchanged(input);
     }
 
-    return {
-      messages: applyPiToolResultToMessages(input.messages, piMessage),
-      streamingMessage: input.streamingMessage
-        ? applyPiToolResultToMessages([input.streamingMessage], piMessage)[0] ?? null
-        : null,
-      messagesChanged: true,
-      streamingChanged: input.streamingMessage !== null,
-    };
+    return reduceMessagesAndStreaming(input, (messages) =>
+      applyPiToolResultToMessages(messages, piMessage),
+    );
   }
 
   const assistantMessage = piMessageToUiMessage(piMessage, input.streamingId, {
@@ -123,19 +165,22 @@ export function reduceChatStreamEvent(
     return unchanged(input);
   }
 
-  if (event.type === "message_end") {
-    return {
-      messages: [...input.messages, assistantMessage],
-      streamingMessage: null,
-      messagesChanged: true,
-      streamingChanged: input.streamingMessage !== null,
-    };
+  if (
+    input.isReconnect &&
+    event.type !== "message_end" &&
+    hasAssistantAtSameTime(input.messages, assistantMessage)
+  ) {
+    return unchanged(input);
   }
 
-  return {
-    messages: input.messages,
-    streamingMessage: assistantMessage,
-    messagesChanged: false,
-    streamingChanged: true,
-  };
+  if (event.type === "message_end") {
+    const messages =
+      input.isReconnect && hasAssistantAtSameTime(input.messages, assistantMessage)
+        ? input.messages
+        : [...input.messages, assistantMessage];
+
+    return reduceTo(input, messages, null, { forceStreamingChanged: true });
+  }
+
+  return reduceTo(input, input.messages, assistantMessage);
 }

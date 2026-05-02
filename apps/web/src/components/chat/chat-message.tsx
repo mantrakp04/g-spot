@@ -9,7 +9,6 @@ import {
 import { env } from "@g-spot/env/web";
 import { cn } from "@g-spot/ui/lib/utils";
 import {
-  BrainIcon,
   CheckIcon,
   CopyIcon,
   GitForkIcon,
@@ -29,7 +28,6 @@ import {
   ChainOfThought,
   ChainOfThoughtContent,
   ChainOfThoughtHeader,
-  ChainOfThoughtStep,
 } from "@/components/ai-elements/chain-of-thought";
 import {
   Message,
@@ -56,6 +54,7 @@ import { perfCount } from "@/lib/chat-perf-log";
 
 interface ChatMessageProps {
   message: UIMessage;
+  previousMessages?: UIMessage[];
   variant: "final" | "streaming";
   showThoughts?: boolean;
   onReload?: () => void;
@@ -69,6 +68,7 @@ function isToolPart(part: UIMessagePart): part is ToolUIPart | DynamicToolUIPart
 
 export const ChatMessage = memo(function ChatMessage({
   message,
+  previousMessages,
   variant,
   showThoughts,
   onReload,
@@ -105,6 +105,7 @@ export const ChatMessage = memo(function ChatMessage({
         ) : (
           <AssistantMessageBubble
             message={message}
+            previousMessages={previousMessages}
             variant={variant}
             showActions={variant === "final"}
             showThoughts={showThoughts ?? variant === "final"}
@@ -211,6 +212,7 @@ function UserMessageBubble({
 
 function AssistantMessageBubble({
   message,
+  previousMessages,
   variant,
   showActions,
   showThoughts,
@@ -218,6 +220,7 @@ function AssistantMessageBubble({
   onFork,
 }: {
   message: UIMessage;
+  previousMessages?: UIMessage[];
   variant: "final" | "streaming";
   showActions: boolean;
   showThoughts: boolean;
@@ -225,15 +228,13 @@ function AssistantMessageBubble({
   onFork?: () => void;
 }) {
   const [copied, setCopied] = useState(false);
-  const { thoughtParts, responseParts } = useMemo(
-    () =>
-      !showThoughts
-        ? { thoughtParts: [], responseParts: getVisibleMessageParts(message.parts) }
-        : getAssistantDisplayParts(message.parts),
-    [message.parts, showThoughts],
-  );
-  const hasThought = thoughtParts.some(
-    (p) => p.type === "reasoning" || isToolPart(p),
+  const [openStreamingAccordions, setOpenStreamingAccordions] = useState<
+    Record<string, boolean>
+  >({});
+  const showPersistedThoughts = variant === "final" && showThoughts;
+  const responseParts = useMemo(
+    () => getVisibleAssistantParts(message.parts, showPersistedThoughts),
+    [message.parts, showPersistedThoughts],
   );
 
   const handleCopy = useCallback(() => {
@@ -246,22 +247,48 @@ function AssistantMessageBubble({
     setTimeout(() => setCopied(false), 1500);
   }, [message.parts]);
 
+  const handleStreamingAccordionOpenChange = useCallback(
+    (id: string, open: boolean) => {
+      setOpenStreamingAccordions((current) => ({ ...current, [id]: open }));
+    },
+    [],
+  );
+
   return (
     <>
-      <MessageContent className="text-sm leading-relaxed">
-        {showThoughts && hasThought && (
-          <AssistantThoughts messageId={message.id} parts={thoughtParts} />
+      <MessageContent className="w-full gap-1.5 text-sm leading-relaxed">
+        {variant === "streaming" ? (
+          <MessageParts
+            messageId={message.id}
+            parts={message.parts}
+            incrementalTextParts
+            renderAuxiliaryParts
+            openAccordions={openStreamingAccordions}
+            onAccordionOpenChange={handleStreamingAccordionOpenChange}
+          />
+        ) : (
+          <>
+            {showPersistedThoughts && previousMessages?.length ? (
+              <AssistantThoughts messages={previousMessages} />
+            ) : null}
+            <MessageParts
+              messageId={message.id}
+              parts={responseParts}
+              renderAuxiliaryParts={showPersistedThoughts}
+            />
+          </>
         )}
-        <MessageParts messageId={message.id} parts={responseParts} />
       </MessageContent>
       {showActions && (
         <MessageActions className="mt-1 opacity-0 transition-opacity duration-200 group-hover/msg:opacity-100">
           <MessageAction tooltip="Copy" onClick={handleCopy}>
-            {copied ? (
-              <CheckIcon className="size-3.5 text-emerald-400" />
-            ) : (
-              <CopyIcon className="size-3.5" />
-            )}
+            <span className="t-icon-swap" data-state={copied ? "b" : "a"}>
+              <CopyIcon className="t-icon size-3.5" data-icon="a" />
+              <CheckIcon
+                className="t-icon size-3.5 text-emerald-400"
+                data-icon="b"
+              />
+            </span>
           </MessageAction>
           {onReload && (
             <MessageAction tooltip="Regenerate" onClick={onReload}>
@@ -279,84 +306,173 @@ function AssistantMessageBubble({
   );
 }
 
-function getAssistantDisplayParts(parts: UIMessagePart[]) {
-  return {
-    thoughtParts: parts.filter(
-      (part) => part.type === "reasoning" || isToolPart(part),
-    ),
-    responseParts: getVisibleMessageParts(parts),
-  };
-}
-
-function getVisibleMessageParts(parts: UIMessagePart[]) {
+function getVisibleAssistantParts(
+  parts: UIMessagePart[],
+  includeAuxiliaryParts: boolean,
+) {
   return parts.filter(
-    (part) => part.type === "text" || part.type === "file",
+    (part) =>
+      (part.type === "text" && part.text) ||
+      part.type === "file" ||
+      (includeAuxiliaryParts && (part.type === "reasoning" || isToolPart(part))),
   );
 }
 
-function AssistantThoughts({
-  messageId,
-  parts,
-}: {
-  messageId: string;
-  parts: UIMessagePart[];
-}) {
+type AssistantThoughtRenderItem =
+  | {
+      kind: "part";
+      key: string;
+      part: UIMessagePart;
+    }
+  | {
+      kind: "tool-group";
+      key: string;
+      parts: (ToolUIPart | DynamicToolUIPart)[];
+    };
+
+function AssistantThoughts({ messages }: { messages: UIMessage[] }) {
+  const items = getAssistantThoughtRenderItems(messages);
+  const previousPartCount = items.reduce(
+    (count, item) => count + (item.kind === "tool-group" ? item.parts.length : 1),
+    0,
+  );
+
   return (
-    <ChainOfThought defaultOpen>
+    <ChainOfThought>
       <ChainOfThoughtHeader>
-        Chain of Thought
+        {previousPartCount} previous {previousPartCount === 1 ? "message" : "messages"}
       </ChainOfThoughtHeader>
       <ChainOfThoughtContent>
-        {parts.map((part, i) => (
-          <ThoughtPart
-            key={`${messageId}-thought-${part.type}-${i}`}
-            part={part}
-          />
+        {items.map((item) =>
+          item.kind === "tool-group" ? (
+            <ToolCallThoughtGroup
+              key={item.key}
+              groupId={item.key}
+              parts={item.parts}
+            />
+          ) : (
+            <div key={item.key} className="text-foreground">
+              <MessageParts
+                messageId={item.key}
+                parts={[item.part]}
+                renderAuxiliaryParts
+              />
+            </div>
+          ),
+        )}
+      </ChainOfThoughtContent>
+    </ChainOfThought>
+  );
+}
+
+function getAssistantThoughtRenderItems(
+  messages: UIMessage[],
+): AssistantThoughtRenderItem[] {
+  const items: AssistantThoughtRenderItem[] = [];
+  let pendingToolParts: (ToolUIPart | DynamicToolUIPart)[] = [];
+  let pendingToolGroupKey = "";
+
+  const flushToolGroup = () => {
+    if (!pendingToolParts.length) return;
+
+    items.push({
+      kind: "tool-group",
+      key: pendingToolGroupKey,
+      parts: pendingToolParts,
+    });
+    pendingToolParts = [];
+    pendingToolGroupKey = "";
+  };
+
+  for (const message of messages) {
+    const parts = getVisibleAssistantParts(message.parts, true);
+
+    for (const [index, part] of parts.entries()) {
+      const key = `${message.id}-thought-${index}`;
+
+      if (isToolPart(part)) {
+        if (!pendingToolParts.length) {
+          pendingToolGroupKey = `${key}-tool-group`;
+        }
+        pendingToolParts.push(part);
+        continue;
+      }
+
+      flushToolGroup();
+      items.push({ kind: "part", key, part });
+    }
+  }
+
+  flushToolGroup();
+
+  return items;
+}
+
+function ToolCallThoughtGroup({
+  groupId,
+  parts,
+}: {
+  groupId: string;
+  parts: (ToolUIPart | DynamicToolUIPart)[];
+}) {
+  return (
+    <ChainOfThought>
+      <ChainOfThoughtHeader>
+        Ran {parts.length} {parts.length === 1 ? "command" : "commands"}
+      </ChainOfThoughtHeader>
+      <ChainOfThoughtContent>
+        {parts.map((part, index) => (
+          <ToolThoughtPart key={`${groupId}-${part.toolCallId ?? index}`} part={part} />
         ))}
       </ChainOfThoughtContent>
     </ChainOfThought>
   );
 }
 
-function ThoughtPart({ part }: { part: UIMessagePart }) {
-  if (isToolPart(part)) {
-    return <ToolThoughtPart part={part} />;
-  }
+const thoughtMessageClassName =
+  "text-muted-foreground/65 text-xs [&_p]:my-1 [&_pre]:my-1 [&_ul]:my-1 [&_ol]:my-1";
 
-  if (part.type === "reasoning") {
-    return (
-      <ChainOfThoughtStep
-        icon={BrainIcon}
-        label="Thinking"
-        status="complete"
-        description={
-          <MessageResponse className="text-muted-foreground text-xs [&_p]:my-1 [&_pre]:my-1 [&_ul]:my-1 [&_ol]:my-1">
-            {part.text}
+function CollapsibleThoughtMessage({
+  className,
+  defaultOpen = false,
+  onOpenChange,
+  open,
+  text,
+  title,
+}: {
+  className?: string;
+  defaultOpen?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  open?: boolean;
+  text: string;
+  title: string;
+}) {
+  return (
+    <ChainOfThought
+      className={className}
+      defaultOpen={defaultOpen}
+      onOpenChange={onOpenChange}
+      open={open}
+    >
+      <ChainOfThoughtHeader>{title}</ChainOfThoughtHeader>
+      {text && (
+        <ChainOfThoughtContent>
+          <MessageResponse className={thoughtMessageClassName}>
+            {text}
           </MessageResponse>
-        }
-      />
-    );
-  }
-
-  if (part.type === "text" && part.text) {
-    return (
-      <ChainOfThoughtStep
-        label="Note"
-        description={
-          <MessageResponse className="text-muted-foreground text-xs [&_p]:my-1 [&_pre]:my-1 [&_ul]:my-1 [&_ol]:my-1">
-            {part.text}
-          </MessageResponse>
-        }
-      />
-    );
-  }
-
-  return null;
+        </ChainOfThoughtContent>
+      )}
+    </ChainOfThought>
+  );
 }
 
 function ToolThoughtPart({
+  onOpenChange,
+  open,
   part,
 }: {
+  onOpenChange?: (open: boolean) => void;
+  open?: boolean;
   part: ToolUIPart | DynamicToolUIPart;
 }) {
   const denialText =
@@ -365,7 +481,7 @@ function ToolThoughtPart({
       : null;
 
   return (
-    <Tool>
+    <Tool onOpenChange={onOpenChange} open={open}>
       {part.type === "dynamic-tool" ? (
         <ToolHeader
           type={part.type}
@@ -382,7 +498,12 @@ function ToolThoughtPart({
           <div className="text-xs text-muted-foreground">{denialText}</div>
         )}
         {(part.output !== undefined || part.errorText) && (
-          <ToolOutput output={part.output} errorText={part.errorText} />
+          <ToolOutput
+            errorText={part.errorText}
+            input={part.input}
+            output={part.output}
+            toolName={part.toolName}
+          />
         )}
       </ToolContent>
     </Tool>
@@ -390,32 +511,274 @@ function ToolThoughtPart({
 }
 
 function MessageParts({
+  incrementalTextParts = false,
   messageId,
+  onAccordionOpenChange,
+  openAccordions,
   parts,
+  renderAuxiliaryParts = false,
 }: {
+  incrementalTextParts?: boolean;
   messageId: string;
+  onAccordionOpenChange?: (id: string, open: boolean) => void;
+  openAccordions?: Record<string, boolean>;
   parts: UIMessagePart[];
+  renderAuxiliaryParts?: boolean;
 }) {
   return (
     <>
       {parts.map((part, i) => {
-        const key = `${messageId}-response-${part.type}-${i}`;
+        const accordionId = `${part.type}-${i}`;
+        const key = `${messageId}-response-${accordionId}`;
 
-        if (part.type === "text") {
-          return part.text ? (
-            <MessageResponse key={key}>
-              {part.text}
-            </MessageResponse>
-          ) : null;
-        }
-
-        if (part.type === "file") {
-          return <FileAttachment key={key} id={key} part={part} />;
-        }
-
-        return null;
+        return (
+          <MessagePart
+            key={key}
+            accordionId={accordionId}
+            id={key}
+            incrementalTextParts={incrementalTextParts}
+            isActive={i === parts.length - 1}
+            onAccordionOpenChange={onAccordionOpenChange}
+            open={openAccordions?.[accordionId] ?? false}
+            part={part}
+            renderAuxiliaryParts={renderAuxiliaryParts}
+          />
+        );
       })}
     </>
+  );
+}
+
+type MessagePartProps = {
+  accordionId: string;
+  id: string;
+  incrementalTextParts: boolean;
+  isActive: boolean;
+  onAccordionOpenChange?: (id: string, open: boolean) => void;
+  open: boolean;
+  part: UIMessagePart;
+  renderAuxiliaryParts: boolean;
+};
+
+const MessagePart = memo(
+  function MessagePart({
+    accordionId,
+    id,
+    incrementalTextParts,
+    isActive,
+    onAccordionOpenChange,
+    open,
+    part,
+    renderAuxiliaryParts,
+  }: MessagePartProps) {
+    const handleOpenChange = useCallback(
+      (nextOpen: boolean) => onAccordionOpenChange?.(accordionId, nextOpen),
+      [accordionId, onAccordionOpenChange],
+    );
+
+    if (part.type === "text") {
+      return part.text ? (
+        incrementalTextParts ? (
+          <IncrementalMessageResponse text={part.text} />
+        ) : (
+          <MessageResponse>{part.text}</MessageResponse>
+        )
+      ) : null;
+    }
+
+    if (part.type === "file") {
+      return <FileAttachment id={id} part={part} />;
+    }
+
+    if (renderAuxiliaryParts && part.type === "reasoning") {
+      return (
+        <InlineReasoningPart
+          isActive={isActive}
+          onOpenChange={handleOpenChange}
+          open={open}
+          text={part.text}
+        />
+      );
+    }
+
+    if (renderAuxiliaryParts && isToolPart(part)) {
+      return (
+        <ToolThoughtPart
+          onOpenChange={handleOpenChange}
+          open={open}
+          part={part}
+        />
+      );
+    }
+
+    return null;
+  },
+  areMessagePartPropsEqual,
+);
+
+MessagePart.displayName = "MessagePart";
+
+function areMessagePartPropsEqual(prev: MessagePartProps, next: MessagePartProps) {
+  return (
+    prev.accordionId === next.accordionId &&
+    prev.id === next.id &&
+    prev.incrementalTextParts === next.incrementalTextParts &&
+    prev.isActive === next.isActive &&
+    prev.onAccordionOpenChange === next.onAccordionOpenChange &&
+    prev.open === next.open &&
+    prev.renderAuxiliaryParts === next.renderAuxiliaryParts &&
+    getPartRenderSignature(prev.part) === getPartRenderSignature(next.part)
+  );
+}
+
+function getPartRenderSignature(part: UIMessagePart) {
+  if (part.type === "text" || part.type === "reasoning") {
+    return `${part.type}:${part.text}`;
+  }
+
+  if (part.type === "file") {
+    return [
+      part.type,
+      part.url,
+      part.mediaType,
+      part.filename,
+      part.fileId,
+      part.extractedText,
+    ].join("\u0000");
+  }
+
+  if (isToolPart(part)) {
+    return [
+      part.type,
+      part.state,
+      part.toolCallId,
+      part.toolName,
+      safeRenderStringify(part.input),
+      safeRenderStringify(part.output),
+      part.errorText,
+      part.approval?.id,
+      part.approval?.approved,
+      part.approval?.reason,
+    ].join("\u0000");
+  }
+
+  return part.type;
+}
+
+function safeRenderStringify(value: unknown) {
+  if (value === undefined) return "";
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+const FrozenMarkdownSegment = memo(
+  function FrozenMarkdownSegment({ text }: { text: string }) {
+    return <MessageResponse>{text}</MessageResponse>;
+  },
+  (prev, next) => prev.text === next.text,
+);
+
+FrozenMarkdownSegment.displayName = "FrozenMarkdownSegment";
+
+function IncrementalMessageResponse({ text }: { text: string }) {
+  const { committed, live } = useIncrementalMarkdownSegments(text);
+
+  return (
+    <>
+      {committed.map((segment, index) => (
+        <FrozenMarkdownSegment key={index} text={segment} />
+      ))}
+      {live ? <MessageResponse>{live}</MessageResponse> : null}
+    </>
+  );
+}
+
+function useIncrementalMarkdownSegments(text: string) {
+  const stateRef = useRef({
+    committed: [] as string[],
+    live: "",
+    seen: "",
+  });
+
+  return useMemo(() => {
+    const state = stateRef.current;
+
+    if (text.startsWith(state.seen)) {
+      state.live += text.slice(state.seen.length);
+    } else {
+      state.committed = [];
+      state.live = text;
+    }
+
+    state.seen = text;
+
+    const commitIndex = findStreamingCommitIndex(state.live);
+    if (commitIndex > 0) {
+      state.committed = [...state.committed, state.live.slice(0, commitIndex)];
+      state.live = state.live.slice(commitIndex);
+    }
+
+    return {
+      committed: state.committed,
+      live: state.live,
+    };
+  }, [text]);
+}
+
+function findStreamingCommitIndex(text: string) {
+  let inFence = false;
+  let lineStart = 0;
+  let commitIndex = 0;
+
+  for (let index = 0; index < text.length;) {
+    const nextLineBreak = text.indexOf("\n", index);
+    const lineEnd = nextLineBreak === -1 ? text.length : nextLineBreak;
+    const line = text.slice(lineStart, lineEnd).trimStart();
+
+    if (line.startsWith("```") || line.startsWith("~~~")) {
+      inFence = !inFence;
+    }
+
+    if (!inFence && nextLineBreak !== -1 && text[nextLineBreak + 1] === "\n") {
+      commitIndex = nextLineBreak + 2;
+      index = commitIndex;
+      lineStart = index;
+      continue;
+    }
+
+    if (nextLineBreak === -1) {
+      break;
+    }
+
+    index = nextLineBreak + 1;
+    lineStart = index;
+  }
+
+  return commitIndex;
+}
+
+function InlineReasoningPart({
+  isActive,
+  onOpenChange,
+  open,
+  text,
+}: {
+  isActive: boolean;
+  onOpenChange?: (open: boolean) => void;
+  open?: boolean;
+  text: string;
+}) {
+  return (
+    <CollapsibleThoughtMessage
+      defaultOpen={false}
+      onOpenChange={onOpenChange}
+      open={open}
+      text={text}
+      title={isActive ? "Thinking" : "Thought"}
+    />
   );
 }
 

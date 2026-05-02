@@ -14,6 +14,7 @@ import {
 type StreamMode = "idle" | "start" | "reconnect";
 
 type StreamEventCtx = {
+  chatId: string;
   isReconnect: boolean;
 };
 
@@ -73,29 +74,57 @@ export function usePiChatStream(args: UsePiChatStreamArgs): PiChatStreamApi {
         url: buildSocketUrl(targetChatId),
         mode,
         initialMessage,
-        onEvent: (event, ctx) => argsRef.current.onEvent(event, ctx),
+        onEvent: (event, ctx) => {
+          if (
+            socketHandleRef.current !== handle ||
+            argsRef.current.chatId !== targetChatId
+          ) {
+            return;
+          }
+
+          argsRef.current.onEvent(event, {
+            ...ctx,
+            chatId: targetChatId,
+          });
+        },
         onError: (err) => {
+          if (
+            socketHandleRef.current !== handle ||
+            argsRef.current.chatId !== targetChatId
+          ) {
+            return;
+          }
+
           setStatus("error");
           argsRef.current.onError?.(err);
         },
         onComplete: () => {
-          setStatus("ready");
+          const isCurrentSocket = socketHandleRef.current === handle;
+          if (isCurrentSocket) {
+            setStatus("ready");
+          }
+
           argsRef.current.onStreamComplete?.(targetChatId);
           logChatDebug("stream-complete", {
             targetChatId,
             isReconnect: mode === "reconnect",
           });
 
-          if (socketHandleRef.current === handle) {
+          if (isCurrentSocket) {
             socketHandleRef.current = null;
             modeRef.current = "idle";
           }
         },
         onUnexpectedClose: (err) => {
-          if (socketHandleRef.current === handle) {
-            socketHandleRef.current = null;
-            modeRef.current = "idle";
+          if (
+            socketHandleRef.current !== handle ||
+            argsRef.current.chatId !== targetChatId
+          ) {
+            return;
           }
+
+          socketHandleRef.current = null;
+          modeRef.current = "idle";
           setStatus("error");
           logChatDebug("stream-close-unexpected", {
             targetChatId,
@@ -137,10 +166,14 @@ export function usePiChatStream(args: UsePiChatStreamArgs): PiChatStreamApi {
           type: "start",
           message: userMessage,
         });
-        if (!attached) {
+        if (!attached && argsRef.current.chatId === targetChatId) {
           throw new Error("Chat socket did not attach");
         }
       } catch (error) {
+        if (argsRef.current.chatId !== targetChatId) {
+          return;
+        }
+
         setStatus("error");
         const err = error instanceof Error ? error : new Error(String(error));
         logChatDebug("stream-start-error", { targetChatId, error: err });
@@ -206,6 +239,11 @@ export function usePiChatStream(args: UsePiChatStreamArgs): PiChatStreamApi {
     closeActiveSocket();
     setStatus("ready");
   }, [closeActiveSocket]);
+
+  useEffect(() => {
+    closeActiveSocket();
+    setStatus("ready");
+  }, [args.chatId, closeActiveSocket]);
 
   useEffect(() => {
     return () => {

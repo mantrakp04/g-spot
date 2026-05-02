@@ -12,6 +12,7 @@ export const chats = sqliteTable(
       .references(() => projects.id, { onDelete: "cascade" }),
     title: text("title").notNull().default("New Chat"),
     agentConfig: text("agent_config").notNull().default("{}"),
+    agentContext: text("agent_context"),
     createdAt: text("created_at")
       .notNull()
       .default(sql`(current_timestamp)`),

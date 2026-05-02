@@ -32,9 +32,14 @@ export const ChatMessageList = memo(function ChatMessageList({
     <>
       {entries.map((entry) => {
         return (
-          <ChatMessage
-            key={entry.message.id}
+          <div key={entry.message.id} data-chat-message-id={entry.message.id}>
+            <ChatMessage
             message={entry.message}
+            previousMessages={
+              entry.kind === "assistant-turn"
+                ? entry.messages.slice(0, -1)
+                : undefined
+            }
             variant="final"
             onReload={
               entry.kind === "assistant-turn"
@@ -46,12 +51,13 @@ export const ChatMessageList = memo(function ChatMessageList({
                 ? (newText: string) => handlers.onEdit(entry.index, newText)
                 : undefined
             }
-            onFork={() =>
-              handlers.onFork(
-                entry.kind === "assistant-turn" ? entry.lastIndex : entry.index,
-              )
-            }
-          />
+              onFork={() =>
+                handlers.onFork(
+                  entry.kind === "assistant-turn" ? entry.lastIndex : entry.index,
+                )
+              }
+            />
+          </div>
         );
       })}
     </>

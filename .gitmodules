@@ -1,0 +1,3 @@
+[submodule "packages/benchmarks/memorybench"]
+	path = packages/benchmarks/memorybench
+	url = https://github.com/mantrakp04/memorybench.git

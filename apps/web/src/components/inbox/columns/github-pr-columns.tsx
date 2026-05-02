@@ -15,83 +15,24 @@ import {
 } from "@g-spot/ui/components/popover";
 import {
   Check,
-  CircleDot,
   CircleX,
   Clock,
   ExternalLink,
   Eye,
   GitPullRequest,
-  Loader2,
   Minus,
   XCircle,
 } from "lucide-react";
 
-import type { GitHubPullRequest, GitHubStatusCheck } from "@/lib/github/types";
+import {
+  PrCiCheckItem,
+  summarizePrCiChecks,
+} from "@/components/github/pr-ci-check-item";
+import type { GitHubPullRequest } from "@/lib/github/types";
 import { openExternalUrl } from "@/lib/external-url";
 import { ROW_PREVIEW_BLOCK_ATTR } from "../row-preview";
 import { GitHubLabels, relativeTime } from "../shared";
 import { TruncatedText } from "../truncated-text";
-
-// ── Check helpers ─────────────────────────────────────────────────────────
-
-function checkStatusColor(check: GitHubStatusCheck) {
-  if (check.status !== "COMPLETED") return "text-yellow-500";
-  switch (check.conclusion) {
-    case "SUCCESS":
-      return "text-emerald-500";
-    case "SKIPPED":
-    case "NEUTRAL":
-      return "text-muted-foreground";
-    default:
-      return "text-destructive";
-  }
-}
-
-function checkStatusIcon(check: GitHubStatusCheck) {
-  const color = checkStatusColor(check);
-  if (check.status !== "COMPLETED") {
-    if (check.status === "IN_PROGRESS")
-      return <Loader2 className={`size-3.5 shrink-0 animate-spin ${color}`} />;
-    return <Clock className={`size-3.5 shrink-0 ${color}`} />;
-  }
-  switch (check.conclusion) {
-    case "SUCCESS":
-      return <Check className={`size-3.5 shrink-0 ${color}`} />;
-    case "SKIPPED":
-      return <Minus className={`size-3.5 shrink-0 ${color}`} />;
-    case "NEUTRAL":
-      return <CircleDot className={`size-3.5 shrink-0 ${color}`} />;
-    default:
-      return <XCircle className={`size-3.5 shrink-0 ${color}`} />;
-  }
-}
-
-function checkStatusLabel(check: GitHubStatusCheck) {
-  if (check.status !== "COMPLETED") {
-    if (check.status === "IN_PROGRESS") return "Running";
-    return "Pending";
-  }
-  switch (check.conclusion) {
-    case "SUCCESS":
-      return "Passed";
-    case "FAILURE":
-      return "Failed";
-    case "CANCELLED":
-      return "Cancelled";
-    case "TIMED_OUT":
-      return "Timed out";
-    case "SKIPPED":
-      return "Skipped";
-    case "ACTION_REQUIRED":
-      return "Action required";
-    case "NEUTRAL":
-      return "Neutral";
-    case "STALE":
-      return "Stale";
-    default:
-      return "Unknown";
-  }
-}
 
 function rollupMeta(status: GitHubPullRequest["statusCheckRollup"]) {
   switch (status) {
@@ -189,13 +130,12 @@ function StatusCheckPopover({ pr }: { pr: GitHubPullRequest }) {
   if (!meta) return <span className="size-3.5" />;
 
   const checks = pr.statusChecks ?? [];
-  const passed = checks.filter((c) => c.status === "COMPLETED" && c.conclusion === "SUCCESS").length;
-  const failed = checks.filter(
-    (c) =>
-      c.status === "COMPLETED" &&
-      (c.conclusion === "FAILURE" || c.conclusion === "CANCELLED" || c.conclusion === "TIMED_OUT"),
-  ).length;
-  const pending = checks.filter((c) => c.status !== "COMPLETED").length;
+  const rollup = summarizePrCiChecks(
+    checks.map((check) => ({
+      id: check.detailsUrl ?? check.name,
+      ...check,
+    })),
+  );
 
   return (
     <Popover>
@@ -228,30 +168,28 @@ function StatusCheckPopover({ pr }: { pr: GitHubPullRequest }) {
           <span className={`text-xs font-semibold ${meta.color}`}>{meta.label}</span>
           {checks.length > 0 && (
             <span className="ml-auto text-[10px] text-muted-foreground">
-              {passed > 0 && `${passed} passed`}
-              {failed > 0 && `${passed > 0 ? ", " : ""}${failed} failed`}
-              {pending > 0 && `${passed > 0 || failed > 0 ? ", " : ""}${pending} pending`}
+              {rollup.passed > 0 && `${rollup.passed} passed`}
+              {rollup.failed > 0 && `${rollup.passed > 0 ? ", " : ""}${rollup.failed} failed`}
+              {rollup.pending > 0 && `${rollup.passed > 0 || rollup.failed > 0 ? ", " : ""}${rollup.pending} pending`}
             </span>
           )}
         </div>
 
         {checks.length > 0 ? (
-          <div className="max-h-52 overflow-y-auto">
+          <div className="max-h-52 overflow-y-auto p-1">
             {checks.map((check) => (
-              <a
-                key={check.name}
-                href={check.detailsUrl ?? `${pr.url}/checks`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-2.5 px-3 py-1.5 transition-colors hover:bg-muted/60"
-                onClick={(e) => e.stopPropagation()}
-              >
-                {checkStatusIcon(check)}
-                <span className="min-w-0 flex-1 truncate text-xs">{check.name}</span>
-                <span className={`shrink-0 text-[10px] ${checkStatusColor(check)}`}>
-                  {checkStatusLabel(check)}
-                </span>
-              </a>
+              <PrCiCheckItem
+                key={`${check.name}:${check.detailsUrl ?? ""}`}
+                check={{
+                  id: check.detailsUrl ?? check.name,
+                  name: check.name,
+                  status: check.status,
+                  conclusion: check.conclusion,
+                  detailsUrl: check.detailsUrl,
+                }}
+                fallbackHref={`${pr.url}/checks`}
+                onLinkClick={(e) => e.stopPropagation()}
+              />
             ))}
           </div>
         ) : (

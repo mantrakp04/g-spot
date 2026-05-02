@@ -19,7 +19,6 @@ import {
   ArrowDown,
   ArrowUp,
   FileText,
-  MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
 } from "lucide-react";
@@ -57,7 +56,6 @@ import {
 const STICKY_HEADER_OFFSET_PX = 96;
 
 import { PRActionBar } from "./action-bar";
-import { CommentsDrawer } from "./comments-drawer";
 import {
   ActivitySection,
   DescriptionCard,
@@ -205,7 +203,6 @@ export function PRReviewView({
 
   const [diffMode, setDiffMode] = useReviewDiffMode();
   const [treeOpen, setTreeOpen] = useReviewTreeOpen();
-  const [commentsOpen, setCommentsOpen] = useState(false);
 
   const pr = detail.data;
 
@@ -489,16 +486,6 @@ export function PRReviewView({
             ) : null}
             <DiffModeToggle mode={diffMode} onChange={setDiffMode} />
             <DiffCustomizerMenu />
-            <Button
-              type="button"
-              variant="outline"
-              size="default"
-              onClick={() => setCommentsOpen(true)}
-              title="View comments"
-            >
-              <MessageSquare />
-              {reviewState.inlineCommentCount}
-            </Button>
             <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground/70">
               Press <Kbd>j</Kbd>/<Kbd>k</Kbd>
             </span>
@@ -592,16 +579,6 @@ export function PRReviewView({
           </div>
         )}
       </section>
-
-      <CommentsDrawer
-        open={commentsOpen}
-        onOpenChange={setCommentsOpen}
-        commentsByFile={reviewComments.data ?? {}}
-        onJumpTo={(path) => {
-          setCommentsOpen(false);
-          scrollToFile(path);
-        }}
-      />
 
       <div className="fixed bottom-6 left-1/2 z-20 -translate-x-1/2">
         <FloatingPill visible={floatingState === "skip"}>

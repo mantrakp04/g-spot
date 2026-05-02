@@ -13,13 +13,14 @@ import {
   Plus,
   Trash2,
 } from "lucide-react";
-import { useCallback } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import {
   ChatStatusDot,
   type ChatRuntimeDotStatus,
 } from "@/components/chat/chat-status-dot";
 import { useChats } from "@/hooks/use-chat-data";
+import { useInfiniteScroll } from "@/hooks/use-infinite-scroll";
 
 interface SidebarProjectItemProps {
   project: {
@@ -45,6 +46,16 @@ interface SidebarProjectItemProps {
  * the project's own chat list. Chats are only fetched while the project is
  * expanded — `useChats(null)` is a no-op when collapsed.
  */
+const COLLAPSED_CHAT_LIMIT = 5;
+
+function shouldPinChat(
+  chatId: string,
+  activeChatId: string | undefined,
+  runtimeStatuses: Record<string, ChatRuntimeDotStatus>,
+) {
+  return chatId === activeChatId || !!runtimeStatuses[chatId];
+}
+
 export function SidebarProjectItem({
   project,
   isActiveProject,
@@ -55,13 +66,34 @@ export function SidebarProjectItem({
   runtimeStatuses,
 }: SidebarProjectItemProps) {
   const navigate = useNavigate();
+  const [showAllChats, setShowAllChats] = useState(false);
 
   const {
     data: chatsData,
     isLoading: chatsLoading,
+    hasNextPage,
+    fetchNextPage,
+    isFetchingNextPage,
   } = useChats(isOpen ? project.id : null);
 
   const chats = chatsData?.pages.flatMap((page) => page.chats) ?? [];
+  const collapsedVisibleChats = useMemo(
+    () =>
+      chats.filter(
+        (chat, index) =>
+          index < COLLAPSED_CHAT_LIMIT ||
+          shouldPinChat(chat.id, activeChatId, runtimeStatuses),
+      ),
+    [activeChatId, chats, runtimeStatuses],
+  );
+  const visibleChats = showAllChats ? chats : collapsedVisibleChats;
+  const hiddenLoadedChatCount = chats.length - collapsedVisibleChats.length;
+  const hasHiddenChats = hiddenLoadedChatCount > 0 || !!hasNextPage;
+  const sentinelRef = useInfiniteScroll({
+    hasNextPage: showAllChats ? hasNextPage : false,
+    isFetchingNextPage,
+    fetchNextPage: () => void fetchNextPage(),
+  });
 
   const handleNewChatHere = useCallback(
     (event: React.MouseEvent) => {
@@ -75,8 +107,18 @@ export function SidebarProjectItem({
     [navigate, project.id],
   );
 
+  const handleOpenChange = useCallback(
+    (open: boolean) => {
+      if (!open) {
+        setShowAllChats(false);
+      }
+      onToggle(open);
+    },
+    [onToggle],
+  );
+
   return (
-    <Collapsible open={isOpen} onOpenChange={onToggle}>
+    <Collapsible open={isOpen} onOpenChange={handleOpenChange}>
       <div
         className={cn(
           "group/project flex items-center gap-0.5 rounded-md transition-colors",
@@ -129,7 +171,7 @@ export function SidebarProjectItem({
           </p>
         )}
 
-        {chats.map((chat) => {
+        {visibleChats.map((chat) => {
           const rawChatStatus = runtimeStatuses[chat.id] ?? null;
           const chatStatus =
             activeChatId === chat.id && rawChatStatus === "finished-unread"
@@ -158,6 +200,22 @@ export function SidebarProjectItem({
             </Link>
           );
         })}
+
+        {!chatsLoading && (showAllChats || hasHiddenChats) && (
+          <button
+            type="button"
+            className="w-full rounded-md px-2 py-1.5 text-left text-[11px] text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground"
+            onClick={() => setShowAllChats((value) => !value)}
+          >
+            {showAllChats ? "Show less" : "View all"}
+          </button>
+        )}
+
+        {showAllChats && hasNextPage && <div ref={sentinelRef} className="h-1" />}
+
+        {showAllChats && isFetchingNextPage && (
+          <Skeleton className="h-7 w-4/5 rounded-md" />
+        )}
       </CollapsibleContent>
     </Collapsible>
   );

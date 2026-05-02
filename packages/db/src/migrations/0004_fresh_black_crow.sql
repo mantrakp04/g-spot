@@ -1,0 +1,1 @@
+ALTER TABLE `gmail_agent_workflows` DROP COLUMN `agent_config`;

@@ -114,8 +114,12 @@ export const EnvironmentVariablesToggle = ({
 
   return (
     <div className={cn("flex items-center gap-2", className)}>
-      <span className="text-muted-foreground text-xs">
-        {showValues ? <EyeIcon size={14} /> : <EyeOffIcon size={14} />}
+      <span
+        className="t-icon-swap text-muted-foreground text-xs"
+        data-state={showValues ? "b" : "a"}
+      >
+        <EyeOffIcon className="t-icon" data-icon="a" size={14} />
+        <EyeIcon className="t-icon" data-icon="b" size={14} />
       </span>
       <Switch
         aria-label="Toggle value visibility"
@@ -296,8 +300,6 @@ export const EnvironmentVariableCopyButton = ({
     []
   );
 
-  const Icon = isCopied ? CheckIcon : CopyIcon;
-
   return (
     <Button
       className={cn("size-6 shrink-0", className)}
@@ -306,7 +308,12 @@ export const EnvironmentVariableCopyButton = ({
       variant="ghost"
       {...props}
     >
-      {children ?? <Icon size={12} />}
+      {children ?? (
+        <span className="t-icon-swap" data-state={isCopied ? "b" : "a"}>
+          <CopyIcon className="t-icon" data-icon="a" size={12} />
+          <CheckIcon className="t-icon" data-icon="b" size={12} />
+        </span>
+      )}
     </Button>
   );
 };

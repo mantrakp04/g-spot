@@ -18,6 +18,8 @@ import {
   Sparkles,
 } from "lucide-react";
 
+import { SectionsSidebar } from "@/components/sections/sections-sidebar";
+import { AppLayout } from "@/components/shell/app-layout";
 import { GitHubTable } from "@/components/inbox/github-table";
 import { GmailMailView } from "@/components/inbox/gmail-mail-view";
 import {
@@ -33,7 +35,18 @@ import type { GmailThread } from "@/lib/gmail/types";
 import { useEmailDrawerWidth } from "@/lib/inbox/inbox-preferences";
 import { gmailKeys, githubKeys } from "@/lib/query-keys";
 
+type InboxSearch = {
+  gmailThreadId?: string;
+  providerAccountId?: string;
+  q?: string;
+};
+
 export const Route = createFileRoute("/")({
+  validateSearch: (search: Record<string, unknown>): InboxSearch => ({
+    gmailThreadId: typeof search.gmailThreadId === "string" ? search.gmailThreadId : undefined,
+    providerAccountId: typeof search.providerAccountId === "string" ? search.providerAccountId : undefined,
+    q: typeof search.q === "string" ? search.q : undefined,
+  }),
   component: InboxPage,
 });
 
@@ -211,29 +224,38 @@ const SectionRow = memo(function SectionRow({
 );
 
 function InboxPage() {
+  const routeSearch = Route.useSearch();
   const user = useUser();
 
-  if (!user) {
-    return <InboxPageContent accounts={undefined} />;
-  }
-
-  return <SignedInInboxPage user={user} />;
+  return (
+    <AppLayout sidebar={<SectionsSidebar />}>
+      {user ? (
+        <SignedInInboxPage user={user} routeSearch={routeSearch} />
+      ) : (
+        <InboxPageContent accounts={undefined} routeSearch={routeSearch} />
+      )}
+    </AppLayout>
+  );
 }
 
 function SignedInInboxPage({
   user,
+  routeSearch,
 }: {
   user: { useConnectedAccounts: () => OAuthConnection[] | undefined };
+  routeSearch: InboxSearch;
 }) {
   const accounts = user.useConnectedAccounts();
 
-  return <InboxPageContent accounts={accounts} />;
+  return <InboxPageContent accounts={accounts} routeSearch={routeSearch} />;
 }
 
 function InboxPageContent({
   accounts,
+  routeSearch,
 }: {
   accounts: OAuthConnection[] | undefined;
+  routeSearch: InboxSearch;
 }) {
   const queryClient = useQueryClient();
   const { data: sections, isLoading } = useSections();
@@ -278,6 +300,32 @@ function InboxPageContent({
   // Lifted selected thread state for the right detail panel
   const [selectedThread, setSelectedThread] = useState<SelectedThreadState>(null);
   const markThreadReadMutation = useMarkGmailThreadReadMutation();
+  const searchedThread = useGmailThread(
+    routeSearch.gmailThreadId ?? null,
+    routeSearch.providerAccountId ?? null,
+  );
+
+  useEffect(() => {
+    const detail = searchedThread.data;
+    if (!detail || !routeSearch.gmailThreadId || !routeSearch.providerAccountId) return;
+    const firstMessage = detail.messages[0];
+    setSelectedThread({
+      thread: {
+        id: detail.id,
+        threadId: routeSearch.gmailThreadId,
+        subject: detail.subject,
+        from: firstMessage?.from ?? { name: "", email: "" },
+        snippet: firstMessage?.bodyText?.slice(0, 180) ?? "",
+        date: firstMessage?.date ?? "",
+        isUnread: false,
+        labels: [],
+        hasAttachment: false,
+        avatarUrl: null,
+      },
+      accountId: routeSearch.providerAccountId,
+      threads: [],
+    });
+  }, [routeSearch.gmailThreadId, routeSearch.providerAccountId, searchedThread.data]);
 
   const handleSelectThread = useCallback((thread: GmailThread, accountId: string | null, threads: GmailThread[]) => {
     reactStartTransition(() => {

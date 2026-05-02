@@ -128,8 +128,6 @@ export const SnippetCopyButton = ({
     []
   );
 
-  const Icon = isCopied ? CheckIcon : CopyIcon;
-
   return (
     <InputGroupButton
       aria-label="Copy"
@@ -139,7 +137,12 @@ export const SnippetCopyButton = ({
       title="Copy"
       {...props}
     >
-      {children ?? <Icon className="size-3.5" size={14} />}
+      {children ?? (
+        <span className="t-icon-swap" data-state={isCopied ? "b" : "a"}>
+          <CopyIcon className="t-icon size-3.5" data-icon="a" size={14} />
+          <CheckIcon className="t-icon size-3.5" data-icon="b" size={14} />
+        </span>
+      )}
     </InputGroupButton>
   );
 };

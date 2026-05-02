@@ -81,7 +81,7 @@ import {
   setStreamingMessage,
 } from "@/lib/streaming-message-store";
 import { perfCount } from "@/lib/chat-perf-log";
-import { splitActiveChatTurn } from "@/lib/chat-active-turn";
+import { splitActiveChatMessages } from "@/lib/chat-render-model";
 
 const STARTER_PROMPTS = [
   "Brainstorm ideas for a weekend project I could ship in a day",
@@ -119,6 +119,7 @@ import {
 } from "@/lib/pi-agent-config";
 import { chatKeys } from "@/lib/query-keys";
 import { consumePendingChatSubmission, setPendingChatSubmission } from "@/lib/pending-chat-submissions";
+import { useChatRuntimeStatus } from "@/lib/chat-runtime-statuses";
 import { trpc } from "@/utils/trpc";
 
 /** Attach files button — must be a child of PromptInput to access attachments context */
@@ -178,6 +179,8 @@ interface ChatViewProps {
    * that a freshly created chat will be assigned to).
    */
   projectId: string;
+  focusMessageId?: string;
+  searchText?: string;
 }
 
 type ChatUiMessage = UIMessage;
@@ -231,7 +234,7 @@ async function getChatHeaders(): Promise<Record<string, string>> {
  * then mounts ChatViewInner only once data is ready.
  * This ensures useChat initializes with the actual messages.
  */
-export function ChatView({ chatId, projectId }: ChatViewProps) {
+export function ChatView({ chatId, projectId, focusMessageId, searchText }: ChatViewProps) {
   const { data: chat, isLoading: isLoadingChat } = useChatDetail(chatId ?? "");
   const { data: dbMessages, isLoading: isLoadingMessages } = useChatMessages(chatId ?? "");
   const projectQuery = useProject(projectId);
@@ -269,6 +272,8 @@ export function ChatView({ chatId, projectId }: ChatViewProps) {
       projectAgentConfig={projectQuery.data?.agentConfig ?? null}
       chatAgentConfig={chat?.agentConfig ?? null}
       dbMessages={dbMessages ?? []}
+      focusMessageId={focusMessageId}
+      searchText={searchText}
     />
   );
 }
@@ -280,6 +285,8 @@ interface ChatViewInnerProps {
   projectAgentConfig: PiAgentConfig | null;
   chatAgentConfig: PiAgentConfig | null;
   dbMessages: PiChatHistoryMessage[];
+  focusMessageId?: string;
+  searchText?: string;
 }
 
 function ChatViewInner({
@@ -289,6 +296,8 @@ function ChatViewInner({
   projectAgentConfig,
   chatAgentConfig,
   dbMessages,
+  focusMessageId,
+  searchText,
 }: ChatViewInnerProps) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -300,6 +309,12 @@ function ChatViewInner({
   const replaceMessages = useReplaceChatMessagesMutation();
   const forkChat = useForkChatMutation();
   const isDraft = chatId === null;
+  const handleNewChat = useCallback(() => {
+    void navigate({
+      to: "/projects/$projectId",
+      params: { projectId },
+    });
+  }, [navigate, projectId]);
   const allModels = piCatalog.data?.models ?? [];
   const configuredProviders = useMemo(
     () =>
@@ -397,12 +412,29 @@ function ChatViewInner({
    */
   const streamingBufferRef = useRef<ChatUiMessage | null>(null);
 
+  useEffect(() => {
+    streamingBufferRef.current = null;
+    if (!chatId) return;
+
+    clearStreamingMessage(chatId);
+    return () => clearStreamingMessage(chatId);
+  }, [chatId]);
+
   /**
    * Translate a single streamed chat event from the server into UI message
    * state. Used by both fresh socket starts and reconnect replays.
    */
   const handleStreamEvent = useCallback(
-    (event: ChatStreamEvent, ctx: { isReconnect: boolean }) => {
+    (event: ChatStreamEvent, ctx: { chatId: string; isReconnect: boolean }) => {
+      if (ctx.chatId !== chatId) {
+        logChatDebug("stream-event-stale-chat", {
+          currentChatId: chatId,
+          eventChatId: ctx.chatId,
+          eventType: event.type,
+        });
+        return;
+      }
+
       perfCount("stream-event." + event.type);
       logChatDebug("stream-event", {
         chatId,
@@ -420,6 +452,7 @@ function ChatViewInner({
         streamingMessage: streamingBufferRef.current,
         event,
         streamingId,
+        isReconnect: ctx.isReconnect,
       });
 
       if (!reduction.messagesChanged && !reduction.streamingChanged) {
@@ -481,7 +514,9 @@ function ChatViewInner({
       toast.error(err.message);
     },
     onStreamComplete: (id) => {
-      streamingBufferRef.current = null;
+      if (id === chatId) {
+        streamingBufferRef.current = null;
+      }
       clearStreamingMessage(id);
       void queryClient.invalidateQueries({
         queryKey: chatKeys.messages(id),
@@ -508,11 +543,15 @@ function ChatViewInner({
       }
     },
   });
-  const { visibleMessages, activeAssistantMessages } = useMemo(
-    () => splitActiveChatTurn(messages, isStreamActive),
-    [messages, isStreamActive],
+  const runtimeStatus = useChatRuntimeStatus(chatId);
+  const isActiveTurn =
+    isStreamActive ||
+    runtimeStatus === "running" ||
+    runtimeStatus === "pending-approval";
+  const { finalMessages, streamingMessages } = useMemo(
+    () => splitActiveChatMessages(messages, isActiveTurn),
+    [messages, isActiveTurn],
   );
-
   const isStreamActiveRef = useRef(isStreamActive);
   isStreamActiveRef.current = isStreamActive;
   const pendingSubmissionStartedChatIdRef = useRef<string | null>(null);
@@ -540,6 +579,18 @@ function ChatViewInner({
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialMessages]);
+
+  useEffect(() => {
+    if (!focusMessageId) return;
+    const element = document.querySelector(`[data-chat-message-id="${CSS.escape(focusMessageId)}"]`);
+    if (!(element instanceof HTMLElement)) return;
+    element.scrollIntoView({ block: "center", behavior: "smooth" });
+    element.classList.add("ring-1", "ring-primary/60", "rounded-xl");
+    const id = window.setTimeout(() => {
+      element.classList.remove("ring-1", "ring-primary/60", "rounded-xl");
+    }, 1800);
+    return () => window.clearTimeout(id);
+  }, [focusMessageId, messages, searchText]);
 
   useEffect(() => {
     logChatDebug("messages-state", {
@@ -1294,6 +1345,7 @@ function ChatViewInner({
                     onPermissionModeChange={handlePermissionModeChange}
                     onBranchChange={handleBranchChange}
                     builtinHandlers={{
+                      onNew: handleNewChat,
                       onFork: () => {
                         if (messages.length > 0) {
                           void handleFork(messages.length - 1);
@@ -1305,11 +1357,6 @@ function ChatViewInner({
                         if (turnStartIndex !== -1) {
                           void handleRegenerate(turnStartIndex);
                         }
-                      },
-                      onHelp: () => {
-                        toast.info(
-                          "Slash commands: /clear /help /fork /regenerate · plus your skills",
-                        );
                       },
                     }}
                     layout="empty"
@@ -1338,13 +1385,13 @@ function ChatViewInner({
           )}
 
           <ChatMessageList
-            messages={visibleMessages}
+            messages={finalMessages}
             handlers={listHandlers}
           />
           {chatId ? (
             <StreamingMessage
               chatId={chatId}
-              activeMessages={activeAssistantMessages}
+              messages={streamingMessages}
             />
           ) : null}
         </ConversationContent>
@@ -1361,8 +1408,8 @@ function ChatViewInner({
           <ChatPendingApprovals
             chatId={chatId}
             className="px-3 pt-2"
-            messages={visibleMessages}
-            activeMessages={activeAssistantMessages}
+            messages={finalMessages}
+            streamingMessages={streamingMessages}
             onResolveApproval={listHandlers.onResolveApproval}
           />
           <div className="mx-auto w-full max-w-2xl px-3 py-2">
@@ -1383,6 +1430,7 @@ function ChatViewInner({
                 onPermissionModeChange={handlePermissionModeChange}
                 onBranchChange={handleBranchChange}
                 builtinHandlers={{
+                  onNew: handleNewChat,
                   onFork: () => {
                     if (messages.length > 0) {
                       void handleFork(messages.length - 1);
@@ -1394,11 +1442,6 @@ function ChatViewInner({
                     if (turnStartIndex !== -1) {
                       void handleRegenerate(turnStartIndex);
                     }
-                  },
-                  onHelp: () => {
-                    toast.info(
-                      "Slash commands: /clear /help /fork /regenerate · plus your skills",
-                    );
                   },
                 }}
                 layout="docked"
@@ -1506,6 +1549,8 @@ function ChatPromptInputArea({
       <PromptInput onSubmit={onSubmit}>
         <AttachmentPreviews />
         <PromptInputTextarea
+          autoFocus={chatId === null}
+          className="max-h-[9.6rem] min-h-[3.2rem]"
           placeholder={
             layout === "empty"
               ? `What should we build in ${projectName}?`

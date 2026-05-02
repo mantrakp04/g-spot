@@ -160,11 +160,40 @@ export type ToolApprovalResolvedEvent = {
   reason?: string;
 };
 
+export type ToolExecutionStartEvent = {
+  type: "tool_execution_start";
+  toolCallId: string;
+  toolName: string;
+  args: unknown;
+};
+
+export type ToolExecutionUpdateEvent = {
+  type: "tool_execution_update";
+  toolCallId: string;
+  toolName: string;
+  args: unknown;
+  partialResult: unknown;
+};
+
+export type ToolExecutionEndEvent = {
+  type: "tool_execution_end";
+  toolCallId: string;
+  toolName: string;
+  result: unknown;
+  isError: boolean;
+};
+
+export type ToolExecutionEvent =
+  | ToolExecutionStartEvent
+  | ToolExecutionUpdateEvent
+  | ToolExecutionEndEvent;
+
 export type ChatStreamEvent =
   | PiSdkSessionEvent
   | GSpotErrorEvent
   | ToolApprovalRequestEvent
-  | ToolApprovalResolvedEvent;
+  | ToolApprovalResolvedEvent
+  | ToolExecutionEvent;
 
 export type ChatSocketStateEvent =
   | { type: "socket_attached" }
@@ -458,16 +487,23 @@ function updateToolPart(
     }
 
     let applied = false;
+    let changed = false;
     const nextParts = message.parts.map((part) => {
       if (applied || !isAnyToolPart(part) || part.toolCallId !== toolCallId) {
         return part;
       }
       applied = true;
-      return update(part);
+      const nextPart = update(part);
+      changed ||= nextPart !== part;
+      return nextPart;
     });
 
     if (!applied) {
       continue;
+    }
+
+    if (!changed) {
+      return messages;
     }
 
     const next = [...messages];
@@ -478,40 +514,150 @@ function updateToolPart(
   return messages;
 }
 
+function isTerminalToolState(state: ToolState) {
+  return state === "output-available" || state === "output-error" || state === "output-denied";
+}
+
 export function applyToolApprovalRequestToMessages(
   messages: UIMessage[],
   event: ToolApprovalRequestEvent,
 ): UIMessage[] {
-  return updateToolPart(messages, event.toolCallId, (part) => ({
-    ...part,
-    state: "approval-requested",
-    approval: {
-      id: event.toolCallId,
-      // `reason` is the human-readable "why approval is needed" text that
-      // the server emitted. Stored alongside the eventual approval.reason
-      // field so the UI can surface both the prompt and the response.
-      reason: event.reason,
-    },
-  }));
+  return updateToolPart(messages, event.toolCallId, (part) =>
+    isTerminalToolState(part.state)
+      ? part
+      : {
+          ...part,
+          state: "approval-requested",
+          approval: {
+            id: event.toolCallId,
+            // `reason` is the human-readable "why approval is needed" text that
+            // the server emitted. Stored alongside the eventual approval.reason
+            // field so the UI can surface both the prompt and the response.
+            reason: event.reason,
+          },
+        },
+  );
 }
 
 export function applyToolApprovalResolvedToMessages(
   messages: UIMessage[],
   event: ToolApprovalResolvedEvent,
 ): UIMessage[] {
-  return updateToolPart(messages, event.toolCallId, (part) => ({
-    ...part,
-    // If the user denied, the tool is about to surface as an error; if they
-    // approved, Pi will fire the normal `tool_execution_*` events and the
-    // state will move forward from here. In both cases we park on
-    // `approval-responded` until the real transition happens.
-    state: "approval-responded",
-    approval: {
-      id: event.toolCallId,
-      approved: event.approved,
-      reason: event.reason,
-    },
-  }));
+  return updateToolPart(messages, event.toolCallId, (part) =>
+    isTerminalToolState(part.state)
+      ? part
+      : {
+          ...part,
+          // If the user denied, the tool is about to surface as an error; if they
+          // approved, Pi will fire the normal `tool_execution_*` events and the
+          // state will move forward from here. In both cases we park on
+          // `approval-responded` until the real transition happens.
+          state: "approval-responded",
+          approval: {
+            id: event.toolCallId,
+            approved: event.approved,
+            reason: event.reason,
+          },
+        },
+  );
+}
+
+function toolPartFromExecutionEvent(
+  event: ToolExecutionStartEvent | ToolExecutionUpdateEvent,
+): DynamicToolUIPart {
+  return {
+    type: "dynamic-tool",
+    state: "input-available",
+    toolCallId: event.toolCallId,
+    toolName: event.toolName,
+    input: event.args,
+  };
+}
+
+function applyToolExecutionToMessages(
+  messages: UIMessage[],
+  event: ToolExecutionEvent,
+  update: (
+    part: ToolUIPart | DynamicToolUIPart,
+  ) => ToolUIPart | DynamicToolUIPart,
+): UIMessage[] {
+  const updated = updateToolPart(messages, event.toolCallId, update);
+  if (updated !== messages) {
+    return updated;
+  }
+
+  if (event.type === "tool_execution_end") {
+    return messages;
+  }
+
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i]!;
+    if (message.role !== "assistant") {
+      continue;
+    }
+
+    const next = [...messages];
+    next[i] = {
+      ...message,
+      parts: [...message.parts, toolPartFromExecutionEvent(event)],
+    };
+    return next;
+  }
+
+  return messages;
+}
+
+export function applyToolExecutionStartToMessages(
+  messages: UIMessage[],
+  event: ToolExecutionStartEvent,
+): UIMessage[] {
+  return applyToolExecutionToMessages(messages, event, (part) =>
+    isTerminalToolState(part.state)
+      ? part
+      : {
+          ...part,
+          state: "input-available",
+          toolName: part.toolName ?? event.toolName,
+          input: event.args,
+        },
+  );
+}
+
+export function applyToolExecutionUpdateToMessages(
+  messages: UIMessage[],
+  event: ToolExecutionUpdateEvent,
+): UIMessage[] {
+  return applyToolExecutionToMessages(messages, event, (part) =>
+    isTerminalToolState(part.state)
+      ? part
+      : {
+          ...part,
+          state: "input-available",
+          toolName: part.toolName ?? event.toolName,
+          input: event.args,
+          output: event.partialResult,
+        },
+  );
+}
+
+export function applyToolExecutionEndToMessages(
+  messages: UIMessage[],
+  event: ToolExecutionEndEvent,
+): UIMessage[] {
+  return applyToolExecutionToMessages(messages, event, (part) => {
+    const output = event.result;
+    return {
+      ...part,
+      state: event.isError ? "output-error" : "output-available",
+      toolName: part.toolName ?? event.toolName,
+      output: event.isError ? undefined : output,
+      errorText: event.isError
+        ? typeof output === "string"
+          ? output
+          : stringifyUnknown(output)
+        : undefined,
+    };
+  });
 }
 
 export function isGSpotErrorEvent(event: ChatStreamEvent): event is GSpotErrorEvent {

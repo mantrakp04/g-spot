@@ -126,7 +126,13 @@ export function useCreateSectionMutation() {
   });
 }
 
-export function useUpdateSectionMutation() {
+type UpdateSectionMutationOptions = {
+  refetchOnSettled?: boolean;
+};
+
+export function useUpdateSectionMutation({
+  refetchOnSettled = true,
+}: UpdateSectionMutationOptions = {}) {
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -155,7 +161,7 @@ export function useUpdateSectionMutation() {
       }
     },
     onSettled: async () => {
-      await refetchSectionList(queryClient);
+      if (refetchOnSettled) await refetchSectionList(queryClient);
     },
   });
 }

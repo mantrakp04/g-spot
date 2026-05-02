@@ -1,4 +1,3 @@
-import { createReadStream } from "node:fs";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -29,13 +28,13 @@ export async function putObject(
 
 export async function getObject(
   key: string,
-): Promise<{ body: NodeJS.ReadableStream; contentType: string }> {
+): Promise<{ body: ReadableStream<Uint8Array>; contentType: string }> {
   const contentType = await readFile(getContentTypePath(key), "utf8").catch(
     () => "application/octet-stream",
   );
 
   return {
-    body: createReadStream(getLocalObjectPath(key)),
+    body: Bun.file(getLocalObjectPath(key)).stream(),
     contentType,
   };
 }

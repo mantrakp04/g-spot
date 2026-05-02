@@ -4,7 +4,6 @@ import { CheckIcon, ShieldAlertIcon, XIcon } from "lucide-react";
 import { useMemo, useSyncExternalStore } from "react";
 
 import type { DynamicToolUIPart, ToolUIPart, UIMessage, UIMessagePart } from "@/lib/chat-ui";
-import { combineActiveStreamingMessages } from "@/lib/chat-active-turn";
 import {
   getStreamingMessage,
   subscribeStreamingMessage,
@@ -56,7 +55,7 @@ type ChatPendingApprovalsProps = {
   chatId: string | null;
   className?: string;
   messages: readonly UIMessage[];
-  activeMessages?: readonly UIMessage[];
+  streamingMessages?: readonly UIMessage[];
   onResolveApproval: (
     toolCallId: string,
     approved: boolean,
@@ -95,7 +94,7 @@ export function ChatPendingApprovals({
   chatId,
   className,
   messages,
-  activeMessages = [],
+  streamingMessages = [],
   onResolveApproval,
 }: ChatPendingApprovalsProps) {
   const streaming = useSyncExternalStore(
@@ -109,13 +108,10 @@ export function ChatPendingApprovals({
     const seen = new Set<string>();
     const out: PendingApproval[] = [];
     for (const m of messages) collectPending(m, seen, out);
-    collectPending(
-      combineActiveStreamingMessages(activeMessages, streaming),
-      seen,
-      out,
-    );
+    for (const m of streamingMessages) collectPending(m, seen, out);
+    collectPending(streaming, seen, out);
     return out;
-  }, [messages, activeMessages, streaming]);
+  }, [messages, streamingMessages, streaming]);
 
   if (pending.length === 0) return null;
 

@@ -34,6 +34,7 @@ import { toast } from "sonner";
 
 import { GmailWorkflowEditorDialog } from "./gmail-workflow-editor-dialog";
 import { useConfirmDialog } from "@/contexts/confirm-dialog-context";
+import { useGoogleProfile } from "@/hooks/use-gmail-options";
 import { gmailKeys } from "@/lib/query-keys";
 import { queryClient, trpcClient } from "@/utils/trpc";
 
@@ -58,8 +59,11 @@ const TOOL_DESCRIPTIONS: Record<GmailAgentToolName, string> = {
   gmail_send_email: "Send immediately or send a draft.",
 };
 
-function getAccountLabel(account: OAuthConnection) {
-  return account.providerAccountId;
+function AccountLabel({ account }: { account: OAuthConnection }) {
+  const profile = useGoogleProfile(account);
+  const label =
+    profile.data?.email ?? profile.data?.name ?? account.providerAccountId;
+  return <span className="truncate">{label}</span>;
 }
 
 function useGoogleAccounts() {
@@ -166,7 +170,6 @@ export function GmailWorkflowsPage() {
         name: workflow.name,
         enabled,
         prompt: workflow.prompt,
-        agentConfig: workflow.agentConfig,
         disabledToolNames: workflow.disabledToolNames,
       },
     });
@@ -216,7 +219,16 @@ export function GmailWorkflowsPage() {
                 onValueChange={setProviderAccountId}
               >
                 <SelectTrigger className="w-64 bg-background">
-                  <SelectValue />
+                  <SelectValue>
+                    {(value: string | null) => {
+                      const selected = accounts.find(
+                        (item) => item.providerAccountId === value,
+                      );
+                      return selected ? (
+                        <AccountLabel account={selected} />
+                      ) : null;
+                    }}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {accounts.map((item) => (
@@ -224,7 +236,7 @@ export function GmailWorkflowsPage() {
                       key={item.providerAccountId}
                       value={item.providerAccountId}
                     >
-                      {getAccountLabel(item)}
+                      <AccountLabel account={item} />
                     </SelectItem>
                   ))}
                 </SelectContent>

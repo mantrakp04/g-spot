@@ -2,10 +2,19 @@ import {
   getChat,
   getChatMessages,
   saveChatMessage,
+  updateChatAgentContext,
 } from "@g-spot/db/chat";
 import { getProject } from "@g-spot/db/projects";
-import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent";
+import {
+  CURRENT_SESSION_VERSION,
+  SessionManager,
+  type AgentSessionEvent,
+  type SessionEntry,
+} from "@mariozechner/pi-coding-agent";
 import type { Message } from "@mariozechner/pi-ai";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { nanoid } from "nanoid";
 
 import {
@@ -83,6 +92,75 @@ const chatStatusSocketSubscriptions = new WeakMap<
   ChatStatusSocket,
   () => void
 >();
+
+const COMPACT_COMMAND_PATTERN = /^\/compact(?:\s+([\s\S]*))?$/;
+const AGENT_CONTEXT_SESSION_DIR = join(tmpdir(), "g-spot-pi-agent-context");
+
+function extractUserMessageText(message: Message) {
+  if (message.role !== "user") {
+    return "";
+  }
+
+  if (typeof message.content === "string") {
+    return message.content.trim();
+  }
+
+  return message.content
+    .flatMap((part) =>
+      part.type === "text" ? [part.text.trim()] : [],
+    )
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+function parseStoredAgentContext(value: string | null | undefined) {
+  if (!value) {
+    return [] satisfies SessionEntry[];
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? (parsed as SessionEntry[]) : [];
+  } catch {
+    return [] satisfies SessionEntry[];
+  }
+}
+
+function createChatSessionManager(args: {
+  chatId: string;
+  cwd: string;
+  storedAgentContext?: string | null;
+  fallbackHistory: Message[];
+}) {
+  const storedEntries = parseStoredAgentContext(args.storedAgentContext);
+  if (storedEntries.length === 0) {
+    const sessionManager = SessionManager.inMemory(args.cwd);
+    for (const message of args.fallbackHistory) {
+      sessionManager.appendMessage(message);
+    }
+    return sessionManager;
+  }
+
+  mkdirSync(AGENT_CONTEXT_SESSION_DIR, { recursive: true });
+  const sessionFile = join(AGENT_CONTEXT_SESSION_DIR, `${args.chatId}.jsonl`);
+  const header = {
+    type: "session" as const,
+    version: CURRENT_SESSION_VERSION,
+    id: args.chatId,
+    timestamp: new Date().toISOString(),
+    cwd: args.cwd,
+  };
+  writeFileSync(
+    sessionFile,
+    [header, ...storedEntries].map((entry) => JSON.stringify(entry)).join("\n") + "\n",
+  );
+  return SessionManager.open(sessionFile, AGENT_CONTEXT_SESSION_DIR, args.cwd);
+}
+
+function serializeAgentContext(sessionManager: SessionManager) {
+  return JSON.stringify(sessionManager.getEntries());
+}
 
 function publishSocketMessage(
   ws: ChatSocket,
@@ -188,16 +266,11 @@ async function startChatRun(body: ChatStreamRequestBody): Promise<void> {
     );
     const history = storedMessages.map((row) => row.parsedMessage);
 
-    const triggerMessageId = getIncomingUiMessageId(body.message) ?? nanoid();
-    if (storedMessages.some((message) => message.id === triggerMessageId)) {
-      throw new Error(
-        "Trigger message is already persisted. Trim chat history before starting a run.",
-      );
-    }
-
-    await saveChatMessage(body.chatId, {
-      id: triggerMessageId,
-      message: serializePiMessage(userMessage),
+    const sessionManager = createChatSessionManager({
+      chatId: body.chatId,
+      cwd: project.path,
+      storedAgentContext: chat.agentContext,
+      fallbackHistory: history,
     });
 
     // First message in this project triggers MCP spawn (cached afterwards).
@@ -211,12 +284,50 @@ async function startChatRun(body: ChatStreamRequestBody): Promise<void> {
       config: chatConfig,
       project,
       customTools: getMcpToolsForProject(project.id),
+      sessionManager,
     });
-
-    session.agent.state.messages = [...history];
 
     const { stream } = startChatRuntimeStream(body.chatId, {
       abortCurrentRun: () => session.abort(),
+    });
+
+    const compactMatch = COMPACT_COMMAND_PATTERN.exec(extractUserMessageText(userMessage));
+    if (compactMatch) {
+      const unsubscribe = session.subscribe((event: AgentSessionEvent) => {
+        stream.publish(event);
+      });
+
+      void (async () => {
+        try {
+          await session.compact(compactMatch[1]?.trim());
+          await updateChatAgentContext(
+            body.chatId,
+            serializeAgentContext(session.sessionManager),
+          );
+        } catch (error) {
+          stream.publish({
+            type: "gspot_error",
+            message: error instanceof Error ? error.message : "Compaction failed",
+          });
+        } finally {
+          stream.publish({ type: "stream_finished" });
+          unsubscribe();
+          finishChatRuntimeStream(body.chatId);
+        }
+      })();
+      return;
+    }
+
+    const triggerMessageId = getIncomingUiMessageId(body.message) ?? nanoid();
+    if (storedMessages.some((message) => message.id === triggerMessageId)) {
+      throw new Error(
+        "Trigger message is already persisted. Trim chat history before starting a run.",
+      );
+    }
+
+    await saveChatMessage(body.chatId, {
+      id: triggerMessageId,
+      message: serializePiMessage(userMessage),
     });
 
     // Preserve Pi extension tool-call hooks, then layer g-spot's permission
@@ -302,10 +413,13 @@ async function startChatRun(body: ChatStreamRequestBody): Promise<void> {
       try {
         await session.sendUserMessage(userMessage.content);
         await Promise.all(persistenceTasks);
+        await updateChatAgentContext(
+          body.chatId,
+          serializeAgentContext(session.sessionManager),
+        );
 
         const finalMessages = session.messages.filter(isPersistablePiMessage);
-        const isFirstUserTurn =
-          finalMessages.filter((message) => message.role === "user").length === 1;
+        const isFirstUserTurn = history.every((message) => message.role !== "user");
 
         if (triggerMessageId && isFirstUserTurn) {
           void refreshChatTitle({

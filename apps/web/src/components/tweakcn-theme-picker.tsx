@@ -24,7 +24,12 @@ import { Input } from "@g-spot/ui/components/input"
 import { ScrollArea } from "@g-spot/ui/components/scroll-area"
 import { cn } from "@g-spot/ui/lib/utils"
 import { useTweakCNThemes } from "@/components/tweakcn-theme-provider"
-import { fetchTheme, fetchThemes, type Theme } from "@/lib/tweakcn"
+import {
+  fetchTheme,
+  fetchThemes,
+  normalizeThemeUrl,
+  type Theme,
+} from "@/lib/tweakcn"
 
 interface SavedThemeEntry {
   url: string
@@ -164,12 +169,14 @@ export function ThemePicker({
         throw new Error("Only tweakcn.com URLs are supported")
       }
 
-      if (savedThemes.some(s => s.url === importUrl.trim())) {
+      const themeUrl = normalizeThemeUrl(importUrl.trim())
+
+      if (savedThemes.some(s => normalizeThemeUrl(s.url) === themeUrl)) {
         throw new Error("Theme already imported")
       }
 
-      const theme = await fetchTheme(importUrl.trim())
-      const newEntry: SavedThemeEntry = { url: importUrl.trim(), theme }
+      const theme = await fetchTheme(themeUrl)
+      const newEntry: SavedThemeEntry = { url: themeUrl, theme }
       const updated = [...savedThemes, newEntry]
       setSavedThemes(updated)
       saveSavedThemes(updated)
@@ -219,7 +226,13 @@ export function ThemePicker({
 
   if (!mounted || isLoadingThemes) {
     return (
-      <Button variant={compact ? "ghost" : "outline"} size="sm" className={cn(compact ? "w-full justify-start gap-2 px-2 py-1.5" : "gap-2", className)} disabled>
+      <Button
+        variant={compact ? "ghost" : "outline"}
+        size={compact ? "icon-sm" : "sm"}
+        className={cn(compact ? "text-muted-foreground" : "gap-2", className)}
+        disabled
+        aria-label={compact ? "Theme" : undefined}
+      >
         <Palette className="h-4 w-4" />
         {!compact && "Loading..."}
       </Button>
@@ -229,10 +242,20 @@ export function ThemePicker({
   return (
     <DropdownMenu open={isOpen} onOpenChange={setIsOpen}>
       <DropdownMenuTrigger
-        render={<Button variant={compact ? "ghost" : "outline"} size="sm" className={cn(compact ? "h-auto w-full justify-start gap-2 px-2 py-1.5" : "gap-2", className)} />}
+        render={
+          <Button
+            variant={compact ? "ghost" : "outline"}
+            size={compact ? "icon-sm" : "sm"}
+            className={cn(compact ? "text-muted-foreground hover:text-foreground" : "gap-2", className)}
+            aria-label={compact ? (currentTheme ? formatThemeName(currentTheme.name) : "Theme") : undefined}
+            title={compact ? (currentTheme ? formatThemeName(currentTheme.name) : "Theme") : undefined}
+          />
+        }
       >
         <Palette className="h-4 w-4 shrink-0" />
-        <span className="truncate">{currentTheme ? formatThemeName(currentTheme.name) : compact ? "Theme" : "Choose TweakCN Theme"}</span>
+        {!compact && (
+          <span className="truncate">{currentTheme ? formatThemeName(currentTheme.name) : "Choose TweakCN Theme"}</span>
+        )}
       </DropdownMenuTrigger>
       <DropdownMenuContent align={align} side={side} sideOffset={sideOffset} className="w-[280px] p-0">
         {/* Search Input */}

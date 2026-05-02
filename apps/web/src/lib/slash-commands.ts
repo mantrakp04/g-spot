@@ -2,7 +2,7 @@ import type { Skill } from "@g-spot/types";
 
 /**
  * Slash commands come in two flavors:
- * - **Action** commands run a callback when picked (clear, fork, regenerate, …).
+ * - **Action** commands run a callback when picked (new, fork, regenerate, …).
  * - **Insert** commands paste a literal slash-command into the textarea so the
  *   user can add arguments before submitting. Skills are insert-style: they
  *   insert `/skill:name ` (the form the Pi agent expands server-side), NOT
@@ -14,8 +14,6 @@ export type SlashCommandKind = "action" | "insert";
 export type SlashCommandSource = "builtin" | "skill-project" | "skill-global";
 
 export interface SlashCommandContext {
-  /** Clear the textarea value. */
-  clearInput: () => void;
   /** Replace the textarea value entirely. */
   setInput: (value: string) => void;
   /** Currently active project, if any. */
@@ -27,9 +25,9 @@ export interface SlashCommandContext {
 }
 
 export interface BuiltinHandlers {
+  onNew: () => void;
   onFork: () => void;
   onRegenerate: () => void;
-  onHelp: () => void;
 }
 
 export interface BuiltinCommand {
@@ -60,16 +58,9 @@ export const BUILTIN_SLASH_COMMANDS: BuiltinCommand[] = [
   {
     kind: "action",
     source: "builtin",
-    name: "clear",
-    description: "Clear the prompt input",
-    run: ({ clearInput }) => clearInput(),
-  },
-  {
-    kind: "action",
-    source: "builtin",
-    name: "help",
-    description: "Show available slash commands",
-    run: ({ handlers }) => handlers.onHelp(),
+    name: "new",
+    description: "Start a new chat",
+    run: ({ handlers }) => handlers.onNew(),
   },
   {
     kind: "action",
@@ -86,6 +77,14 @@ export const BUILTIN_SLASH_COMMANDS: BuiltinCommand[] = [
     description: "Regenerate the last assistant response",
     isAvailable: (ctx) => ctx.chatId !== null,
     run: ({ handlers }) => handlers.onRegenerate(),
+  },
+  {
+    kind: "action",
+    source: "builtin",
+    name: "compact",
+    description: "Compact agent context (history stays visible)",
+    isAvailable: (ctx) => ctx.chatId !== null,
+    run: ({ setInput }) => setInput("/compact "),
   },
 ];
 

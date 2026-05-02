@@ -63,7 +63,7 @@ export function GmailThreadTable({
     onCountChange?.(displayCount, isCountTotalPending);
   }, [isCountTotalPending, displayCount, onCountChange]);
 
-  const updateSectionMutation = useUpdateSectionMutation();
+  const updateSectionMutation = useUpdateSectionMutation({ refetchOnSettled: false });
 
   const threads = useMemo(() => {
     const flat = data?.pages.flatMap((p) => p.threads) ?? [];

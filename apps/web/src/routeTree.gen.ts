@@ -9,16 +9,17 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as WorkflowsRouteImport } from './routes/workflows'
 import { Route as ReviewRouteImport } from './routes/review'
 import { Route as ProjectsRouteImport } from './routes/projects'
+import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as NotesRouteImport } from './routes/notes'
+import { Route as MemoryRouteImport } from './routes/memory'
 import { Route as ChatRouteImport } from './routes/chat'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ReviewIndexRouteImport } from './routes/review/index'
 import { Route as ProjectsIndexRouteImport } from './routes/projects/index'
 import { Route as ChatIndexRouteImport } from './routes/chat/index'
-import { Route as SettingsMemoryRouteImport } from './routes/settings/memory'
-import { Route as SettingsGmailWorkflowsRouteImport } from './routes/settings/gmail-workflows'
 import { Route as SettingsConnectionsRouteImport } from './routes/settings/connections'
 import { Route as ProjectsNewRouteImport } from './routes/projects/new'
 import { Route as ProjectsProjectIdRouteImport } from './routes/projects/$projectId'
@@ -30,6 +31,11 @@ import { Route as ProjectsProjectIdSettingsRouteImport } from './routes/projects
 import { Route as ProjectsProjectIdChatChatIdRouteImport } from './routes/projects/$projectId/chat/$chatId'
 import { Route as ReviewKindOwnerRepoNumberRouteImport } from './routes/review/$kind.$owner.$repo.$number'
 
+const WorkflowsRoute = WorkflowsRouteImport.update({
+  id: '/workflows',
+  path: '/workflows',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ReviewRoute = ReviewRouteImport.update({
   id: '/review',
   path: '/review',
@@ -40,9 +46,19 @@ const ProjectsRoute = ProjectsRouteImport.update({
   path: '/projects',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OnboardingRoute = OnboardingRouteImport.update({
+  id: '/onboarding',
+  path: '/onboarding',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const NotesRoute = NotesRouteImport.update({
   id: '/notes',
   path: '/notes',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MemoryRoute = MemoryRouteImport.update({
+  id: '/memory',
+  path: '/memory',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ChatRoute = ChatRouteImport.update({
@@ -69,16 +85,6 @@ const ChatIndexRoute = ChatIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => ChatRoute,
-} as any)
-const SettingsMemoryRoute = SettingsMemoryRouteImport.update({
-  id: '/settings/memory',
-  path: '/settings/memory',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SettingsGmailWorkflowsRoute = SettingsGmailWorkflowsRouteImport.update({
-  id: '/settings/gmail-workflows',
-  path: '/settings/gmail-workflows',
-  getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsConnectionsRoute = SettingsConnectionsRouteImport.update({
   id: '/settings/connections',
@@ -137,17 +143,18 @@ const ReviewKindOwnerRepoNumberRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/chat': typeof ChatRouteWithChildren
+  '/memory': typeof MemoryRoute
   '/notes': typeof NotesRoute
+  '/onboarding': typeof OnboardingRoute
   '/projects': typeof ProjectsRouteWithChildren
   '/review': typeof ReviewRouteWithChildren
+  '/workflows': typeof WorkflowsRoute
   '/chat/$chatId': typeof ChatChatIdRoute
   '/chat/settings': typeof ChatSettingsRoute
   '/handler/$': typeof HandlerSplatRoute
   '/projects/$projectId': typeof ProjectsProjectIdRouteWithChildren
   '/projects/new': typeof ProjectsNewRoute
   '/settings/connections': typeof SettingsConnectionsRoute
-  '/settings/gmail-workflows': typeof SettingsGmailWorkflowsRoute
-  '/settings/memory': typeof SettingsMemoryRoute
   '/chat/': typeof ChatIndexRoute
   '/projects/': typeof ProjectsIndexRoute
   '/review/': typeof ReviewIndexRoute
@@ -158,14 +165,15 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/memory': typeof MemoryRoute
   '/notes': typeof NotesRoute
+  '/onboarding': typeof OnboardingRoute
+  '/workflows': typeof WorkflowsRoute
   '/chat/$chatId': typeof ChatChatIdRoute
   '/chat/settings': typeof ChatSettingsRoute
   '/handler/$': typeof HandlerSplatRoute
   '/projects/new': typeof ProjectsNewRoute
   '/settings/connections': typeof SettingsConnectionsRoute
-  '/settings/gmail-workflows': typeof SettingsGmailWorkflowsRoute
-  '/settings/memory': typeof SettingsMemoryRoute
   '/chat': typeof ChatIndexRoute
   '/projects': typeof ProjectsIndexRoute
   '/review': typeof ReviewIndexRoute
@@ -178,17 +186,18 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/chat': typeof ChatRouteWithChildren
+  '/memory': typeof MemoryRoute
   '/notes': typeof NotesRoute
+  '/onboarding': typeof OnboardingRoute
   '/projects': typeof ProjectsRouteWithChildren
   '/review': typeof ReviewRouteWithChildren
+  '/workflows': typeof WorkflowsRoute
   '/chat/$chatId': typeof ChatChatIdRoute
   '/chat/settings': typeof ChatSettingsRoute
   '/handler/$': typeof HandlerSplatRoute
   '/projects/$projectId': typeof ProjectsProjectIdRouteWithChildren
   '/projects/new': typeof ProjectsNewRoute
   '/settings/connections': typeof SettingsConnectionsRoute
-  '/settings/gmail-workflows': typeof SettingsGmailWorkflowsRoute
-  '/settings/memory': typeof SettingsMemoryRoute
   '/chat/': typeof ChatIndexRoute
   '/projects/': typeof ProjectsIndexRoute
   '/review/': typeof ReviewIndexRoute
@@ -202,17 +211,18 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/chat'
+    | '/memory'
     | '/notes'
+    | '/onboarding'
     | '/projects'
     | '/review'
+    | '/workflows'
     | '/chat/$chatId'
     | '/chat/settings'
     | '/handler/$'
     | '/projects/$projectId'
     | '/projects/new'
     | '/settings/connections'
-    | '/settings/gmail-workflows'
-    | '/settings/memory'
     | '/chat/'
     | '/projects/'
     | '/review/'
@@ -223,14 +233,15 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/memory'
     | '/notes'
+    | '/onboarding'
+    | '/workflows'
     | '/chat/$chatId'
     | '/chat/settings'
     | '/handler/$'
     | '/projects/new'
     | '/settings/connections'
-    | '/settings/gmail-workflows'
-    | '/settings/memory'
     | '/chat'
     | '/projects'
     | '/review'
@@ -242,17 +253,18 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/chat'
+    | '/memory'
     | '/notes'
+    | '/onboarding'
     | '/projects'
     | '/review'
+    | '/workflows'
     | '/chat/$chatId'
     | '/chat/settings'
     | '/handler/$'
     | '/projects/$projectId'
     | '/projects/new'
     | '/settings/connections'
-    | '/settings/gmail-workflows'
-    | '/settings/memory'
     | '/chat/'
     | '/projects/'
     | '/review/'
@@ -265,17 +277,25 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ChatRoute: typeof ChatRouteWithChildren
+  MemoryRoute: typeof MemoryRoute
   NotesRoute: typeof NotesRoute
+  OnboardingRoute: typeof OnboardingRoute
   ProjectsRoute: typeof ProjectsRouteWithChildren
   ReviewRoute: typeof ReviewRouteWithChildren
+  WorkflowsRoute: typeof WorkflowsRoute
   HandlerSplatRoute: typeof HandlerSplatRoute
   SettingsConnectionsRoute: typeof SettingsConnectionsRoute
-  SettingsGmailWorkflowsRoute: typeof SettingsGmailWorkflowsRoute
-  SettingsMemoryRoute: typeof SettingsMemoryRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/workflows': {
+      id: '/workflows'
+      path: '/workflows'
+      fullPath: '/workflows'
+      preLoaderRoute: typeof WorkflowsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/review': {
       id: '/review'
       path: '/review'
@@ -290,11 +310,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/onboarding': {
+      id: '/onboarding'
+      path: '/onboarding'
+      fullPath: '/onboarding'
+      preLoaderRoute: typeof OnboardingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/notes': {
       id: '/notes'
       path: '/notes'
       fullPath: '/notes'
       preLoaderRoute: typeof NotesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/memory': {
+      id: '/memory'
+      path: '/memory'
+      fullPath: '/memory'
+      preLoaderRoute: typeof MemoryRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/chat': {
@@ -331,20 +365,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/chat/'
       preLoaderRoute: typeof ChatIndexRouteImport
       parentRoute: typeof ChatRoute
-    }
-    '/settings/memory': {
-      id: '/settings/memory'
-      path: '/settings/memory'
-      fullPath: '/settings/memory'
-      preLoaderRoute: typeof SettingsMemoryRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/settings/gmail-workflows': {
-      id: '/settings/gmail-workflows'
-      path: '/settings/gmail-workflows'
-      fullPath: '/settings/gmail-workflows'
-      preLoaderRoute: typeof SettingsGmailWorkflowsRouteImport
-      parentRoute: typeof rootRouteImport
     }
     '/settings/connections': {
       id: '/settings/connections'
@@ -480,13 +500,14 @@ const ReviewRouteWithChildren =
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ChatRoute: ChatRouteWithChildren,
+  MemoryRoute: MemoryRoute,
   NotesRoute: NotesRoute,
+  OnboardingRoute: OnboardingRoute,
   ProjectsRoute: ProjectsRouteWithChildren,
   ReviewRoute: ReviewRouteWithChildren,
+  WorkflowsRoute: WorkflowsRoute,
   HandlerSplatRoute: HandlerSplatRoute,
   SettingsConnectionsRoute: SettingsConnectionsRoute,
-  SettingsGmailWorkflowsRoute: SettingsGmailWorkflowsRoute,
-  SettingsMemoryRoute: SettingsMemoryRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -32,6 +32,8 @@ import {
   X,
 } from "lucide-react";
 
+import { AppLayout } from "@/components/shell/app-layout";
+import { SecondarySidebar } from "@/components/shell/secondary-sidebar";
 import { NoteEditor } from "@/components/notes/note-editor";
 import {
   NotesTree,
@@ -51,7 +53,16 @@ import {
 import { extractAliases } from "@/lib/notes/frontmatter";
 import { isEmpty, matchNote, parseQuery } from "@/lib/notes/search";
 
+type NotesSearch = {
+  noteId?: string;
+  q?: string;
+};
+
 export const Route = createFileRoute("/notes")({
+  validateSearch: (search: Record<string, unknown>): NotesSearch => ({
+    noteId: typeof search.noteId === "string" ? search.noteId : undefined,
+    q: typeof search.q === "string" ? search.q : undefined,
+  }),
   component: NotesPage,
 });
 
@@ -77,6 +88,7 @@ function countWords(text: string): number {
 }
 
 function NotesPage() {
+  const routeSearch = Route.useSearch();
   const notesQuery = useNotes();
   const createNote = useCreateNoteMutation();
   const updateNote = useUpdateNoteMutation();
@@ -200,6 +212,12 @@ function NotesPage() {
     if (!folder) return [] as Note[];
     return all.filter((n) => n.kind === "note" && n.parentId === folder.id);
   }, [notesQuery.data]);
+
+  useEffect(() => {
+    if (!routeSearch.noteId) return;
+    loadedNoteIdRef.current = null;
+    setActiveNoteId(routeSearch.noteId);
+  }, [routeSearch.noteId]);
 
   useEffect(() => {
     if (!activeNoteId || !notesQuery.data) return;
@@ -439,20 +457,11 @@ function NotesPage() {
     </button>
   );
 
-  return (
-    <ResizablePanelGroup
-      orientation="horizontal"
-      className="h-full min-h-0 bg-background"
-    >
-      {/* Left sidebar */}
-      <ResizablePanel
-        defaultSize="18"
-        minSize="12"
-        maxSize="40"
-        className="flex flex-col border-r"
-      >
-        {/* Icon toolbar */}
-        <div className="flex items-center gap-0.5 border-b px-2 py-1.5">
+  const sidebar = (
+    <SecondarySidebar title={<span>Notes</span>}>
+      {/* Icon toolbar */}
+      <>
+        <div className="flex shrink-0 items-center gap-0.5 border-b px-2 py-1.5">
           <ToolbarBtn
             icon={<FilePlus2 className="h-3.5 w-3.5" />}
             title="New note"
@@ -660,14 +669,20 @@ function NotesPage() {
             />
           )}
         </ScrollArea>
-      </ResizablePanel>
+      </>
+    </SecondarySidebar>
+  );
 
-      <ResizableHandle />
-
+  return (
+    <AppLayout sidebar={sidebar}>
+      <ResizablePanelGroup
+        orientation="horizontal"
+        className="h-full min-h-0 bg-background"
+      >
       {/* Center: editor column */}
       <ResizablePanel
-        defaultSize="62"
-        minSize="30"
+        defaultSize="75"
+        minSize="40"
         className="relative flex flex-col min-w-0"
       >
         {activeNoteQuery.data ? (
@@ -770,6 +785,7 @@ function NotesPage() {
                 noteId={activeNoteQuery.data.id}
                 initialDoc={activeNoteQuery.data.content}
                 knownTitles={knownTitles}
+                scrollToText={routeSearch.q}
                 onChange={setContentDraft}
                 onWikilinkClick={handleWikilinkClick}
               />
@@ -858,6 +874,7 @@ function NotesPage() {
           </ResizablePanel>
         </>
       ) : null}
-    </ResizablePanelGroup>
+      </ResizablePanelGroup>
+    </AppLayout>
   );
 }

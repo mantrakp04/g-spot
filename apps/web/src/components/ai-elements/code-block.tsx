@@ -495,8 +495,6 @@ export const CodeBlockCopyButton = ({
     []
   );
 
-  const Icon = isCopied ? CheckIcon : CopyIcon;
-
   return (
     <Button
       className={cn("shrink-0", className)}
@@ -505,7 +503,12 @@ export const CodeBlockCopyButton = ({
       variant="ghost"
       {...props}
     >
-      {children ?? <Icon size={14} />}
+      {children ?? (
+        <span className="t-icon-swap" data-state={isCopied ? "b" : "a"}>
+          <CopyIcon className="t-icon" data-icon="a" size={14} />
+          <CheckIcon className="t-icon" data-icon="b" size={14} />
+        </span>
+      )}
     </Button>
   );
 };

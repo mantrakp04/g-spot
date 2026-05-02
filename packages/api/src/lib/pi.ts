@@ -4,29 +4,21 @@ import {
   ModelRegistry,
   SessionManager,
   SettingsManager,
-  bashTool,
-  bashToolDefinition,
   createAgentSession,
-  editTool,
-  editToolDefinition,
-  findTool,
-  findToolDefinition,
-  grepTool,
-  grepToolDefinition,
-  lsTool,
-  lsToolDefinition,
-  readTool,
-  readToolDefinition,
-  writeTool,
-  writeToolDefinition,
+  createBashToolDefinition,
+  createEditToolDefinition,
+  createFindToolDefinition,
+  createGrepToolDefinition,
+  createLsToolDefinition,
+  createReadToolDefinition,
+  createWriteToolDefinition,
+  getAgentDir,
 } from "@mariozechner/pi-coding-agent";
 import type {
   AuthCredential,
   ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
-import type { ThinkingLevel } from "@mariozechner/pi-agent-core";
-import type { AssistantMessage, Message } from "@mariozechner/pi-ai";
-import type { Transport } from "@mariozechner/pi-ai";
+import type { Message } from "@mariozechner/pi-ai";
 import { getOAuthProviders } from "@mariozechner/pi-ai/oauth";
 import {
   getPiState,
@@ -45,28 +37,22 @@ import {
   type PiSdkToolInfo,
 } from "@g-spot/types";
 
-const BUILTIN_TOOL_REGISTRY = {
-  read: readTool,
-  bash: bashTool,
-  edit: editTool,
-  write: writeTool,
-  grep: grepTool,
-  find: findTool,
-  ls: lsTool,
-} as const satisfies Record<PiBuiltinToolName, unknown>;
-
-const BUILTIN_TOOL_DEFINITIONS = [
-  readToolDefinition,
-  bashToolDefinition,
-  editToolDefinition,
-  writeToolDefinition,
-  grepToolDefinition,
-  findToolDefinition,
-  lsToolDefinition,
-] as const;
+const PI_BUILTIN_TOOL_DEFINITION_FACTORIES = {
+  read: createReadToolDefinition,
+  bash: createBashToolDefinition,
+  edit: createEditToolDefinition,
+  write: createWriteToolDefinition,
+  grep: createGrepToolDefinition,
+  find: createFindToolDefinition,
+  ls: createLsToolDefinition,
+} satisfies Record<PiBuiltinToolName, unknown>;
 
 const DEFAULT_CHAT_CONFIG = piAgentConfigSchema.parse({});
 const DEFAULT_WORKER_CONFIG = piAgentConfigSchema.parse({});
+
+function isPiBuiltinToolName(toolName: string): toolName is PiBuiltinToolName {
+  return toolName in PI_BUILTIN_TOOL_DEFINITION_FACTORIES;
+}
 
 function mergeAgentConfig(
   value: unknown,
@@ -90,7 +76,7 @@ function mergeAgentConfig(
     new Set(
       config.activeToolNames.filter(
         (toolName): toolName is PiBuiltinToolName =>
-          toolName in BUILTIN_TOOL_REGISTRY,
+          isPiBuiltinToolName(toolName),
       ),
     ),
   );
@@ -293,17 +279,23 @@ export function resolvePiModel(
 }
 
 export function getPiBuiltinTools(): PiSdkToolInfo[] {
-  return BUILTIN_TOOL_DEFINITIONS.map((definition) => ({
-    name: definition.name,
-    description: definition.description,
-    parameters: definition.parameters,
-    sourceInfo: {
-      path: definition.name,
-      source: "g-spot",
-      scope: "temporary",
-      origin: "top-level",
+  const cwd = process.cwd();
+  return Object.values(PI_BUILTIN_TOOL_DEFINITION_FACTORIES).map(
+    (createDefinition) => {
+      const definition = createDefinition(cwd);
+      return {
+        name: definition.name,
+        description: definition.description,
+        parameters: definition.parameters,
+        sourceInfo: {
+          path: definition.name,
+          source: "g-spot",
+          scope: "temporary",
+          origin: "top-level",
+        },
+      };
     },
-  }));
+  );
 }
 
 export function normalizePiAgentConfig(
@@ -389,30 +381,40 @@ export async function createPiAgentSession(args: {
    * `activeToolNames`.
    */
   customTools?: ToolDefinition[];
+  /** Optional pre-seeded session manager (used when UI history differs from agent context). */
+  sessionManager?: SessionManager;
 }) {
   const cwd = args.project?.path ?? process.cwd();
-  const disableExtras = args.disableProjectResources === true;
+  if (cwd.length === 0) {
+    throw new Error("Pi agent session requires a valid project path.");
+  }
 
+  const agentDir = getAgentDir();
+  const disableExtras = args.disableProjectResources === true;
   const settingsOverrides = {
     defaultProvider: args.config.provider,
     defaultModel: args.config.modelId,
-    defaultThinkingLevel: args.config.thinkingLevel as ThinkingLevel,
-    transport: args.config.transport as Transport,
+    defaultThinkingLevel: args.config.thinkingLevel,
+    transport: args.config.transport,
     steeringMode: args.config.steeringMode,
     followUpMode: args.config.followUpMode,
   };
+
   const settingsManager = disableExtras
     ? SettingsManager.inMemory(settingsOverrides)
-    : SettingsManager.create(cwd);
+    : SettingsManager.create(cwd, agentDir);
   if (!disableExtras) {
     settingsManager.applyOverrides(settingsOverrides);
   }
 
   const resourceLoader = new DefaultResourceLoader({
     cwd,
+    agentDir,
     settingsManager,
     systemPrompt: args.project?.customInstructions ?? undefined,
-    appendSystemPrompt: args.project?.appendPrompt ?? undefined,
+    appendSystemPrompt: args.project?.appendPrompt
+      ? [args.project.appendPrompt]
+      : undefined,
     noExtensions: disableExtras,
     noPromptTemplates: disableExtras,
     noSkills: disableExtras,
@@ -421,27 +423,33 @@ export async function createPiAgentSession(args: {
   await resourceLoader.reload();
 
   const { authStorage, modelRegistry } = await createPiModelRegistry();
-  const extensionsResult = resourceLoader.getExtensions();
-  for (const { name, config: providerConfig } of extensionsResult.runtime
-    .pendingProviderRegistrations) {
+  const pendingProviders =
+    resourceLoader.getExtensions().runtime.pendingProviderRegistrations;
+  for (const { name, config: providerConfig } of pendingProviders) {
     modelRegistry.registerProvider(name, providerConfig);
   }
-  extensionsResult.runtime.pendingProviderRegistrations = [];
+  pendingProviders.length = 0;
 
   const resolved = resolvePiModel(modelRegistry, args.config);
-  const toolNames = args.activeToolNames ?? resolved.config.activeToolNames;
-  const tools = toolNames.map((toolName) => BUILTIN_TOOL_REGISTRY[toolName]);
+  const builtinToolNames = args.activeToolNames ?? resolved.config.activeToolNames;
+  const toolAllowlist = [
+    ...new Set([
+      ...builtinToolNames,
+      ...(args.customTools?.map((tool) => tool.name) ?? []),
+    ]),
+  ];
 
   const { session } = await createAgentSession({
     cwd,
+    agentDir,
     authStorage,
     modelRegistry,
-    sessionManager: SessionManager.inMemory(cwd),
+    sessionManager: args.sessionManager ?? SessionManager.inMemory(cwd),
     settingsManager,
     resourceLoader,
     model: resolved.model,
-    thinkingLevel: resolved.config.thinkingLevel as ThinkingLevel,
-    tools,
+    thinkingLevel: resolved.config.thinkingLevel,
+    tools: toolAllowlist,
     customTools: args.customTools,
   });
 
@@ -471,8 +479,8 @@ export function extractAssistantText(message: Message) {
     return "";
   }
 
-  return (message as AssistantMessage).content
-    .flatMap((contentPart: AssistantMessage["content"][number]) =>
+  return message.content
+    .flatMap((contentPart) =>
       contentPart.type === "text" ? [contentPart.text.trim()] : [],
     )
     .filter(Boolean)

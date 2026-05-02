@@ -22,6 +22,20 @@ function getCacheKey(url: string): string {
   return `${CACHE_PREFIX}${url}`
 }
 
+export function normalizeThemeUrl(url: string): string {
+  const parsedUrl = new URL(url)
+  if (parsedUrl.hostname !== "tweakcn.com") {
+    return url
+  }
+
+  const themeMatch = parsedUrl.pathname.match(/^\/themes\/([^/]+)\/?$/)
+  if (!themeMatch) {
+    return url
+  }
+
+  return `https://tweakcn.com/r/themes/${themeMatch[1]}`
+}
+
 function getCachedTheme(url: string): Theme | null {
   try {
     const cached = localStorage.getItem(getCacheKey(url))
@@ -55,18 +69,19 @@ function setCachedTheme(url: string, theme: Theme): void {
 }
 
 export async function fetchTheme(url: string): Promise<Theme> {
-  const cached = getCachedTheme(url)
+  const themeUrl = normalizeThemeUrl(url)
+  const cached = getCachedTheme(themeUrl)
   if (cached) {
     return cached
   }
 
-  const response = await fetch(url)
+  const response = await fetch(themeUrl)
   if (!response.ok) {
     throw new Error(`Failed to fetch theme: ${response.statusText}`)
   }
 
   const theme = await response.json()
-  setCachedTheme(url, theme)
+  setCachedTheme(themeUrl, theme)
 
   return theme
 }

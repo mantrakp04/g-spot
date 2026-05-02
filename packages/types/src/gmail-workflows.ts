@@ -1,9 +1,5 @@
 import { z } from "zod";
 
-import { piAgentConfigSchema } from "./agent";
-
-const DEFAULT_GMAIL_WORKFLOW_AGENT_CONFIG = piAgentConfigSchema.parse({});
-
 export const GMAIL_AGENT_WORKFLOW_TRIGGER_VALUES = [
   "incremental_sync",
 ] as const;
@@ -30,7 +26,6 @@ export const gmailAgentWorkflowConfigSchema = z.object({
   enabled: z.boolean().default(false),
   trigger: gmailAgentWorkflowTriggerSchema.default("incremental_sync"),
   prompt: z.string().default(""),
-  agentConfig: piAgentConfigSchema.default(DEFAULT_GMAIL_WORKFLOW_AGENT_CONFIG),
   disabledToolNames: z.array(gmailAgentToolNameSchema).default([]),
 });
 

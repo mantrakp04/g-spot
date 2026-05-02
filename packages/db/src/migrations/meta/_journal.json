@@ -29,6 +29,20 @@
       "when": 1777257559012,
       "tag": "0003_gmail_agent_workflows",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1777739041579,
+      "tag": "0004_fresh_black_crow",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1777745022528,
+      "tag": "0005_chat_agent_context",
+      "breakpoints": true
     }
   ]
 }

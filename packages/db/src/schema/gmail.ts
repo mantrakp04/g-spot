@@ -305,7 +305,6 @@ export const gmailAgentWorkflows = sqliteTable(
       .default(false),
     trigger: text("trigger").notNull().default("incremental_sync"),
     prompt: text("prompt").notNull().default(""),
-    agentConfig: text("agent_config").notNull().default("{}"),
     disabledToolNames: text("disabled_tool_names").notNull().default("[]"),
     createdAt: text("created_at")
       .notNull()

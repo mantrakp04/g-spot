@@ -27,6 +27,20 @@ export const chatKeys = {
   messages: (chatId: string) => ["chat", "messages", chatId] as const,
 };
 
+export const fsKeys = {
+  list: (projectId: string, path: string) =>
+    ["fs", "list", projectId, path] as const,
+  listAll: (projectId: string) => ["fs", "list-all", projectId] as const,
+  read: (projectId: string, path: string) =>
+    ["fs", "read", projectId, path] as const,
+};
+
+export const gitKeys = {
+  changes: (projectId: string) => ["git", "changes", projectId] as const,
+  fileDiff: (projectId: string, path: string, mode: string) =>
+    ["git", "file-diff", projectId, path, mode] as const,
+};
+
 export const projectKeys = {
   list: () => ["projects", "list"] as const,
   detail: (projectId: string) => ["projects", "detail", projectId] as const,

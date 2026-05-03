@@ -81,7 +81,128 @@ function isNonGitRepoError(error: unknown): boolean {
 }
 
 async function execGit(args: string[], cwd: string) {
-  return execFile("git", args, { cwd });
+  return execFile("git", args, { cwd, maxBuffer: 50 * 1024 * 1024 });
+}
+
+export type FileChangeStatus =
+  | "added"
+  | "modified"
+  | "deleted"
+  | "renamed"
+  | "copied"
+  | "untracked"
+  | "ignored"
+  | "conflicted"
+  | "typeChanged"
+  | "unknown";
+
+export type FileChange = {
+  path: string;
+  oldPath: string | null;
+  /** Two-letter porcelain code (e.g. " M", "M ", "MM", "??"). */
+  code: string;
+  staged: FileChangeStatus;
+  unstaged: FileChangeStatus;
+};
+
+function mapStatusChar(c: string): FileChangeStatus {
+  switch (c) {
+    case "M":
+      return "modified";
+    case "A":
+      return "added";
+    case "D":
+      return "deleted";
+    case "R":
+      return "renamed";
+    case "C":
+      return "copied";
+    case "T":
+      return "typeChanged";
+    case "U":
+      return "conflicted";
+    case "?":
+      return "untracked";
+    case "!":
+      return "ignored";
+    case " ":
+      return "unknown";
+    default:
+      return "unknown";
+  }
+}
+
+/**
+ * Parse `git status --porcelain=v1 -z`. The -z form uses NUL separators and
+ * does not quote paths — much safer than the default newline/quoted form.
+ * Renames/copies emit two paths: "XY new\0orig\0".
+ */
+export async function listChanges(cwd: string): Promise<FileChange[]> {
+  if (!(await isGitRepo(cwd))) return [];
+  const { stdout } = await execGit(["status", "--porcelain=v1", "-z"], cwd);
+  const out: FileChange[] = [];
+  // Split on NUL, drop the trailing empty segment.
+  const tokens = stdout.split("\0");
+  if (tokens.length > 0 && tokens.at(-1) === "") tokens.pop();
+
+  let i = 0;
+  while (i < tokens.length) {
+    const entry = tokens[i]!;
+    if (entry.length < 3) {
+      i += 1;
+      continue;
+    }
+    const code = entry.slice(0, 2);
+    const filePath = entry.slice(3);
+    const x = code[0]!;
+    const y = code[1]!;
+    let oldPath: string | null = null;
+    if (x === "R" || x === "C") {
+      // Next token holds the original path.
+      oldPath = tokens[i + 1] ?? null;
+      i += 2;
+    } else {
+      i += 1;
+    }
+    out.push({
+      path: filePath,
+      oldPath,
+      code,
+      staged: mapStatusChar(x),
+      unstaged: mapStatusChar(y),
+    });
+  }
+  out.sort((a, b) => a.path.localeCompare(b.path));
+  return out;
+}
+
+/**
+ * Read the contents of `path` at one of three diff baselines. Returns "" when
+ * the side doesn't exist (e.g. HEAD for an untracked file, working tree for a
+ * deleted file). Throws only on unexpected git errors.
+ */
+export async function readDiffSide(args: {
+  cwd: string;
+  path: string;
+  side: "head" | "index" | "working";
+}): Promise<string> {
+  const { cwd, path: filePath, side } = args;
+  if (side === "working") {
+    const { promises: fsp } = await import("node:fs");
+    const path = await import("node:path");
+    try {
+      return await fsp.readFile(path.join(cwd, filePath), "utf8");
+    } catch {
+      return "";
+    }
+  }
+  const ref = side === "head" ? "HEAD" : "";
+  try {
+    const { stdout } = await execGit(["show", `${ref}:${filePath}`], cwd);
+    return stdout;
+  } catch {
+    return "";
+  }
 }
 
 async function readWorktreeMeta(targetPath: string): Promise<WorktreeMeta | null> {

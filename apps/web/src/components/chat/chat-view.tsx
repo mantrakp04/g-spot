@@ -66,6 +66,7 @@ import {
   useProject,
   useUpdateProjectAgentConfigMutation,
 } from "@/hooks/use-projects";
+import { useNewChat } from "@/hooks/use-new-chat";
 
 import { ChatMessageList } from "./chat-message-list";
 import { StreamingMessage } from "./streaming-message";
@@ -81,7 +82,10 @@ import {
   setStreamingMessage,
 } from "@/lib/streaming-message-store";
 import { perfCount } from "@/lib/chat-perf-log";
-import { splitActiveChatMessages } from "@/lib/chat-render-model";
+import {
+  createChatRenderState,
+  getLastAssistantTurnStartIndex,
+} from "@/lib/chat-render-model";
 
 const STARTER_PROMPTS = [
   "Brainstorm ideas for a weekend project I could ship in a day",
@@ -185,20 +189,13 @@ interface ChatViewProps {
 
 type ChatUiMessage = UIMessage;
 
-function getLastAssistantTurnStartIndex(messages: ChatUiMessage[]) {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    if (messages[index]?.role !== "assistant") {
-      continue;
-    }
-
-    let startIndex = index;
-    while (startIndex > 0 && messages[startIndex - 1]?.role === "assistant") {
-      startIndex -= 1;
-    }
-    return startIndex;
+function sameStreamingMessages(a: UIMessage[], b: UIMessage[]) {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false;
   }
-
-  return -1;
+  return true;
 }
 
 function stripHistoryMessage(message: PiChatHistoryMessage): Omit<
@@ -309,12 +306,10 @@ function ChatViewInner({
   const replaceMessages = useReplaceChatMessagesMutation();
   const forkChat = useForkChatMutation();
   const isDraft = chatId === null;
+  const { newChat } = useNewChat();
   const handleNewChat = useCallback(() => {
-    void navigate({
-      to: "/projects/$projectId",
-      params: { projectId },
-    });
-  }, [navigate, projectId]);
+    void newChat(projectId);
+  }, [newChat, projectId]);
   const allModels = piCatalog.data?.models ?? [];
   const configuredProviders = useMemo(
     () =>
@@ -548,10 +543,23 @@ function ChatViewInner({
     isStreamActive ||
     runtimeStatus === "running" ||
     runtimeStatus === "pending-approval";
-  const { finalMessages, streamingMessages } = useMemo(
-    () => splitActiveChatMessages(messages, isActiveTurn),
+  const renderState = useMemo(
+    () => createChatRenderState(messages, { isActiveTurn }),
     [messages, isActiveTurn],
   );
+  const { finalEntries, pendingApprovals } = renderState;
+  // Stabilize streamingMessages identity across renders: when its content is
+  // unchanged (e.g., a new finalized message arrived but the active assistant
+  // tail is the same), reuse the previous array reference so <StreamingMessage>
+  // doesn't re-render.
+  const streamingMessagesRef = useRef<UIMessage[]>(renderState.streamingMessages);
+  const streamingMessages = sameStreamingMessages(
+    streamingMessagesRef.current,
+    renderState.streamingMessages,
+  )
+    ? streamingMessagesRef.current
+    : renderState.streamingMessages;
+  streamingMessagesRef.current = streamingMessages;
   const isStreamActiveRef = useRef(isStreamActive);
   isStreamActiveRef.current = isStreamActive;
   const pendingSubmissionStartedChatIdRef = useRef<string | null>(null);
@@ -1385,7 +1393,7 @@ function ChatViewInner({
           )}
 
           <ChatMessageList
-            messages={finalMessages}
+            entries={finalEntries}
             handlers={listHandlers}
           />
           {chatId ? (
@@ -1408,8 +1416,7 @@ function ChatViewInner({
           <ChatPendingApprovals
             chatId={chatId}
             className="px-3 pt-2"
-            messages={finalMessages}
-            streamingMessages={streamingMessages}
+            persistedApprovals={pendingApprovals}
             onResolveApproval={listHandlers.onResolveApproval}
           />
           <div className="mx-auto w-full max-w-2xl px-3 py-2">

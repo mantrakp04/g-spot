@@ -1,0 +1,30 @@
+import type * as monaco from "monaco-editor";
+
+export const baseEditorOptions = {
+  fontSize: 13,
+  minimap: { enabled: false },
+  scrollBeyondLastLine: false,
+  tabSize: 2,
+  wordWrap: "off",
+  renderWhitespace: "selection",
+  smoothScrolling: false,
+  cursorSmoothCaretAnimation: "off",
+  largeFileOptimizations: true,
+  "semanticHighlighting.enabled": false,
+  renderValidationDecorations: "off",
+  occurrencesHighlight: "off",
+  codeLens: false,
+  folding: false,
+  links: false,
+  hover: { enabled: false },
+  stickyScroll: { enabled: false },
+  inlayHints: { enabled: "off" },
+  bracketPairColorization: { enabled: false },
+  guides: {
+    bracketPairs: false,
+    bracketPairsHorizontal: false,
+    highlightActiveBracketPair: false,
+    highlightActiveIndentation: false,
+    indentation: false,
+  },
+} satisfies monaco.editor.IStandaloneEditorConstructionOptions;

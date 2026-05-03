@@ -7,12 +7,8 @@ import {
   gmailAgentToolNameSchema,
   type GmailAgentToolName,
 } from "@g-spot/types";
-import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent";
-import type { Message } from "@mariozechner/pi-ai";
-
 import {
   createPiAgentSession,
-  extractAssistantText,
   getPiAgentDefaults,
 } from "./pi";
 import { createGmailAgentTools, GMAIL_AGENT_TOOL_NAMES } from "./gmail-agent-tools";
@@ -38,12 +34,6 @@ function parseDisabledToolNames(value: string): GmailAgentToolName[] {
   return parsedJson.filter((toolName): toolName is GmailAgentToolName =>
     gmailAgentToolNameSchema.safeParse(toolName).success
   );
-}
-
-function isPersistablePiMessage(message: unknown): message is Message {
-  if (!message || typeof message !== "object") return false;
-  const role = (message as { role?: unknown }).role;
-  return role === "assistant" || role === "toolResult";
 }
 
 function buildWorkflowPrompt(
@@ -114,34 +104,12 @@ async function runWorkflow(
       },
     });
 
-    const assistantMessages: string[] = [];
-    const unsubscribe = session.subscribe((event: AgentSessionEvent) => {
-      if (event.type !== "message_end" || !isPersistablePiMessage(event.message)) {
-        return;
-      }
-      const text = extractAssistantText(event.message);
-      if (text) assistantMessages.push(text);
-    });
-
     try {
       await session.sendUserMessage(buildWorkflowPrompt(workflow, trigger));
-      if (assistantMessages.length > 0) {
-        console.log("[gmail-agent-workflow] completed", {
-          workflowId: workflow.id,
-          workflowName: workflow.name,
-          summary: assistantMessages.at(-1),
-        });
-      }
     } finally {
-      unsubscribe();
       await session.abort().catch(() => {});
     }
-  } catch (error) {
-    console.error("[gmail-agent-workflow] failed", {
-      workflowId: workflow.id,
-      workflowName: workflow.name,
-      error,
-    });
+  } catch {
   } finally {
     activeWorkflowRuns.delete(runKey);
   }
@@ -169,7 +137,5 @@ export function triggerIncrementalGmailAgentWorkflows(
         })
       ),
     );
-  })().catch((error) => {
-    console.error("[gmail-agent-workflow] trigger failed:", error);
-  });
+  })().catch(() => {});
 }

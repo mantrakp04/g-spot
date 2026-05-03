@@ -45,12 +45,17 @@ interface ChatStatusDotProps {
 }
 
 /**
- * The little dot rendered next to a chat row in the sidebar. Returns
- * `null` when there's no status, so callers can drop it in unconditionally.
+ * The little dot rendered next to a chat row in the sidebar. Keeps an
+ * invisible spacer when idle so chat titles align whether a status exists.
  */
 export function ChatStatusDot({ status, className }: ChatStatusDotProps) {
   if (!status) {
-    return null;
+    return (
+      <span
+        aria-hidden="true"
+        className={cn("block size-2 shrink-0 rounded-full opacity-0", className)}
+      />
+    );
   }
 
   const style = STATUS_STYLES[status];

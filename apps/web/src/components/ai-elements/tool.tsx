@@ -10,9 +10,14 @@ import type { FileContents, SupportedLanguages } from "@pierre/diffs";
 import { File as PierreFile, PatchDiff } from "@pierre/diffs/react";
 import { ChevronDownIcon } from "lucide-react";
 import type { ComponentProps, CSSProperties, ReactNode } from "react";
-import { isValidElement } from "react";
+import { isValidElement, memo } from "react";
 import type { DynamicToolUIPart, ToolUIPart } from "@/lib/chat-ui";
 import { CodeBlock } from "./code-block";
+import {
+  normalizeToolName,
+  registerToolOutputRenderer,
+  renderToolOutput,
+} from "./tool-output-registry";
 
 export type ToolProps = ComponentProps<typeof Collapsible>;
 
@@ -292,7 +297,7 @@ function languageFromPath(path: string | undefined): SupportedLanguages {
   return (ext && extensionLanguage[ext]) || "text";
 }
 
-function ReadOutput({ input, output }: { input: unknown; output: string }) {
+const ReadOutput = memo(function ReadOutput({ input, output }: { input: unknown; output: string }) {
   const path = getToolPath(input);
   const file: FileContents = {
     name: path ? basename(path) : "read-output",
@@ -301,7 +306,10 @@ function ReadOutput({ input, output }: { input: unknown; output: string }) {
   };
 
   return (
-    <div className="max-h-[32rem] overflow-auto rounded-md border bg-card">
+    <div
+      className="max-h-[32rem] overflow-auto rounded-md border bg-card"
+      data-chat-nested-scroll
+    >
       <PierreFile
         disableWorkerPool
         file={file}
@@ -310,11 +318,21 @@ function ReadOutput({ input, output }: { input: unknown; output: string }) {
       />
     </div>
   );
+}, areReadOutputPropsEqual);
+
+function areReadOutputPropsEqual(
+  prev: { input: unknown; output: string },
+  next: { input: unknown; output: string },
+) {
+  return getToolPath(prev.input) === getToolPath(next.input) && prev.output === next.output;
 }
 
-function EditOutput({ patch }: { patch: string }) {
+const EditOutput = memo(function EditOutput({ patch }: { patch: string }) {
   return (
-    <div className="max-h-[32rem] overflow-auto rounded-md border bg-card">
+    <div
+      className="max-h-[32rem] overflow-auto rounded-md border bg-card"
+      data-chat-nested-scroll
+    >
       <PatchDiff
         disableWorkerPool
         options={{ diffStyle: "unified", overflow: "scroll" }}
@@ -323,7 +341,26 @@ function EditOutput({ patch }: { patch: string }) {
       />
     </div>
   );
-}
+}, (prev, next) => prev.patch === next.patch);
+
+registerToolOutputRenderer((ctx) => {
+  if (ctx.errorText) return null;
+  if (
+    ctx.normalizedToolName !== "edit" &&
+    ctx.normalizedToolName !== "multiedit"
+  ) {
+    return null;
+  }
+  const patch = patchFromEditInput(ctx.input, ctx.output);
+  return patch ? <EditOutput patch={patch} /> : null;
+});
+
+registerToolOutputRenderer((ctx) => {
+  if (ctx.errorText) return null;
+  if (ctx.normalizedToolName !== "read") return null;
+  if (typeof ctx.output !== "string") return null;
+  return <ReadOutput input={ctx.input} output={ctx.output} />;
+});
 
 export const ToolOutput = ({
   className,
@@ -337,26 +374,24 @@ export const ToolOutput = ({
     return null;
   }
 
-  const normalizedToolName = toolName?.toLowerCase().split(".").pop();
-  const editPatch =
-    !errorText &&
-    (normalizedToolName === "edit" || normalizedToolName === "multiedit")
-      ? patchFromEditInput(input, output)
-      : undefined;
-  let Output = <div>{output as ReactNode}</div>;
+  const normalizedToolName = normalizeToolName(toolName);
+  const registered = renderToolOutput({
+    toolName,
+    normalizedToolName,
+    input,
+    output,
+    errorText,
+  });
+  let Output: ReactNode = registered ?? <div>{output as ReactNode}</div>;
 
-  if (editPatch) {
-    Output = <EditOutput patch={editPatch} />;
-  } else if (
-    !errorText &&
-    normalizedToolName === "read" &&
-    typeof output === "string"
-  ) {
-    Output = <ReadOutput input={input} output={output} />;
-  } else if (typeof output === "object" && !isValidElement(output)) {
-    Output = <CodeBlock code={JSON.stringify(output, null, 2)} language="json" />;
-  } else if (typeof output === "string") {
-    Output = <CodeBlock code={output} language="json" />;
+  if (!registered) {
+    if (typeof output === "object" && !isValidElement(output)) {
+      Output = (
+        <CodeBlock code={JSON.stringify(output, null, 2)} language="json" />
+      );
+    } else if (typeof output === "string") {
+      Output = <CodeBlock code={output} language="json" />;
+    }
   }
 
   return (

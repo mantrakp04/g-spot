@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 
 import { ChatMessage } from "@/components/chat/chat-message";
 import { perfCount } from "@/lib/chat-perf-log";
@@ -43,7 +43,10 @@ export function StreamingMessage({
     () => getStreamingMessage(chatId),
     () => null,
   );
-  const message = combineStreamingMessages(messages, liveMessage);
+  const message = useMemo(
+    () => combineStreamingMessages(messages, liveMessage),
+    [messages, liveMessage],
+  );
 
   if (!message) return null;
 

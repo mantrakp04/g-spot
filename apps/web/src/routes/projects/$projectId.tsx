@@ -1,9 +1,19 @@
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@g-spot/ui/components/resizable";
 import { Skeleton } from "@g-spot/ui/components/skeleton";
 import { createFileRoute, Outlet } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useAtomValue } from "jotai";
+import { useCallback, useEffect, useState } from "react";
 
+import { FileSearchDialog } from "@/components/file-search/file-search-dialog";
+import { RightSidebar } from "@/components/right-sidebar/right-sidebar";
+import { TabBar } from "@/components/tabs/tab-bar";
 import { useProject } from "@/hooks/use-projects";
 import { useSetLastProjectId } from "@/lib/active-project";
+import { rightSidebarCollapsedAtom } from "@/lib/right-sidebar-store";
 
 export const Route = createFileRoute("/projects/$projectId")({
   component: ProjectLayout,
@@ -13,12 +23,29 @@ function ProjectLayout() {
   const { projectId } = Route.useParams();
   const projectQuery = useProject(projectId);
   const setLastProjectId = useSetLastProjectId();
+  const collapsed = useAtomValue(rightSidebarCollapsedAtom);
+  const [searchOpen, setSearchOpen] = useState(false);
 
   useEffect(() => {
     if (projectQuery.data) {
       setLastProjectId(projectQuery.data.id);
     }
   }, [projectQuery.data, setLastProjectId]);
+
+  const openSearch = useCallback(() => setSearchOpen(true), []);
+
+  // ⌘P / Ctrl+P → fuzzy file search.
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey)) return;
+      if (event.shiftKey || event.altKey) return;
+      if (event.key.toLowerCase() !== "p") return;
+      event.preventDefault();
+      setSearchOpen(true);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
 
   if (projectQuery.isLoading) {
     return (
@@ -37,5 +64,37 @@ function ProjectLayout() {
     );
   }
 
-  return <Outlet />;
+  return (
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <ResizablePanelGroup
+        orientation="horizontal"
+        className="min-h-0 min-w-0 flex-1"
+      >
+        <ResizablePanel defaultSize={collapsed ? "100" : "70"} minSize="40">
+          <div className="flex h-full min-h-0 min-w-0 flex-col">
+            <TabBar projectId={projectId} />
+            <Outlet />
+          </div>
+        </ResizablePanel>
+        {!collapsed && (
+          <>
+            <ResizableHandle />
+            <ResizablePanel
+              defaultSize="30"
+              minSize="18"
+              maxSize="60"
+              className="min-w-[260px]"
+            >
+              <RightSidebar projectId={projectId} onOpenSearch={openSearch} />
+            </ResizablePanel>
+          </>
+        )}
+      </ResizablePanelGroup>
+      <FileSearchDialog
+        projectId={projectId}
+        open={searchOpen}
+        onOpenChange={setSearchOpen}
+      />
+    </div>
+  );
 }

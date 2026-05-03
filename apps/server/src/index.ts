@@ -9,6 +9,11 @@ import {
   handleChatStatusSocketOpen,
 } from "@g-spot/api/chat-stream";
 import {
+  handleTerminalSocketClose,
+  handleTerminalSocketMessage,
+  handleTerminalSocketOpen,
+} from "@g-spot/api/terminal-stream";
+import {
   handleAttachmentByName,
   handleFileUpload,
   handleFileDownload,
@@ -174,6 +179,17 @@ export const app = new Elysia()
     },
     close(ws) {
       handleChatSocketClose(ws);
+    },
+  })
+  .ws("/api/terminal/socket", {
+    open(ws) {
+      void handleTerminalSocketOpen(ws);
+    },
+    message(ws, message) {
+      handleTerminalSocketMessage(ws, message);
+    },
+    close(ws) {
+      handleTerminalSocketClose(ws);
     },
   })
   .delete("/api/chat/:chatId/stream", ({ params, request }) =>

@@ -1,5 +1,6 @@
 import { publicProcedure, router } from "../index";
 import { chatRouter } from "./chat";
+import { fsRouter } from "./fs";
 import { gitRouter } from "./git";
 import { gmailRouter } from "./gmail";
 import { gmailSyncRouter } from "./gmail-sync";
@@ -20,6 +21,7 @@ export const appRouter = router({
   sections: sectionsRouter,
   pi: piRouter,
   chat: chatRouter,
+  fs: fsRouter,
   git: gitRouter,
   projects: projectsRouter,
   skills: skillsRouter,

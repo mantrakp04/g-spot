@@ -62,7 +62,24 @@ export function useAutoScroll(options: UseAutoScrollOptions = {}) {
       setIsAtBottom(distance < enableThreshold);
     };
 
+    const handleNestedScrollIntent = (event: Event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const nestedScroller = target.closest("[data-chat-nested-scroll]");
+      if (nestedScroller && nestedScroller !== container) {
+        autoScrollRef.current = false;
+      }
+    };
+
     container.addEventListener("scroll", handleScroll, { passive: true });
+    container.addEventListener("wheel", handleNestedScrollIntent, {
+      capture: true,
+      passive: true,
+    });
+    container.addEventListener("touchstart", handleNestedScrollIntent, {
+      capture: true,
+      passive: true,
+    });
 
     const resizeObserver = new ResizeObserver(() => {
       perfCount("useAutoScroll.resize");
@@ -84,6 +101,12 @@ export function useAutoScroll(options: UseAutoScrollOptions = {}) {
 
     return () => {
       container.removeEventListener("scroll", handleScroll);
+      container.removeEventListener("wheel", handleNestedScrollIntent, {
+        capture: true,
+      });
+      container.removeEventListener("touchstart", handleNestedScrollIntent, {
+        capture: true,
+      });
       resizeObserver.disconnect();
     };
   }, [disableThreshold, enableThreshold]);

@@ -29,7 +29,11 @@
       "sqlite-vec": "^0.1.9",
       "jotai": "^2.10.3",
       "@pierre/diffs": "^1.1.16",
-      "@pierre/trees": "^1.0.0-beta.1"
+      "@pierre/trees": "^1.0.0-beta.1",
+      "@xterm/xterm": "^5.5.0",
+      "@xterm/addon-fit": "^0.10.0",
+      "@xterm/addon-webgl": "^0.18.0",
+      "@xterm/addon-unicode11": "^0.9.0"
     }
   },
   "overrides": {

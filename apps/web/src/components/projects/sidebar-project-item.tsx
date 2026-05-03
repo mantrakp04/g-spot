@@ -5,7 +5,7 @@ import {
 } from "@g-spot/ui/components/collapsible";
 import { Skeleton } from "@g-spot/ui/components/skeleton";
 import { cn } from "@g-spot/ui/lib/utils";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import {
   ChevronRight,
   Cog,
@@ -21,6 +21,7 @@ import {
 } from "@/components/chat/chat-status-dot";
 import { useChats } from "@/hooks/use-chat-data";
 import { useInfiniteScroll } from "@/hooks/use-infinite-scroll";
+import { useNewChat } from "@/hooks/use-new-chat";
 
 interface SidebarProjectItemProps {
   project: {
@@ -65,7 +66,7 @@ export function SidebarProjectItem({
   onDeleteChat,
   runtimeStatuses,
 }: SidebarProjectItemProps) {
-  const navigate = useNavigate();
+  const { newChat, isPending: newChatPending } = useNewChat();
   const [showAllChats, setShowAllChats] = useState(false);
 
   const {
@@ -99,12 +100,9 @@ export function SidebarProjectItem({
     (event: React.MouseEvent) => {
       event.preventDefault();
       event.stopPropagation();
-      void navigate({
-        to: "/projects/$projectId",
-        params: { projectId: project.id },
-      });
+      void newChat(project.id);
     },
-    [navigate, project.id],
+    [newChat, project.id],
   );
 
   const handleOpenChange = useCallback(
@@ -140,7 +138,8 @@ export function SidebarProjectItem({
         <button
           type="button"
           onClick={handleNewChatHere}
-          className="size-6 shrink-0 rounded-md text-muted-foreground opacity-0 transition-all hover:bg-sidebar-accent hover:text-foreground group-hover/project:opacity-100 focus-visible:opacity-100"
+          disabled={newChatPending}
+          className="size-6 shrink-0 rounded-md text-muted-foreground opacity-0 transition-all hover:bg-sidebar-accent hover:text-foreground group-hover/project:opacity-100 focus-visible:opacity-100 disabled:opacity-50"
           aria-label={`New chat in ${project.name}`}
           title="New chat in this project"
         >

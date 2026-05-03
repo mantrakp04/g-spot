@@ -1,9 +1,8 @@
 import { memo, useMemo } from "react";
 
 import { ChatMessage } from "@/components/chat/chat-message";
-import type { UIMessage } from "@/lib/chat-ui";
 import { perfCount } from "@/lib/chat-perf-log";
-import { createChatRenderModel } from "@/lib/chat-render-model";
+import type { PreparedEntry } from "@/lib/chat-render-model";
 
 type MessageActionHandlers = {
   onRegenerate: (index: number) => void;
@@ -12,7 +11,7 @@ type MessageActionHandlers = {
 };
 
 type ChatMessageListProps = {
-  messages: UIMessage[];
+  entries: PreparedEntry[];
   handlers: MessageActionHandlers;
 };
 
@@ -22,44 +21,62 @@ type ChatMessageListProps = {
  * separately by <StreamingMessage />.
  */
 export const ChatMessageList = memo(function ChatMessageList({
-  messages,
+  entries,
   handlers,
 }: ChatMessageListProps) {
-  perfCount("ChatMessageList.render", { count: messages.length });
-  const entries = useMemo(() => createChatRenderModel(messages), [messages]);
+  perfCount("ChatMessageList.render", { count: entries.length });
+
+  // Pre-bind per-entry callbacks so ChatMessage memo holds across renders
+  // when neither `entries` nor `handlers` changed identity.
+  const bound = useMemo(
+    () =>
+      entries.map((entry) => {
+        if (entry.kind === "user") {
+          return {
+            entry,
+            onEdit: (newText: string) => handlers.onEdit(entry.index, newText),
+            onFork: () => handlers.onFork(entry.index),
+            onReload: undefined,
+          };
+        }
+        return {
+          entry,
+          onEdit: undefined,
+          onFork: () => handlers.onFork(entry.lastIndex),
+          onReload: () => handlers.onRegenerate(entry.firstIndex),
+        };
+      }),
+    [entries, handlers],
+  );
 
   return (
     <>
-      {entries.map((entry) => {
-        return (
-          <div key={entry.message.id} data-chat-message-id={entry.message.id}>
+      {bound.map(({ entry, onEdit, onFork, onReload }) => (
+        <div
+          key={entry.message.id}
+          data-chat-message-id={entry.message.id}
+        >
+          {entry.kind === "user" ? (
             <ChatMessage
-            message={entry.message}
-            previousMessages={
-              entry.kind === "assistant-turn"
-                ? entry.messages.slice(0, -1)
-                : undefined
-            }
-            variant="final"
-            onReload={
-              entry.kind === "assistant-turn"
-                ? () => handlers.onRegenerate(entry.firstIndex)
-                : undefined
-            }
-            onEdit={
-              entry.kind === "user"
-                ? (newText: string) => handlers.onEdit(entry.index, newText)
-                : undefined
-            }
-              onFork={() =>
-                handlers.onFork(
-                  entry.kind === "assistant-turn" ? entry.lastIndex : entry.index,
-                )
-              }
+              message={entry.message}
+              variant="final"
+              userText={entry.text}
+              onEdit={onEdit}
+              onFork={onFork}
             />
-          </div>
-        );
-      })}
+          ) : (
+            <ChatMessage
+              message={entry.message}
+              variant="final"
+              responseParts={entry.responseParts}
+              copyText={entry.copyText}
+              thoughtItems={entry.thoughtItems}
+              onReload={onReload}
+              onFork={onFork}
+            />
+          )}
+        </div>
+      ))}
     </>
   );
 });

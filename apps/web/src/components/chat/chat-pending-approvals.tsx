@@ -3,18 +3,15 @@ import { cn } from "@g-spot/ui/lib/utils";
 import { CheckIcon, ShieldAlertIcon, XIcon } from "lucide-react";
 import { useMemo, useSyncExternalStore } from "react";
 
-import type { DynamicToolUIPart, ToolUIPart, UIMessage, UIMessagePart } from "@/lib/chat-ui";
+import {
+  collectPendingApprovalsFrom,
+  type PendingApprovalRef,
+} from "@/lib/chat-render-model";
+import type { UIMessage } from "@/lib/chat-ui";
 import {
   getStreamingMessage,
   subscribeStreamingMessage,
 } from "@/lib/streaming-message-store";
-
-type PendingApproval = {
-  toolCallId: string;
-  toolName: string;
-  reason?: string;
-  input?: unknown;
-};
 
 function formatScalar(value: unknown): string {
   if (typeof value === "string") return value;
@@ -54,8 +51,11 @@ function formatParams(value: unknown, indent = 0): string {
 type ChatPendingApprovalsProps = {
   chatId: string | null;
   className?: string;
-  messages: readonly UIMessage[];
-  streamingMessages?: readonly UIMessage[];
+  /**
+   * Pre-computed approvals from finalized + streaming-tail messages. The
+   * live streaming-store snapshot is folded in here.
+   */
+  persistedApprovals: readonly PendingApprovalRef[];
   onResolveApproval: (
     toolCallId: string,
     approved: boolean,
@@ -63,38 +63,10 @@ type ChatPendingApprovalsProps = {
   ) => void | Promise<void>;
 };
 
-function isToolPart(part: UIMessagePart): part is ToolUIPart | DynamicToolUIPart {
-  return (
-    "state" in part &&
-    (part.type === "dynamic-tool" || part.type.startsWith("tool-"))
-  );
-}
-
-function collectPending(message: UIMessage | null, seen: Set<string>, out: PendingApproval[]) {
-  if (!message) return;
-  for (const part of message.parts) {
-    if (!isToolPart(part)) continue;
-    if (part.state !== "approval-requested") continue;
-    const toolCallId = part.toolCallId;
-    if (!toolCallId || seen.has(toolCallId)) continue;
-    seen.add(toolCallId);
-    const toolName =
-      part.toolName ??
-      (part.type.startsWith("tool-") ? part.type.slice("tool-".length) : "tool");
-    out.push({
-      toolCallId,
-      toolName,
-      reason: part.approval?.reason,
-      input: part.input,
-    });
-  }
-}
-
 export function ChatPendingApprovals({
   chatId,
   className,
-  messages,
-  streamingMessages = [],
+  persistedApprovals,
   onResolveApproval,
 }: ChatPendingApprovalsProps) {
   const streaming = useSyncExternalStore(
@@ -105,13 +77,23 @@ export function ChatPendingApprovals({
   );
 
   const pending = useMemo(() => {
+    if (!streaming) return persistedApprovals as PendingApprovalRef[];
+    const live = collectPendingApprovalsFrom(streaming as UIMessage);
+    if (live.length === 0) return persistedApprovals as PendingApprovalRef[];
     const seen = new Set<string>();
-    const out: PendingApproval[] = [];
-    for (const m of messages) collectPending(m, seen, out);
-    for (const m of streamingMessages) collectPending(m, seen, out);
-    collectPending(streaming, seen, out);
+    const out: PendingApprovalRef[] = [];
+    for (const a of persistedApprovals) {
+      if (seen.has(a.toolCallId)) continue;
+      seen.add(a.toolCallId);
+      out.push(a);
+    }
+    for (const a of live) {
+      if (seen.has(a.toolCallId)) continue;
+      seen.add(a.toolCallId);
+      out.push(a);
+    }
     return out;
-  }, [messages, streamingMessages, streaming]);
+  }, [persistedApprovals, streaming]);
 
   if (pending.length === 0) return null;
 

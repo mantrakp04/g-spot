@@ -9,7 +9,9 @@ import {
   createWorktree,
   deleteBranch,
   getWorktreePath,
+  listChanges,
   listWorkspaces,
+  readDiffSide,
   removeWorktree,
 } from "../lib/git";
 import { normalizeStoredChatAgentConfig } from "../lib/pi";
@@ -178,6 +180,46 @@ export const gitRouter = router({
 
       await removeWorktree({ projectPath: project.path, name: input.name });
       return { name: input.name };
+    }),
+
+  changes: publicProcedure
+    .input(z.object({ projectId: z.string().min(1) }))
+    .query(async ({ input }) => {
+      const project = await getProject(input.projectId);
+      if (!project) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+      }
+      return { changes: await listChanges(project.path) };
+    }),
+
+  fileDiff: publicProcedure
+    .input(
+      z.object({
+        projectId: z.string().min(1),
+        path: z.string().min(1),
+        /**
+         * uncommitted = HEAD vs working tree (everything not in HEAD)
+         * staged      = HEAD vs index
+         * unstaged    = index vs working tree
+         */
+        mode: z.enum(["uncommitted", "staged", "unstaged"]).default("uncommitted"),
+      }),
+    )
+    .query(async ({ input }) => {
+      const project = await getProject(input.projectId);
+      if (!project) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+      }
+      const cwd = project.path;
+      const left =
+        input.mode === "unstaged"
+          ? await readDiffSide({ cwd, path: input.path, side: "index" })
+          : await readDiffSide({ cwd, path: input.path, side: "head" });
+      const right =
+        input.mode === "staged"
+          ? await readDiffSide({ cwd, path: input.path, side: "index" })
+          : await readDiffSide({ cwd, path: input.path, side: "working" });
+      return { left, right };
     }),
 
   worktreePath: publicProcedure

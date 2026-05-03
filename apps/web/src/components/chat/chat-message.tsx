@@ -51,11 +51,26 @@ import type {
   UIMessagePart,
 } from "@/lib/chat-ui";
 import { perfCount } from "@/lib/chat-perf-log";
+import type {
+  AssistantThoughtRenderItem,
+  ThoughtGroupEntry,
+} from "@/lib/chat-render-model";
+import {
+  registerPartRenderer,
+  renderPart,
+} from "@/components/chat/part-renderer-registry";
 
 interface ChatMessageProps {
   message: UIMessage;
-  previousMessages?: UIMessage[];
   variant: "final" | "streaming";
+  /** Pre-derived visible parts of an assistant turn. Required for variant="final". */
+  responseParts?: UIMessagePart[];
+  /** Pre-joined assistant text used by the copy action. */
+  copyText?: string;
+  /** Pre-grouped previous-turn thoughts. `null` means no thoughts panel. */
+  thoughtItems?: AssistantThoughtRenderItem[] | null;
+  /** Pre-joined user text used by the edit textarea. */
+  userText?: string;
   showThoughts?: boolean;
   onReload?: () => void;
   onEdit?: (newText: string) => void;
@@ -66,10 +81,27 @@ function isToolPart(part: UIMessagePart): part is ToolUIPart | DynamicToolUIPart
   return "state" in part && (part.type === "dynamic-tool" || part.type.startsWith("tool-"));
 }
 
+function joinUserText(parts: UIMessagePart[]) {
+  let out = "";
+  for (const p of parts) {
+    if (p.type === "text") out += p.text;
+  }
+  return out;
+}
+
+function isReasoningPart(
+  part: UIMessagePart,
+): part is Extract<UIMessagePart, { type: "reasoning" }> {
+  return part.type === "reasoning";
+}
+
 export const ChatMessage = memo(function ChatMessage({
   message,
-  previousMessages,
   variant,
+  responseParts,
+  copyText,
+  thoughtItems,
+  userText,
   showThoughts,
   onReload,
   onEdit,
@@ -99,13 +131,16 @@ export const ChatMessage = memo(function ChatMessage({
         {message.role === "user" ? (
           <UserMessageBubble
             message={message}
+            text={userText}
             onEdit={onEdit}
             onFork={onFork}
           />
         ) : (
           <AssistantMessageBubble
             message={message}
-            previousMessages={previousMessages}
+            responseParts={responseParts}
+            copyText={copyText}
+            thoughtItems={thoughtItems}
             variant={variant}
             showActions={variant === "final"}
             showThoughts={showThoughts ?? variant === "final"}
@@ -120,19 +155,22 @@ export const ChatMessage = memo(function ChatMessage({
 
 function UserMessageBubble({
   message,
+  text,
   onEdit,
   onFork,
 }: {
   message: UIMessage;
+  text?: string;
   onEdit?: (newText: string) => void;
   onFork?: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const currentText = message.parts
-    .filter((p): p is Extract<typeof p, { type: "text" }> => p.type === "text")
-    .map((p) => p.text)
-    .join("");
+  const currentText = text ?? joinUserText(message.parts);
+  const displayParts = useMemo(
+    () => orderUserMessagePartsForDisplay(message.parts),
+    [message.parts],
+  );
 
   const handleSaveEdit = useCallback(() => {
     const newText = textareaRef.current?.value.trim();
@@ -192,7 +230,7 @@ function UserMessageBubble({
   return (
     <>
       <MessageContent className="rounded-2xl rounded-br-md bg-secondary/80 px-4 py-3 text-sm backdrop-blur-sm">
-        <MessageParts messageId={message.id} parts={message.parts} />
+        <MessageParts messageId={message.id} parts={displayParts} />
       </MessageContent>
       <MessageActions className="mt-1 justify-end opacity-0 transition-opacity duration-200 group-hover/msg:opacity-100">
         {onEdit && (
@@ -212,7 +250,9 @@ function UserMessageBubble({
 
 function AssistantMessageBubble({
   message,
-  previousMessages,
+  responseParts: responsePartsProp,
+  copyText: copyTextProp,
+  thoughtItems: thoughtItemsProp,
   variant,
   showActions,
   showThoughts,
@@ -220,7 +260,9 @@ function AssistantMessageBubble({
   onFork,
 }: {
   message: UIMessage;
-  previousMessages?: UIMessage[];
+  responseParts?: UIMessagePart[];
+  copyText?: string;
+  thoughtItems?: AssistantThoughtRenderItem[] | null;
   variant: "final" | "streaming";
   showActions: boolean;
   showThoughts: boolean;
@@ -233,19 +275,18 @@ function AssistantMessageBubble({
   >({});
   const showPersistedThoughts = variant === "final" && showThoughts;
   const responseParts = useMemo(
-    () => getVisibleAssistantParts(message.parts, showPersistedThoughts),
-    [message.parts, showPersistedThoughts],
+    () =>
+      responsePartsProp ??
+      getVisibleAssistantParts(message.parts, showPersistedThoughts),
+    [responsePartsProp, message.parts, showPersistedThoughts],
   );
 
   const handleCopy = useCallback(() => {
-    const text = message.parts
-      .filter((p): p is Extract<typeof p, { type: "text" }> => p.type === "text")
-      .map((p) => p.text)
-      .join("");
+    const text = copyTextProp ?? joinUserText(message.parts);
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
-  }, [message.parts]);
+  }, [copyTextProp, message.parts]);
 
   const handleStreamingAccordionOpenChange = useCallback(
     (id: string, open: boolean) => {
@@ -268,8 +309,8 @@ function AssistantMessageBubble({
           />
         ) : (
           <>
-            {showPersistedThoughts && previousMessages?.length ? (
-              <AssistantThoughts messages={previousMessages} />
+            {showPersistedThoughts && thoughtItemsProp && thoughtItemsProp.length > 0 ? (
+              <AssistantThoughts items={thoughtItemsProp} />
             ) : null}
             <MessageParts
               messageId={message.id}
@@ -306,6 +347,24 @@ function AssistantMessageBubble({
   );
 }
 
+function orderUserMessagePartsForDisplay(parts: UIMessagePart[]) {
+  const textParts: UIMessagePart[] = [];
+  const fileParts: UIMessagePart[] = [];
+  const otherParts: UIMessagePart[] = [];
+
+  for (const part of parts) {
+    if (part.type === "text") {
+      textParts.push(part);
+    } else if (part.type === "file") {
+      fileParts.push(part);
+    } else {
+      otherParts.push(part);
+    }
+  }
+
+  return [...textParts, ...fileParts, ...otherParts];
+}
+
 function getVisibleAssistantParts(
   parts: UIMessagePart[],
   includeAuxiliaryParts: boolean,
@@ -318,22 +377,10 @@ function getVisibleAssistantParts(
   );
 }
 
-type AssistantThoughtRenderItem =
-  | {
-      kind: "part";
-      key: string;
-      part: UIMessagePart;
-    }
-  | {
-      kind: "tool-group";
-      key: string;
-      parts: (ToolUIPart | DynamicToolUIPart)[];
-    };
-
-function AssistantThoughts({ messages }: { messages: UIMessage[] }) {
-  const items = getAssistantThoughtRenderItems(messages);
+function AssistantThoughts({ items }: { items: AssistantThoughtRenderItem[] }) {
   const previousPartCount = items.reduce(
-    (count, item) => count + (item.kind === "tool-group" ? item.parts.length : 1),
+    (count, item) =>
+      count + (item.kind === "tool-group" ? item.entries.length : 1),
     0,
   );
 
@@ -348,7 +395,7 @@ function AssistantThoughts({ messages }: { messages: UIMessage[] }) {
             <ToolCallThoughtGroup
               key={item.key}
               groupId={item.key}
-              parts={item.parts}
+              entries={item.entries}
             />
           ) : (
             <div key={item.key} className="text-foreground">
@@ -365,65 +412,38 @@ function AssistantThoughts({ messages }: { messages: UIMessage[] }) {
   );
 }
 
-function getAssistantThoughtRenderItems(
-  messages: UIMessage[],
-): AssistantThoughtRenderItem[] {
-  const items: AssistantThoughtRenderItem[] = [];
-  let pendingToolParts: (ToolUIPart | DynamicToolUIPart)[] = [];
-  let pendingToolGroupKey = "";
-
-  const flushToolGroup = () => {
-    if (!pendingToolParts.length) return;
-
-    items.push({
-      kind: "tool-group",
-      key: pendingToolGroupKey,
-      parts: pendingToolParts,
-    });
-    pendingToolParts = [];
-    pendingToolGroupKey = "";
-  };
-
-  for (const message of messages) {
-    const parts = getVisibleAssistantParts(message.parts, true);
-
-    for (const [index, part] of parts.entries()) {
-      const key = `${message.id}-thought-${index}`;
-
-      if (isToolPart(part)) {
-        if (!pendingToolParts.length) {
-          pendingToolGroupKey = `${key}-tool-group`;
-        }
-        pendingToolParts.push(part);
-        continue;
-      }
-
-      flushToolGroup();
-      items.push({ kind: "part", key, part });
-    }
-  }
-
-  flushToolGroup();
-
-  return items;
-}
-
 function ToolCallThoughtGroup({
   groupId,
-  parts,
+  entries,
 }: {
   groupId: string;
-  parts: (ToolUIPart | DynamicToolUIPart)[];
+  entries: ThoughtGroupEntry[];
 }) {
+  const toolCount = entries.filter((entry) => isToolPart(entry.part)).length;
+
   return (
     <ChainOfThought>
       <ChainOfThoughtHeader>
-        Ran {parts.length} {parts.length === 1 ? "command" : "commands"}
+        Ran {toolCount} {toolCount === 1 ? "command" : "commands"}
       </ChainOfThoughtHeader>
       <ChainOfThoughtContent>
-        {parts.map((part, index) => (
-          <ToolThoughtPart key={`${groupId}-${part.toolCallId ?? index}`} part={part} />
-        ))}
+        {entries.map((entry, index) => {
+          const entryKey = isToolPart(entry.part)
+            ? `${groupId}-${entry.part.toolCallId ?? index}`
+            : `${groupId}-${entry.key}`;
+
+          if (isReasoningPart(entry.part)) {
+            return (
+              <CollapsibleThoughtMessage
+                key={entryKey}
+                text={entry.part.text}
+                title="Thought"
+              />
+            );
+          }
+
+          return <ToolThoughtPart key={entryKey} part={entry.part} />;
+        })}
       </ChainOfThoughtContent>
     </ChainOfThought>
   );
@@ -576,44 +596,59 @@ const MessagePart = memo(
       [accordionId, onAccordionOpenChange],
     );
 
-    if (part.type === "text") {
-      return part.text ? (
-        incrementalTextParts ? (
-          <IncrementalMessageResponse text={part.text} />
-        ) : (
-          <MessageResponse>{part.text}</MessageResponse>
-        )
-      ) : null;
-    }
-
-    if (part.type === "file") {
-      return <FileAttachment id={id} part={part} />;
-    }
-
-    if (renderAuxiliaryParts && part.type === "reasoning") {
-      return (
-        <InlineReasoningPart
-          isActive={isActive}
-          onOpenChange={handleOpenChange}
-          open={open}
-          text={part.text}
-        />
-      );
-    }
-
-    if (renderAuxiliaryParts && isToolPart(part)) {
-      return (
-        <ToolThoughtPart
-          onOpenChange={handleOpenChange}
-          open={open}
-          part={part}
-        />
-      );
-    }
-
-    return null;
+    return renderPart(part, {
+      id,
+      accordionId,
+      isActive,
+      open,
+      onOpenChange: handleOpenChange,
+      incrementalTextParts,
+      renderAuxiliaryParts,
+    });
   },
   areMessagePartPropsEqual,
+);
+
+registerPartRenderer(
+  (part): part is Extract<UIMessagePart, { type: "text" }> =>
+    part.type === "text",
+  (part, ctx) => {
+    if (!part.text) return null;
+    return ctx.incrementalTextParts ? (
+      <IncrementalMessageResponse text={part.text} />
+    ) : (
+      <MessageResponse>{part.text}</MessageResponse>
+    );
+  },
+);
+
+registerPartRenderer(
+  (part): part is FileUIPart => part.type === "file",
+  (part, ctx) => <FileAttachment id={ctx.id} part={part} />,
+);
+
+registerPartRenderer(
+  (part): part is Extract<UIMessagePart, { type: "reasoning" }> =>
+    part.type === "reasoning",
+  (part, ctx) =>
+    ctx.renderAuxiliaryParts ? (
+      <InlineReasoningPart
+        isActive={ctx.isActive}
+        onOpenChange={ctx.onOpenChange}
+        open={ctx.open}
+        text={part.text}
+      />
+    ) : null,
+);
+
+registerPartRenderer(isToolPart, (part, ctx) =>
+  ctx.renderAuxiliaryParts ? (
+    <ToolThoughtPart
+      onOpenChange={ctx.onOpenChange}
+      open={ctx.open}
+      part={part}
+    />
+  ) : null,
 );
 
 MessagePart.displayName = "MessagePart";
@@ -627,52 +662,46 @@ function areMessagePartPropsEqual(prev: MessagePartProps, next: MessagePartProps
     prev.onAccordionOpenChange === next.onAccordionOpenChange &&
     prev.open === next.open &&
     prev.renderAuxiliaryParts === next.renderAuxiliaryParts &&
-    getPartRenderSignature(prev.part) === getPartRenderSignature(next.part)
+    arePartsEqual(prev.part, next.part)
   );
 }
 
-function getPartRenderSignature(part: UIMessagePart) {
-  if (part.type === "text" || part.type === "reasoning") {
-    return `${part.type}:${part.text}`;
+function arePartsEqual(a: UIMessagePart, b: UIMessagePart) {
+  if (a === b) return true;
+  if (a.type !== b.type) return false;
+
+  if (a.type === "text" || a.type === "reasoning") {
+    return a.text === (b as typeof a).text;
   }
 
-  if (part.type === "file") {
-    return [
-      part.type,
-      part.url,
-      part.mediaType,
-      part.filename,
-      part.fileId,
-      part.extractedText,
-    ].join("\u0000");
+  if (a.type === "file") {
+    const fb = b as typeof a;
+    return (
+      a.url === fb.url &&
+      a.mediaType === fb.mediaType &&
+      a.filename === fb.filename &&
+      a.fileId === fb.fileId &&
+      a.extractedText === fb.extractedText
+    );
   }
 
-  if (isToolPart(part)) {
-    return [
-      part.type,
-      part.state,
-      part.toolCallId,
-      part.toolName,
-      safeRenderStringify(part.input),
-      safeRenderStringify(part.output),
-      part.errorText,
-      part.approval?.id,
-      part.approval?.approved,
-      part.approval?.reason,
-    ].join("\u0000");
+  if (isToolPart(a) && isToolPart(b)) {
+    return (
+      a.state === b.state &&
+      a.toolCallId === b.toolCallId &&
+      a.toolName === b.toolName &&
+      a.input === b.input &&
+      a.output === b.output &&
+      a.errorText === b.errorText &&
+      a.approval?.id === b.approval?.id &&
+      a.approval?.approved === b.approval?.approved &&
+      a.approval?.reason === b.approval?.reason
+    );
   }
 
-  return part.type;
+  return false;
 }
 
-function safeRenderStringify(value: unknown) {
-  if (value === undefined) return "";
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
-}
 
 const FrozenMarkdownSegment = memo(
   function FrozenMarkdownSegment({ text }: { text: string }) {
@@ -696,68 +725,106 @@ function IncrementalMessageResponse({ text }: { text: string }) {
   );
 }
 
-function useIncrementalMarkdownSegments(text: string) {
-  const stateRef = useRef({
-    committed: [] as string[],
-    live: "",
+type IncrementalSegments = {
+  committed: string[];
+  live: string;
+};
+
+/** Once committed segments exceed this, the oldest are merged into one frozen
+ * chunk to bound React reconciliation work for long streams. */
+const MAX_COMMITTED_SEGMENTS = 8;
+
+type IncrementalScanState = {
+  seen: string;
+  /** The accumulated unfinished tail. */
+  live: string;
+  /** Where the next scan should resume in `live`. */
+  scanIndex: number;
+  /** Start of the current (possibly partial) line within `live`. */
+  scanLineStart: number;
+  /** Whether the current scan position is inside a fenced code block. */
+  inFence: boolean;
+  committed: string[];
+  result: IncrementalSegments;
+};
+
+function freshScanState(): IncrementalScanState {
+  return {
     seen: "",
-  });
-
-  return useMemo(() => {
-    const state = stateRef.current;
-
-    if (text.startsWith(state.seen)) {
-      state.live += text.slice(state.seen.length);
-    } else {
-      state.committed = [];
-      state.live = text;
-    }
-
-    state.seen = text;
-
-    const commitIndex = findStreamingCommitIndex(state.live);
-    if (commitIndex > 0) {
-      state.committed = [...state.committed, state.live.slice(0, commitIndex)];
-      state.live = state.live.slice(commitIndex);
-    }
-
-    return {
-      committed: state.committed,
-      live: state.live,
-    };
-  }, [text]);
+    live: "",
+    scanIndex: 0,
+    scanLineStart: 0,
+    inFence: false,
+    committed: [],
+    result: { committed: [], live: "" },
+  };
 }
 
-function findStreamingCommitIndex(text: string) {
-  let inFence = false;
-  let lineStart = 0;
+function useIncrementalMarkdownSegments(text: string): IncrementalSegments {
+  const stateRef = useRef<IncrementalScanState | null>(null);
+  if (!stateRef.current) stateRef.current = freshScanState();
+  const state = stateRef.current;
+
+  if (text === state.seen) return state.result;
+
+  if (!text.startsWith(state.seen)) {
+    // Stream reset: start over.
+    state.seen = "";
+    state.live = "";
+    state.scanIndex = 0;
+    state.scanLineStart = 0;
+    state.inFence = false;
+    state.committed = [];
+  }
+
+  state.live += text.slice(state.seen.length);
+  state.seen = text;
+
   let commitIndex = 0;
+  let i = state.scanIndex;
+  let lineStart = state.scanLineStart;
 
-  for (let index = 0; index < text.length;) {
-    const nextLineBreak = text.indexOf("\n", index);
-    const lineEnd = nextLineBreak === -1 ? text.length : nextLineBreak;
-    const line = text.slice(lineStart, lineEnd).trimStart();
+  while (i < state.live.length) {
+    const nextLineBreak = state.live.indexOf("\n", i);
+    if (nextLineBreak === -1) break; // Partial line: defer until a newline arrives.
 
+    const line = state.live.slice(lineStart, nextLineBreak).trimStart();
     if (line.startsWith("```") || line.startsWith("~~~")) {
-      inFence = !inFence;
+      state.inFence = !state.inFence;
     }
 
-    if (!inFence && nextLineBreak !== -1 && text[nextLineBreak + 1] === "\n") {
+    if (!state.inFence && state.live[nextLineBreak + 1] === "\n") {
       commitIndex = nextLineBreak + 2;
-      index = commitIndex;
-      lineStart = index;
+      i = commitIndex;
+      lineStart = i;
       continue;
     }
 
-    if (nextLineBreak === -1) {
-      break;
-    }
-
-    index = nextLineBreak + 1;
-    lineStart = index;
+    i = nextLineBreak + 1;
+    lineStart = i;
   }
 
-  return commitIndex;
+  if (commitIndex > 0) {
+    state.committed = [...state.committed, state.live.slice(0, commitIndex)];
+    state.live = state.live.slice(commitIndex);
+    state.scanIndex = 0;
+    state.scanLineStart = 0;
+
+    if (state.committed.length > MAX_COMMITTED_SEGMENTS) {
+      // Merge the older half into one frozen chunk so React only reconciles
+      // a handful of <FrozenMarkdownSegment> nodes regardless of stream length.
+      const mergeUpTo = Math.floor(state.committed.length / 2);
+      const merged = state.committed.slice(0, mergeUpTo).join("");
+      state.committed = [merged, ...state.committed.slice(mergeUpTo)];
+    }
+  } else {
+    // No newline past `i` in the current buffer — resume past it next time.
+    state.scanIndex = state.live.length;
+    state.scanLineStart = lineStart;
+  }
+
+  state.result = { committed: state.committed, live: state.live };
+  return state.result;
 }
 
 function InlineReasoningPart({
@@ -789,11 +856,12 @@ function FileAttachment({ id, part }: { id: string; part: FileUIPart }) {
   );
   const [previewError, setPreviewError] = useState("");
   const [previewLoading, setPreviewLoading] = useState(false);
-  const canPreview = !!preview.text || !!preview.fileId;
   const kind = getFileKind(preview);
+  const isImagePreview = isImageFile(preview);
+  const canPreview = isImagePreview || !!preview.text || !!preview.fileId;
 
   const loadPreview = useCallback(async () => {
-    if (preview.text || !preview.fileId) {
+    if (isImagePreview || preview.text || !preview.fileId) {
       return;
     }
 
@@ -805,7 +873,7 @@ function FileAttachment({ id, part }: { id: string; part: FileUIPart }) {
         `${env.VITE_SERVER_URL}/api/files/${preview.fileId}/extracted-text`,
       );
       if (!response.ok) {
-        throw new Error(await response.text());
+        throw new Error(await readPreviewError(response));
       }
 
       const nextPreview = parseFilePreviewResponse(await response.json());
@@ -820,7 +888,7 @@ function FileAttachment({ id, part }: { id: string; part: FileUIPart }) {
     } finally {
       setPreviewLoading(false);
     }
-  }, [preview.fileId, preview.text]);
+  }, [isImagePreview, preview.fileId, preview.text]);
 
   const openPreview = useCallback(() => {
     if (!canPreview) {
@@ -881,6 +949,14 @@ function FileAttachment({ id, part }: { id: string; part: FileUIPart }) {
               <div className="px-4 pb-4 text-xs text-destructive">
                 {previewError}
               </div>
+            ) : isImagePreview ? (
+              <div className="min-h-0 overflow-auto p-4">
+                <img
+                  alt={preview.filename}
+                  className="mx-auto max-h-[calc(100vh-10rem)] max-w-full rounded-md object-contain"
+                  src={preview.url}
+                />
+              </div>
             ) : (
               <pre className="min-h-0 overflow-auto px-4 pb-4 text-[11px] leading-relaxed whitespace-pre-wrap break-words font-mono text-muted-foreground">
                 {preview.text}
@@ -899,6 +975,7 @@ type FilePreview = {
   mediaType?: string;
   localPath?: string;
   text: string;
+  url?: string;
 };
 
 function getFilePreviewFromPart(part: FileUIPart): FilePreview {
@@ -907,6 +984,7 @@ function getFilePreviewFromPart(part: FileUIPart): FilePreview {
     filename: part.filename ?? "attachment",
     mediaType: part.mediaType,
     text: part.extractedText ?? "",
+    url: part.url,
   };
 }
 
@@ -946,10 +1024,31 @@ function getFileKind(file: Pick<FilePreview, "filename" | "mediaType">) {
   return file.filename.split(".").pop()?.toUpperCase() ?? "";
 }
 
+function isImageFile(file: Pick<FilePreview, "mediaType" | "url">) {
+  return !!file.url && file.mediaType?.startsWith("image/");
+}
+
+async function readPreviewError(response: Response) {
+  const text = await response.text();
+  try {
+    const value = JSON.parse(text) as { error?: unknown };
+    if (typeof value.error === "string") return value.error;
+  } catch {
+    // Keep the raw response below.
+  }
+  return text || "Could not load preview";
+}
+
 function formatPreviewDescription(
-  preview: Pick<FilePreview, "localPath">,
+  preview: Pick<FilePreview, "localPath" | "mediaType" | "url">,
   kind: string,
 ) {
-  const label = kind ? `${kind} extracted text preview` : "Extracted text preview";
+  const label = isImageFile(preview)
+    ? kind
+      ? `${kind} image preview`
+      : "Image preview"
+    : kind
+      ? `${kind} extracted text preview`
+      : "Extracted text preview";
   return preview.localPath ? `${label} · ${preview.localPath}` : label;
 }

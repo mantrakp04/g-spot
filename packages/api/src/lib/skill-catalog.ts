@@ -257,11 +257,8 @@ async function listSkillMdPaths(
         accept: "application/vnd.github+json",
       },
     });
-  } catch (err) {
-    throw new SkillCatalogError(
-      err instanceof Error ? err.message : "GitHub tree request failed",
-      "FETCH_FAILED",
-    );
+  } catch {
+    return listSkillMdPathsFromTarball(owner, repo);
   }
 
   if (res.status === 404) {
@@ -271,10 +268,7 @@ async function listSkillMdPaths(
     );
   }
   if (!res.ok) {
-    throw new SkillCatalogError(
-      `GitHub returned ${res.status} for ${owner}/${repo}`,
-      "FETCH_FAILED",
-    );
+    return listSkillMdPathsFromTarball(owner, repo);
   }
 
   const data = (await res.json()) as { tree?: GitHubTreeEntry[] };
@@ -289,6 +283,71 @@ async function listSkillMdPaths(
     )
     .map((e) => e.path)
     .sort((a, b) => a.split("/").length - b.split("/").length);
+}
+
+async function listSkillMdPathsFromTarball(
+  owner: string,
+  repo: string,
+): Promise<string[]> {
+  const url = `https://codeload.github.com/${owner}/${repo}/tar.gz/HEAD`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      headers: { "user-agent": "g-spot-skill-explorer/1.0" },
+    });
+  } catch (err) {
+    throw new SkillCatalogError(
+      err instanceof Error ? err.message : "GitHub archive request failed",
+      "FETCH_FAILED",
+    );
+  }
+
+  if (res.status === 404) {
+    throw new SkillCatalogError(
+      `Repository ${owner}/${repo} not found or is private`,
+      "SOURCE_NOT_FOUND",
+    );
+  }
+  if (!res.ok) {
+    throw new SkillCatalogError(
+      `GitHub archive returned ${res.status} for ${owner}/${repo}`,
+      "FETCH_FAILED",
+    );
+  }
+
+  const tar = Bun.gunzipSync(await res.arrayBuffer());
+  const paths: string[] = [];
+  let offset = 0;
+
+  while (offset + 512 <= tar.length) {
+    const header = tar.subarray(offset, offset + 512);
+    if (header.every((byte) => byte === 0)) break;
+
+    const name = readTarString(header, 0, 100);
+    const prefix = readTarString(header, 345, 155);
+    const sizeText = readTarString(header, 124, 12).trim();
+    const size = Number.parseInt(sizeText || "0", 8);
+    const fullName = prefix ? `${prefix}/${name}` : name;
+    const path = fullName.split("/").slice(1).join("/");
+
+    if (path.endsWith("SKILL.md")) {
+      paths.push(path);
+    }
+
+    offset += 512 + Math.ceil(size / 512) * 512;
+  }
+
+  return paths.sort((a, b) => a.split("/").length - b.split("/").length);
+}
+
+function readTarString(
+  bytes: Uint8Array<ArrayBufferLike>,
+  start: number,
+  length: number,
+): string {
+  const slice = bytes.subarray(start, start + length);
+  const end = slice.indexOf(0);
+  return new TextDecoder().decode(end >= 0 ? slice.subarray(0, end) : slice);
 }
 
 /**

@@ -26,10 +26,11 @@ import { Route as ProjectsProjectIdRouteImport } from './routes/projects/$projec
 import { Route as HandlerSplatRouteImport } from './routes/handler/$'
 import { Route as ChatSettingsRouteImport } from './routes/chat/settings'
 import { Route as ChatChatIdRouteImport } from './routes/chat/$chatId'
-import { Route as ProjectsProjectIdIndexRouteImport } from './routes/projects/$projectId/index'
 import { Route as ProjectsProjectIdSettingsRouteImport } from './routes/projects/$projectId/settings'
-import { Route as ProjectsProjectIdChatChatIdRouteImport } from './routes/projects/$projectId/chat/$chatId'
+import { Route as ProjectsProjectIdTabsRouteImport } from './routes/projects/$projectId/_tabs'
+import { Route as ProjectsProjectIdTabsIndexRouteImport } from './routes/projects/$projectId/_tabs/index'
 import { Route as ReviewKindOwnerRepoNumberRouteImport } from './routes/review/$kind.$owner.$repo.$number'
+import { Route as ProjectsProjectIdTabsChatChatIdRouteImport } from './routes/projects/$projectId/_tabs/chat/$chatId'
 
 const WorkflowsRoute = WorkflowsRouteImport.update({
   id: '/workflows',
@@ -116,28 +117,33 @@ const ChatChatIdRoute = ChatChatIdRouteImport.update({
   path: '/$chatId',
   getParentRoute: () => ChatRoute,
 } as any)
-const ProjectsProjectIdIndexRoute = ProjectsProjectIdIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => ProjectsProjectIdRoute,
-} as any)
 const ProjectsProjectIdSettingsRoute =
   ProjectsProjectIdSettingsRouteImport.update({
     id: '/settings',
     path: '/settings',
     getParentRoute: () => ProjectsProjectIdRoute,
   } as any)
-const ProjectsProjectIdChatChatIdRoute =
-  ProjectsProjectIdChatChatIdRouteImport.update({
-    id: '/chat/$chatId',
-    path: '/chat/$chatId',
-    getParentRoute: () => ProjectsProjectIdRoute,
+const ProjectsProjectIdTabsRoute = ProjectsProjectIdTabsRouteImport.update({
+  id: '/_tabs',
+  getParentRoute: () => ProjectsProjectIdRoute,
+} as any)
+const ProjectsProjectIdTabsIndexRoute =
+  ProjectsProjectIdTabsIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => ProjectsProjectIdTabsRoute,
   } as any)
 const ReviewKindOwnerRepoNumberRoute =
   ReviewKindOwnerRepoNumberRouteImport.update({
     id: '/$kind/$owner/$repo/$number',
     path: '/$kind/$owner/$repo/$number',
     getParentRoute: () => ReviewRoute,
+  } as any)
+const ProjectsProjectIdTabsChatChatIdRoute =
+  ProjectsProjectIdTabsChatChatIdRouteImport.update({
+    id: '/chat/$chatId',
+    path: '/chat/$chatId',
+    getParentRoute: () => ProjectsProjectIdTabsRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
@@ -152,15 +158,15 @@ export interface FileRoutesByFullPath {
   '/chat/$chatId': typeof ChatChatIdRoute
   '/chat/settings': typeof ChatSettingsRoute
   '/handler/$': typeof HandlerSplatRoute
-  '/projects/$projectId': typeof ProjectsProjectIdRouteWithChildren
+  '/projects/$projectId': typeof ProjectsProjectIdTabsRouteWithChildren
   '/projects/new': typeof ProjectsNewRoute
   '/settings/connections': typeof SettingsConnectionsRoute
   '/chat/': typeof ChatIndexRoute
   '/projects/': typeof ProjectsIndexRoute
   '/review/': typeof ReviewIndexRoute
   '/projects/$projectId/settings': typeof ProjectsProjectIdSettingsRoute
-  '/projects/$projectId/': typeof ProjectsProjectIdIndexRoute
-  '/projects/$projectId/chat/$chatId': typeof ProjectsProjectIdChatChatIdRoute
+  '/projects/$projectId/': typeof ProjectsProjectIdTabsIndexRoute
+  '/projects/$projectId/chat/$chatId': typeof ProjectsProjectIdTabsChatChatIdRoute
   '/review/$kind/$owner/$repo/$number': typeof ReviewKindOwnerRepoNumberRoute
 }
 export interface FileRoutesByTo {
@@ -172,14 +178,14 @@ export interface FileRoutesByTo {
   '/chat/$chatId': typeof ChatChatIdRoute
   '/chat/settings': typeof ChatSettingsRoute
   '/handler/$': typeof HandlerSplatRoute
+  '/projects/$projectId': typeof ProjectsProjectIdTabsIndexRoute
   '/projects/new': typeof ProjectsNewRoute
   '/settings/connections': typeof SettingsConnectionsRoute
   '/chat': typeof ChatIndexRoute
   '/projects': typeof ProjectsIndexRoute
   '/review': typeof ReviewIndexRoute
   '/projects/$projectId/settings': typeof ProjectsProjectIdSettingsRoute
-  '/projects/$projectId': typeof ProjectsProjectIdIndexRoute
-  '/projects/$projectId/chat/$chatId': typeof ProjectsProjectIdChatChatIdRoute
+  '/projects/$projectId/chat/$chatId': typeof ProjectsProjectIdTabsChatChatIdRoute
   '/review/$kind/$owner/$repo/$number': typeof ReviewKindOwnerRepoNumberRoute
 }
 export interface FileRoutesById {
@@ -201,9 +207,10 @@ export interface FileRoutesById {
   '/chat/': typeof ChatIndexRoute
   '/projects/': typeof ProjectsIndexRoute
   '/review/': typeof ReviewIndexRoute
+  '/projects/$projectId/_tabs': typeof ProjectsProjectIdTabsRouteWithChildren
   '/projects/$projectId/settings': typeof ProjectsProjectIdSettingsRoute
-  '/projects/$projectId/': typeof ProjectsProjectIdIndexRoute
-  '/projects/$projectId/chat/$chatId': typeof ProjectsProjectIdChatChatIdRoute
+  '/projects/$projectId/_tabs/': typeof ProjectsProjectIdTabsIndexRoute
+  '/projects/$projectId/_tabs/chat/$chatId': typeof ProjectsProjectIdTabsChatChatIdRoute
   '/review/$kind/$owner/$repo/$number': typeof ReviewKindOwnerRepoNumberRoute
 }
 export interface FileRouteTypes {
@@ -240,13 +247,13 @@ export interface FileRouteTypes {
     | '/chat/$chatId'
     | '/chat/settings'
     | '/handler/$'
+    | '/projects/$projectId'
     | '/projects/new'
     | '/settings/connections'
     | '/chat'
     | '/projects'
     | '/review'
     | '/projects/$projectId/settings'
-    | '/projects/$projectId'
     | '/projects/$projectId/chat/$chatId'
     | '/review/$kind/$owner/$repo/$number'
   id:
@@ -268,9 +275,10 @@ export interface FileRouteTypes {
     | '/chat/'
     | '/projects/'
     | '/review/'
+    | '/projects/$projectId/_tabs'
     | '/projects/$projectId/settings'
-    | '/projects/$projectId/'
-    | '/projects/$projectId/chat/$chatId'
+    | '/projects/$projectId/_tabs/'
+    | '/projects/$projectId/_tabs/chat/$chatId'
     | '/review/$kind/$owner/$repo/$number'
   fileRoutesById: FileRoutesById
 }
@@ -408,13 +416,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatChatIdRouteImport
       parentRoute: typeof ChatRoute
     }
-    '/projects/$projectId/': {
-      id: '/projects/$projectId/'
-      path: '/'
-      fullPath: '/projects/$projectId/'
-      preLoaderRoute: typeof ProjectsProjectIdIndexRouteImport
-      parentRoute: typeof ProjectsProjectIdRoute
-    }
     '/projects/$projectId/settings': {
       id: '/projects/$projectId/settings'
       path: '/settings'
@@ -422,12 +423,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectsProjectIdSettingsRouteImport
       parentRoute: typeof ProjectsProjectIdRoute
     }
-    '/projects/$projectId/chat/$chatId': {
-      id: '/projects/$projectId/chat/$chatId'
-      path: '/chat/$chatId'
-      fullPath: '/projects/$projectId/chat/$chatId'
-      preLoaderRoute: typeof ProjectsProjectIdChatChatIdRouteImport
+    '/projects/$projectId/_tabs': {
+      id: '/projects/$projectId/_tabs'
+      path: ''
+      fullPath: '/projects/$projectId'
+      preLoaderRoute: typeof ProjectsProjectIdTabsRouteImport
       parentRoute: typeof ProjectsProjectIdRoute
+    }
+    '/projects/$projectId/_tabs/': {
+      id: '/projects/$projectId/_tabs/'
+      path: '/'
+      fullPath: '/projects/$projectId/'
+      preLoaderRoute: typeof ProjectsProjectIdTabsIndexRouteImport
+      parentRoute: typeof ProjectsProjectIdTabsRoute
     }
     '/review/$kind/$owner/$repo/$number': {
       id: '/review/$kind/$owner/$repo/$number'
@@ -435,6 +443,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/review/$kind/$owner/$repo/$number'
       preLoaderRoute: typeof ReviewKindOwnerRepoNumberRouteImport
       parentRoute: typeof ReviewRoute
+    }
+    '/projects/$projectId/_tabs/chat/$chatId': {
+      id: '/projects/$projectId/_tabs/chat/$chatId'
+      path: '/chat/$chatId'
+      fullPath: '/projects/$projectId/chat/$chatId'
+      preLoaderRoute: typeof ProjectsProjectIdTabsChatChatIdRouteImport
+      parentRoute: typeof ProjectsProjectIdTabsRoute
     }
   }
 }
@@ -453,16 +468,29 @@ const ChatRouteChildren: ChatRouteChildren = {
 
 const ChatRouteWithChildren = ChatRoute._addFileChildren(ChatRouteChildren)
 
+interface ProjectsProjectIdTabsRouteChildren {
+  ProjectsProjectIdTabsIndexRoute: typeof ProjectsProjectIdTabsIndexRoute
+  ProjectsProjectIdTabsChatChatIdRoute: typeof ProjectsProjectIdTabsChatChatIdRoute
+}
+
+const ProjectsProjectIdTabsRouteChildren: ProjectsProjectIdTabsRouteChildren = {
+  ProjectsProjectIdTabsIndexRoute: ProjectsProjectIdTabsIndexRoute,
+  ProjectsProjectIdTabsChatChatIdRoute: ProjectsProjectIdTabsChatChatIdRoute,
+}
+
+const ProjectsProjectIdTabsRouteWithChildren =
+  ProjectsProjectIdTabsRoute._addFileChildren(
+    ProjectsProjectIdTabsRouteChildren,
+  )
+
 interface ProjectsProjectIdRouteChildren {
+  ProjectsProjectIdTabsRoute: typeof ProjectsProjectIdTabsRouteWithChildren
   ProjectsProjectIdSettingsRoute: typeof ProjectsProjectIdSettingsRoute
-  ProjectsProjectIdIndexRoute: typeof ProjectsProjectIdIndexRoute
-  ProjectsProjectIdChatChatIdRoute: typeof ProjectsProjectIdChatChatIdRoute
 }
 
 const ProjectsProjectIdRouteChildren: ProjectsProjectIdRouteChildren = {
+  ProjectsProjectIdTabsRoute: ProjectsProjectIdTabsRouteWithChildren,
   ProjectsProjectIdSettingsRoute: ProjectsProjectIdSettingsRoute,
-  ProjectsProjectIdIndexRoute: ProjectsProjectIdIndexRoute,
-  ProjectsProjectIdChatChatIdRoute: ProjectsProjectIdChatChatIdRoute,
 }
 
 const ProjectsProjectIdRouteWithChildren =

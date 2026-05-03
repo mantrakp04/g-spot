@@ -98,9 +98,10 @@ export async function signInWithExternalBrowser(): Promise<void> {
     throw result.error;
   }
 
-  await signInWithRefreshToken(result.data);
   const stored = await rpc.requestProxy.setStackAuthTokens({ refreshToken: result.data });
   if (!stored.ok) {
     throw new Error(stored.error ?? "Failed to store Stack auth token");
   }
+
+  window.location.reload();
 }

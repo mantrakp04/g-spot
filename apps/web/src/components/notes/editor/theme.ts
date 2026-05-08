@@ -160,6 +160,37 @@ export const noteEditorTheme = EditorView.theme({
     textAlign: "center",
   },
   ".cm-image-widget img": { maxWidth: "100%", borderRadius: "6px" },
+  // Generic file embed (non-image attachments).
+  ".cm-file-embed-widget": {
+    display: "block",
+    padding: "0.5em 0",
+  },
+  ".cm-file-embed-link": {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "0.5em",
+    padding: "0.5em 0.85em",
+    border: "1px solid var(--border)",
+    borderRadius: "8px",
+    background: "var(--muted)",
+    color: "var(--foreground)",
+    textDecoration: "none",
+    fontSize: "0.9em",
+    maxWidth: "100%",
+  },
+  ".cm-file-embed-link:hover": {
+    background: "color-mix(in srgb, var(--primary) 12%, var(--muted))",
+    borderColor: "color-mix(in srgb, var(--primary) 40%, var(--border))",
+  },
+  ".cm-file-embed-icon": {
+    fontSize: "1.1em",
+    lineHeight: "1",
+  },
+  ".cm-file-embed-name": {
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
   ".cm-hr-widget": {
     display: "block",
     borderTop: "1px solid var(--border)",

@@ -39,16 +39,15 @@ if (typeof window !== "undefined" && !window.MonacoEnvironment) {
   // Use the bundled monaco — don't hit a CDN.
   loader.config({ monaco });
 
-  const fastDiagnostics = {
+  // Monaco standalone has no tsconfig/node_modules context, so semantic
+  // validation runs heavier than in real VSCode and stalls typing on TS/JS
+  // files. Disable it; the user's IDE handles real diagnostics.
+  const noDiagnostics = {
     noSemanticValidation: true,
     noSyntaxValidation: true,
   };
-  monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions(
-    fastDiagnostics,
-  );
-  monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions(
-    fastDiagnostics,
-  );
+  monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions(noDiagnostics);
+  monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions(noDiagnostics);
   monaco.languages.typescript.typescriptDefaults.setEagerModelSync(false);
   monaco.languages.typescript.javascriptDefaults.setEagerModelSync(false);
 }

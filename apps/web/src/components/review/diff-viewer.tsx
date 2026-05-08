@@ -8,11 +8,13 @@ import {
 import {
   ChevronDown,
   ChevronRight,
-  File as FileIcon,
-  Folder,
-  FolderOpen,
   Search,
 } from "lucide-react";
+import {
+  FileIcon,
+  FolderIcon,
+  OpenFolderIcon,
+} from "react-files-icons";
 import type { OAuthConnection } from "@stackframe/react";
 
 import { MultiFileDiff, PatchDiff } from "@pierre/diffs/react";
@@ -452,7 +454,7 @@ function TreeNode({
                 }`}
                 style={{ paddingLeft: 6 + indent + 14 }}
               >
-                <FileIcon className="size-3.5 shrink-0 text-muted-foreground/70" />
+                <FileIcon name={child.name} className="size-3.5 shrink-0" />
                 <span className="flex-1 truncate font-mono">{child.name}</span>
                 <span className="shrink-0 font-mono text-[10px] text-emerald-500">
                   +{child.file.additions}
@@ -481,9 +483,12 @@ function TreeNode({
                 }}
               />
               {isCollapsed ? (
-                <Folder className="size-3.5 shrink-0 text-muted-foreground/70" />
+                <FolderIcon name={child.name} className="size-3.5 shrink-0" />
               ) : (
-                <FolderOpen className="size-3.5 shrink-0 text-muted-foreground/70" />
+                <OpenFolderIcon
+                  name={child.name}
+                  className="size-3.5 shrink-0"
+                />
               )}
               <span className="flex-1 truncate font-mono">{child.name}</span>
             </button>

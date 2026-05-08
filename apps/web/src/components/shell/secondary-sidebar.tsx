@@ -1,33 +1,21 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 
 import { cn } from "@g-spot/ui/lib/utils";
+import { useAtom } from "jotai";
 
-type SecondarySidebarContextValue = {
-  collapsed: boolean;
-  setCollapsed: (next: boolean) => void;
-  toggle: () => void;
-};
+import { secondarySidebarCollapsedAtom } from "@/lib/sidebars-store";
 
-const SecondarySidebarContext = createContext<SecondarySidebarContextValue | null>(null);
-
-export function SecondarySidebarProvider({ children }: { children: ReactNode }) {
-  const [collapsed, setCollapsed] = useState(false);
-  const toggle = useCallback(() => setCollapsed((c) => !c), []);
-  const value = useMemo(
-    () => ({ collapsed, setCollapsed, toggle }),
-    [collapsed, toggle],
-  );
-  return (
-    <SecondarySidebarContext.Provider value={value}>
-      {children}
-    </SecondarySidebarContext.Provider>
-  );
-}
-
+/**
+ * Hook returning the same shape as the previous context-based API so existing
+ * call sites keep working. Backed by a persistent atom now.
+ */
 export function useSecondarySidebar() {
-  const ctx = useContext(SecondarySidebarContext);
-  if (!ctx) throw new Error("useSecondarySidebar must be used within SecondarySidebarProvider");
-  return ctx;
+  const [collapsed, setCollapsed] = useAtom(secondarySidebarCollapsedAtom);
+  return {
+    collapsed,
+    setCollapsed,
+    toggle: () => setCollapsed((v) => !v),
+  };
 }
 
 type SecondarySidebarProps = {
@@ -39,9 +27,11 @@ type SecondarySidebarProps = {
 };
 
 /**
- * Uniform shell for all per-app secondary sidebars. Renders a fixed-width
- * column with header, scrollable body, optional footer. Collapses via
- * `useSecondarySidebar()` (Cmd+B).
+ * Uniform shell for all per-app secondary sidebars. Renders a flex column
+ * that fills its container (its width is owned by the surrounding
+ * ResizablePanel in `AppLayout`). Collapses via `useSecondarySidebar()`
+ * (Cmd+B) — when collapsed the parent skips the panel entirely so we don't
+ * render anything ourselves.
  */
 export function SecondarySidebar({
   title,
@@ -50,14 +40,10 @@ export function SecondarySidebar({
   footer,
   className,
 }: SecondarySidebarProps) {
-  const { collapsed } = useSecondarySidebar();
-
-  if (collapsed) return null;
-
   return (
     <aside
       className={cn(
-        "flex h-full min-h-0 w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground",
+        "flex h-full min-h-0 w-full flex-col border-sidebar-border bg-sidebar text-sidebar-foreground",
         className,
       )}
     >

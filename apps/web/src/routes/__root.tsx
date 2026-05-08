@@ -4,13 +4,12 @@ import { Toaster } from "@g-spot/ui/components/sonner";
 import { HotkeysProvider, useHotkeys } from "@tanstack/react-hotkeys";
 import type { QueryClient } from "@tanstack/react-query";
 import { HeadContent, Outlet, createRootRouteWithContext } from "@tanstack/react-router";
+import { useAtom } from "jotai";
 
 import { GlobalCommandPalette } from "@/components/search/global-command-palette";
 import { AppIconRail } from "@/components/shell/app-icon-rail";
-import {
-  SecondarySidebarProvider,
-  useSecondarySidebar,
-} from "@/components/shell/secondary-sidebar";
+import { useSecondarySidebar } from "@/components/shell/secondary-sidebar";
+import { rightSidebarCollapsedAtom } from "@/lib/sidebars-store";
 import { DraftDock } from "@/components/inbox/draft-dock";
 import { RelayHeartbeat } from "@/components/relay-heartbeat";
 import { ConfirmDialogProvider } from "@/contexts/confirm-dialog-context";
@@ -40,25 +39,38 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
 });
 
 function SidebarHotkeys() {
-  const { toggle } = useSecondarySidebar();
+  const { toggle: toggleSecondary } = useSecondarySidebar();
+  const [, setRightCollapsed] = useAtom(rightSidebarCollapsedAtom);
 
-  const handleToggle = useCallback(() => {
+  const isEditableTarget = () => {
     const activeElement = document.activeElement;
-    if (
+    return (
       activeElement instanceof HTMLElement &&
       (activeElement.isContentEditable ||
         activeElement.matches("input, textarea, select, [role='textbox']"))
-    ) {
-      return;
-    }
-    toggle();
-  }, [toggle]);
+    );
+  };
+
+  const handleToggleSecondary = useCallback(() => {
+    if (isEditableTarget()) return;
+    toggleSecondary();
+  }, [toggleSecondary]);
+
+  const handleToggleRight = useCallback(() => {
+    if (isEditableTarget()) return;
+    setRightCollapsed((v) => !v);
+  }, [setRightCollapsed]);
 
   useHotkeys([
     {
       hotkey: "Mod+B",
-      callback: handleToggle,
+      callback: handleToggleSecondary,
       options: { meta: { name: "Toggle sidebar" } },
+    },
+    {
+      hotkey: "Mod+L",
+      callback: handleToggleRight,
+      options: { meta: { name: "Toggle right sidebar" } },
     },
   ]);
 
@@ -101,19 +113,17 @@ function RootShell() {
     <SectionCountsProvider>
       <DraftsProvider>
         <PiCredentialFlowsProvider>
-          <SecondarySidebarProvider>
-            <SidebarHotkeys />
-            <ExternalLinkInterceptor />
-            <div className="flex h-full min-h-0 min-w-0">
-              <AppIconRail />
-              <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-                <Outlet />
-              </div>
+          <SidebarHotkeys />
+          <ExternalLinkInterceptor />
+          <div className="flex h-full min-h-0 min-w-0">
+            <AppIconRail />
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+              <Outlet />
             </div>
-            <GlobalCommandPalette />
-            <DraftDock />
-            <RelayHeartbeat />
-          </SecondarySidebarProvider>
+          </div>
+          <GlobalCommandPalette />
+          <DraftDock />
+          <RelayHeartbeat />
         </PiCredentialFlowsProvider>
       </DraftsProvider>
     </SectionCountsProvider>

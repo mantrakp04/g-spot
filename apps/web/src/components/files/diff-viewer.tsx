@@ -8,7 +8,8 @@ import {
 import { Spinner } from "@g-spot/ui/components/spinner";
 import { DiffEditor } from "@monaco-editor/react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useAtomValue } from "jotai";
+import { useCallback, useMemo, useRef } from "react";
 import type * as monaco from "monaco-editor";
 
 import { useTheme } from "@/components/theme-provider";
@@ -17,7 +18,9 @@ import { type DiffMode, useUpdateDiffMode } from "@/lib/tabs-store";
 import { trpcClient } from "@/utils/trpc";
 
 import { languageFromPath } from "./language-from-path";
-import { baseEditorOptions } from "./monaco-options";
+import { buildEditorOptions } from "./monaco-options";
+import { MonacoSettingsMenu } from "./monaco-settings-menu";
+import { monacoSettingsAtom } from "./monaco-settings-store";
 import { useMonacoTheme } from "./monaco-theme";
 import "./monaco-bootstrap";
 
@@ -40,23 +43,18 @@ export function DiffViewer({ tabId, projectId, path, mode, active }: DiffViewerP
   const monacoTheme = useMonacoTheme(resolvedTheme, active);
   const setMode = useUpdateDiffMode();
   const editorRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
-  const editorOptions = useMemo(
-    () => ({
-      ...baseEditorOptions,
-      automaticLayout: active,
-      renderSideBySide: true,
-      readOnly: true,
-      originalEditable: false,
-      ignoreTrimWhitespace: false,
-    }),
-    [active],
+  const settings = useAtomValue(monacoSettingsAtom);
+  const diffEditorOptions = useMemo(
+    () =>
+      ({
+        ...buildEditorOptions(settings),
+        renderSideBySide: true,
+        readOnly: true,
+        originalEditable: false,
+        ignoreTrimWhitespace: false,
+      }) satisfies monaco.editor.IStandaloneDiffEditorConstructionOptions,
+    [settings],
   );
-
-  useEffect(() => {
-    if (active) {
-      requestAnimationFrame(() => editorRef.current?.layout());
-    }
-  }, [active]);
 
   const handleMount = useCallback((editor: monaco.editor.IStandaloneDiffEditor) => {
     editorRef.current = editor;
@@ -71,23 +69,26 @@ export function DiffViewer({ tabId, projectId, path, mode, active }: DiffViewerP
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <div className="flex h-9 shrink-0 items-center justify-between gap-3 border-b border-border bg-muted/20 px-3 text-[11px] text-muted-foreground">
+      <div className="flex h-9 shrink-0 items-center justify-between gap-3 border-b border-border bg-muted/20 pl-3 pr-1 text-[11px] text-muted-foreground">
         <span className="truncate font-mono">{path}</span>
-        <Select
-          value={mode}
-          onValueChange={(value) => setMode(tabId, value as DiffMode)}
-        >
-          <SelectTrigger className="h-6 w-[260px] text-[11px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {(Object.keys(MODE_LABEL) as DiffMode[]).map((m) => (
-              <SelectItem key={m} value={m} className="text-xs">
-                {MODE_LABEL[m]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-1">
+          <Select
+            value={mode}
+            onValueChange={(value) => setMode(tabId, value as DiffMode)}
+          >
+            <SelectTrigger className="h-6 w-[260px] text-[11px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(Object.keys(MODE_LABEL) as DiffMode[]).map((m) => (
+                <SelectItem key={m} value={m} className="text-xs">
+                  {MODE_LABEL[m]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <MonacoSettingsMenu />
+        </div>
       </div>
       <div className="min-h-0 min-w-0 flex-1">
         <DiffEditor
@@ -96,7 +97,7 @@ export function DiffViewer({ tabId, projectId, path, mode, active }: DiffViewerP
           language={languageFromPath(path)}
           theme={monacoTheme}
           onMount={handleMount}
-          options={editorOptions}
+          options={diffEditorOptions}
           loading={<Spinner />}
         />
       </div>

@@ -2,6 +2,7 @@ import {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
+  useResizableLayout,
 } from "@g-spot/ui/components/resizable";
 import { Skeleton } from "@g-spot/ui/components/skeleton";
 import { createFileRoute, Outlet } from "@tanstack/react-router";
@@ -13,7 +14,16 @@ import { RightSidebar } from "@/components/right-sidebar/right-sidebar";
 import { TabBar } from "@/components/tabs/tab-bar";
 import { useProject } from "@/hooks/use-projects";
 import { useSetLastProjectId } from "@/lib/active-project";
-import { rightSidebarCollapsedAtom } from "@/lib/right-sidebar-store";
+import {
+  rightSidebarCollapsedAtom,
+  sidebarsSwappedAtom,
+} from "@/lib/sidebars-store";
+
+const RIGHT_PANEL_ID = "right-sidebar";
+const RIGHT_MAIN_PANEL_ID = "right-main";
+
+const browserStorage =
+  typeof window !== "undefined" ? window.localStorage : undefined;
 
 export const Route = createFileRoute("/projects/$projectId")({
   component: ProjectLayout,
@@ -24,7 +34,14 @@ function ProjectLayout() {
   const projectQuery = useProject(projectId);
   const setLastProjectId = useSetLastProjectId();
   const collapsed = useAtomValue(rightSidebarCollapsedAtom);
+  const swapped = useAtomValue(sidebarsSwappedAtom);
   const [searchOpen, setSearchOpen] = useState(false);
+
+  const { defaultLayout, onLayoutChanged } = useResizableLayout({
+    id: "gspot.shell.right",
+    panelIds: [RIGHT_PANEL_ID, RIGHT_MAIN_PANEL_ID],
+    storage: browserStorage,
+  });
 
   useEffect(() => {
     if (projectQuery.data) {
@@ -64,29 +81,50 @@ function ProjectLayout() {
     );
   }
 
+  const rightPanel = (
+    <ResizablePanel
+      id={RIGHT_PANEL_ID}
+      defaultSize="30"
+      minSize="18"
+      maxSize="60"
+      className="min-w-[260px]"
+    >
+      <RightSidebar projectId={projectId} onOpenSearch={openSearch} />
+    </ResizablePanel>
+  );
+
+  const mainPanel = (
+    <ResizablePanel
+      id={RIGHT_MAIN_PANEL_ID}
+      defaultSize={collapsed ? "100" : "70"}
+      minSize="40"
+    >
+      <div className="flex h-full min-h-0 min-w-0 flex-col">
+        <TabBar projectId={projectId} />
+        <Outlet />
+      </div>
+    </ResizablePanel>
+  );
+
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <ResizablePanelGroup
         orientation="horizontal"
+        defaultLayout={defaultLayout}
+        onLayoutChanged={onLayoutChanged}
         className="min-h-0 min-w-0 flex-1"
       >
-        <ResizablePanel defaultSize={collapsed ? "100" : "70"} minSize="40">
-          <div className="flex h-full min-h-0 min-w-0 flex-col">
-            <TabBar projectId={projectId} />
-            <Outlet />
-          </div>
-        </ResizablePanel>
-        {!collapsed && (
+        {!collapsed && swapped && (
+          <>
+            {rightPanel}
+            <ResizableHandle />
+          </>
+        )}
+        {mainPanel}
+        {!collapsed && !swapped && (
           <>
             <ResizableHandle />
-            <ResizablePanel
-              defaultSize="30"
-              minSize="18"
-              maxSize="60"
-              className="min-w-[260px]"
-            >
-              <RightSidebar projectId={projectId} onOpenSearch={openSearch} />
-            </ResizablePanel>
+            {rightPanel}
           </>
         )}
       </ResizablePanelGroup>

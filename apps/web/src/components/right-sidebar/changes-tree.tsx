@@ -7,7 +7,12 @@ import {
 } from "@g-spot/ui/components/select";
 import { cn } from "@g-spot/ui/lib/utils";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronRight, File, Folder, RefreshCw } from "lucide-react";
+import { ChevronRight, RefreshCw } from "lucide-react";
+import {
+  FileIcon,
+  FolderIcon,
+  OpenFolderIcon,
+} from "react-files-icons";
 import { useMemo, useState } from "react";
 
 import { gitKeys } from "@/lib/query-keys";
@@ -28,6 +33,12 @@ const MODE_LABEL: Record<DiffMode, string> = {
 type ChangeEntry = Awaited<
   ReturnType<typeof trpcClient.git.changes.query>
 >["changes"][number];
+
+const ZERO_STAT = { additions: 0, deletions: 0 } as const;
+
+function statsFor(change: ChangeEntry, mode: DiffMode) {
+  return change.stats?.[mode] ?? ZERO_STAT;
+}
 
 type TreeNode = {
   name: string;
@@ -134,10 +145,20 @@ export function ChangesTree({ projectId, onChangeClick }: ChangesTreeProps) {
 
   const tree = useMemo(() => buildTree(filtered), [filtered]);
   const total = filtered.length;
+  const totals = useMemo(() => {
+    let additions = 0;
+    let deletions = 0;
+    for (const c of filtered) {
+      const stats = statsFor(c, mode);
+      additions += stats.additions;
+      deletions += stats.deletions;
+    }
+    return { additions, deletions };
+  }, [filtered, mode]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-1 text-[11px] text-muted-foreground">
+      <div className="flex h-9 shrink-0 items-center gap-1.5 border-b border-border px-1 text-[11px] text-muted-foreground">
         <Select value={mode} onValueChange={(v) => setMode(v as DiffMode)}>
           <SelectTrigger size="sm" className="flex-1 text-[11px]">
             <SelectValue />
@@ -150,7 +171,7 @@ export function ChangesTree({ projectId, onChangeClick }: ChangesTreeProps) {
             ))}
           </SelectContent>
         </Select>
-        <span className="min-w-5 shrink-0 text-center tabular-nums">{total}</span>
+        <DiffStat additions={totals.additions} deletions={totals.deletions} />
         <button
           type="button"
           onClick={() => changesQuery.refetch()}
@@ -172,6 +193,7 @@ export function ChangesTree({ projectId, onChangeClick }: ChangesTreeProps) {
               key={child.path}
               node={child}
               depth={0}
+              mode={mode}
               onChangeClick={(path) => onChangeClick(path, mode)}
             />
           ))
@@ -190,15 +212,17 @@ export function ChangesTree({ projectId, onChangeClick }: ChangesTreeProps) {
 type ChangeNodeProps = {
   node: TreeNode;
   depth: number;
+  mode: DiffMode;
   onChangeClick: (path: string) => void;
 };
 
-function ChangeNode({ node, depth, onChangeClick }: ChangeNodeProps) {
+function ChangeNode({ node, depth, mode, onChangeClick }: ChangeNodeProps) {
   const [open, setOpen] = useState(true);
   const padLeft = `${0.5 + depth * 0.75}rem`;
 
   if (node.kind === "file") {
     const badge = node.change ? badgeFor(node.change) : null;
+    const stats = node.change ? statsFor(node.change, mode) : null;
     return (
       <button
         type="button"
@@ -207,8 +231,11 @@ function ChangeNode({ node, depth, onChangeClick }: ChangeNodeProps) {
         style={{ paddingLeft: padLeft }}
       >
         <span className="size-3 shrink-0" />
-        <File className="size-3.5 shrink-0 text-muted-foreground/70" />
+        <FileIcon name={node.name} className="size-3.5 shrink-0" />
         <span className="min-w-0 flex-1 truncate">{node.name}</span>
+        {stats && (
+          <DiffStat additions={stats.additions} deletions={stats.deletions} />
+        )}
         {badge && (
           <span
             className={cn("font-mono text-[10px] font-bold", badge.className)}
@@ -235,7 +262,11 @@ function ChangeNode({ node, depth, onChangeClick }: ChangeNodeProps) {
             open && "rotate-90",
           )}
         />
-        <Folder className="size-3.5 shrink-0 text-muted-foreground" />
+        {open ? (
+          <OpenFolderIcon name={node.name} className="size-3.5 shrink-0" />
+        ) : (
+          <FolderIcon name={node.name} className="size-3.5 shrink-0" />
+        )}
         <span className="min-w-0 flex-1 truncate">{node.name}</span>
       </button>
       {open &&
@@ -244,9 +275,29 @@ function ChangeNode({ node, depth, onChangeClick }: ChangeNodeProps) {
             key={child.path}
             node={child}
             depth={depth + 1}
+            mode={mode}
             onChangeClick={onChangeClick}
           />
         ))}
     </>
+  );
+}
+
+function DiffStat({
+  additions,
+  deletions,
+}: {
+  additions: number;
+  deletions: number;
+}) {
+  if (additions === 0 && deletions === 0) return null;
+  return (
+    <span className="shrink-0 font-mono text-[10px] tabular-nums">
+      {additions > 0 && (
+        <span className="text-emerald-500">+{additions}</span>
+      )}
+      {additions > 0 && deletions > 0 && " "}
+      {deletions > 0 && <span className="text-red-500">-{deletions}</span>}
+    </span>
   );
 }

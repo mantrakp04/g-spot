@@ -5,9 +5,11 @@ import { env } from "@g-spot/env/web";
 /**
  * Paste + drop file uploads. Uploads to the existing `/api/files/upload`
  * endpoint (content-addressed dedup, returns `{ fileId, url, mimeType }`),
- * then inserts at the caret. Images render inline via a markdown image,
- * everything else as a plain link so the embed-widget plugin still has
- * something to lay out.
+ * then inserts at the caret using the file-id-keyed embed syntax
+ * `![[file:<fileId>|<filename>]]`. The id is the canonical reference so
+ * duplicate filenames (e.g. every macOS screenshot pastes as `image.png`)
+ * never collide. The embed widget in `embeds.ts` resolves it back to a
+ * URL at render time — no server hostname is baked into the note.
  *
  * Cap: 25 MB per file. We hand-fail rather than chunk — for bigger files
  * the user should use the file-attachments flow elsewhere.
@@ -37,17 +39,11 @@ async function uploadFile(file: File): Promise<UploadResponse> {
 }
 
 function fileToMarkdown(upload: UploadResponse): string {
-  const safeName = upload.filename.replace(/[\[\]]/g, "");
-  if (upload.mimeType.startsWith("image/")) {
-    // Vault-style embed — resolved at render time by the server attachments
-    // route, so the note doesn't bake in a server URL.
-    return `![[${safeName}]]`;
-  }
-  // Non-images still need a real URL since the embed widget only renders
-  // images. Leave the server URL in for now; if you change hosts, these
-  // links break (same trade-off as before).
-  const url = `${env.VITE_SERVER_URL}${upload.url}`;
-  return `[${safeName}](${url})`;
+  // Strip the wiki-embed delimiters from the display name. `|` is the
+  // separator between id and label, `[`/`]` close the embed, and `\n`
+  // would split the embed across lines. Everything else is fine.
+  const safeName = upload.filename.replace(/[\[\]|\n]/g, "").trim() || "file";
+  return `![[file:${upload.fileId}|${safeName}]]`;
 }
 
 async function insertUploads(view: EditorView, files: File[]): Promise<void> {
@@ -56,43 +52,86 @@ async function insertUploads(view: EditorView, files: File[]): Promise<void> {
     typeof crypto.randomUUID === "function"
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const placeholders = files
-    .map((f, index) => `![[uploading ${f.name} ${batchId}-${index}…]]`)
-    .join("\n");
-  const insertPos = view.state.selection.main.head;
+  // The placeholder deliberately contains a `[` so it doesn't match the
+  // wikilink-embed regex in `embeds.ts` (which excludes `[` from the
+  // filename character class). If the regex matched, the embed widget would
+  // try to render a real <img> pointing at `…/attachments/uploading%20…` and
+  // the user would see a broken image any time their caret left the
+  // placeholder range — e.g. after Cmd+A then right arrow. Keeping the
+  // placeholder out of the regex means it just renders as plain text
+  // regardless of where the caret is.
+  const items = files.map(
+    (f, index) => `[uploading ${f.name} (${batchId}-${index})…]`,
+  );
+  // The "body" is the substring we'll later locate and replace. Newlines
+  // around it are layout padding, not part of the placeholder identity.
+  const body = items.join("\n");
+
+  // Pad the placeholder so the resolved embed sits on its own line — the
+  // block-level image widget needs that, and the trailing newline doubles as
+  // a clean spot for the caret to land on (past the embed range so the
+  // widget renders).
+  const range = view.state.selection.main;
+  const doc = view.state.doc;
+  const charBefore =
+    range.from > 0 ? doc.sliceString(range.from - 1, range.from) : "\n";
+  const charAfter =
+    range.to < doc.length ? doc.sliceString(range.to, range.to + 1) : "";
+  const leading = charBefore === "\n" ? "" : "\n";
+  const trailing = charAfter === "\n" ? "" : "\n";
+  const insert = leading + body + trailing;
+
+  // Park the caret on the line *after* the placeholder. This is where the
+  // user will land once the image renders, so we put them there up front —
+  // no jump when the upload resolves, and they can start typing immediately.
   view.dispatch({
-    changes: { from: insertPos, insert: placeholders },
-    selection: { anchor: insertPos + placeholders.length },
+    changes: { from: range.from, to: range.to, insert },
+    selection: { anchor: range.from + insert.length },
   });
 
-  let replaced = "";
+  let resolved = "";
   for (const file of files) {
     if (file.size > MAX_BYTES) {
-      replaced += `[upload-failed: ${file.name} exceeds 25 MB]\n`;
+      resolved += `[upload-failed: ${file.name} exceeds 25 MB]\n`;
       continue;
     }
     try {
       const upload = await uploadFile(file);
-      replaced += `${fileToMarkdown(upload)}\n`;
+      resolved += `${fileToMarkdown(upload)}\n`;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "unknown";
-      replaced += `[upload-failed: ${file.name} (${msg})]\n`;
+      resolved += `[upload-failed: ${file.name} (${msg})]\n`;
     }
   }
   // Trim trailing newline to match what we inserted as separator.
-  replaced = replaced.replace(/\n$/, "");
+  resolved = resolved.replace(/\n$/, "");
 
-  // Replace the placeholder block with the resolved markdown.
-  const doc = view.state.doc.toString();
-  const placeholderIdx = doc.indexOf(placeholders);
-  if (placeholderIdx === -1) return; // user edited it away — give up gracefully.
+  // Locate the placeholder body — the user may have inserted/deleted text
+  // around it while the upload was in flight, so we can't trust the original
+  // offset. The body contains a unique batch id, so `indexOf` is enough.
+  const docStr = view.state.doc.toString();
+  const bodyIdx = docStr.indexOf(body);
+  if (bodyIdx === -1) return; // user edited it away — give up gracefully.
+  const bodyEnd = bodyIdx + body.length;
+
+  // Default: omit `selection` so CodeMirror auto-maps the caret through the
+  // change. That preserves the user's position whether they stayed put or
+  // moved elsewhere mid-upload.
+  //
+  // The one case auto-mapping handles awkwardly is when the caret is
+  // *strictly inside* the placeholder body (the user clicked into it to
+  // edit). After the replacement, that position would map into the resolved
+  // embed range, which suppresses the image widget. Push the caret past the
+  // resolved embed and its trailing newline in that case so the image
+  // renders.
+  const caret = view.state.selection.main.head;
+  const caretStrictlyInBody = caret > bodyIdx && caret < bodyEnd;
+
   view.dispatch({
-    changes: {
-      from: placeholderIdx,
-      to: placeholderIdx + placeholders.length,
-      insert: replaced,
-    },
-    selection: { anchor: placeholderIdx + replaced.length },
+    changes: { from: bodyIdx, to: bodyEnd, insert: resolved },
+    ...(caretStrictlyInBody
+      ? { selection: { anchor: bodyIdx + resolved.length + 1 } }
+      : {}),
   });
 }
 

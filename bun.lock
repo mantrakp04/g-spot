@@ -155,6 +155,7 @@
         "octokit": "^5.0.5",
         "react": "catalog:",
         "react-dom": "catalog:",
+        "react-files-icons": "^0.7.0",
         "shiki": "^4.0.2",
         "sonner": "catalog:",
         "streamdown": "^2.5.0",
@@ -2783,6 +2784,8 @@
     "react-dom": ["react-dom@19.2.5", "", { "dependencies": { "scheduler": "^0.27.0" }, "peerDependencies": { "react": "^19.2.5" } }, "sha512-J5bAZz+DXMMwW/wV3xzKke59Af6CHY7G4uYLN1OvBcKEsWOs4pQExj86BBKamxl/Ik5bx9whOrvBlSDfWzgSag=="],
 
     "react-easy-crop": ["react-easy-crop@5.5.7", "", { "dependencies": { "normalize-wheel": "^1.0.1", "tslib": "^2.0.1" }, "peerDependencies": { "react": ">=16.4.0", "react-dom": ">=16.4.0" } }, "sha512-kYo4NtMeXFQB7h1U+h5yhUkE46WQbQdq7if54uDlbMdZHdRgNehfvaFrXnFw5NR1PNoUOJIfTwLnWmEx/MaZnA=="],
+
+    "react-files-icons": ["react-files-icons@0.7.0", "", { "peerDependencies": { "react": "^18.3.1" } }, "sha512-HZy+oSsYZbX73oe/MoEtoET6Evf+GEWWlVhG/ndAmLmq8mxzvN3TpdO4/8LteheDBmKtpxR3n5vAvgUj8vJ0tw=="],
 
     "react-hook-form": ["react-hook-form@7.74.0", "", { "peerDependencies": { "react": "^16.8.0 || ^17 || ^18 || ^19" } }, "sha512-yR6wHr99p9wFv686jhRWVSFhUvDvNbdUf2dKlbno8/VKOCuoNobDGC6S+M2dua9A9Yo8vpcrp8assIYbsZCQ9g=="],
 

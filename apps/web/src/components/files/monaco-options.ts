@@ -1,30 +1,33 @@
 import type * as monaco from "monaco-editor";
 
+import type { MonacoEditorSettings } from "./monaco-settings-store";
+
 export const baseEditorOptions = {
   fontSize: 13,
+  tabSize: 2,
   minimap: { enabled: false },
   scrollBeyondLastLine: false,
-  tabSize: 2,
-  wordWrap: "off",
   renderWhitespace: "selection",
-  smoothScrolling: false,
-  cursorSmoothCaretAnimation: "off",
+  automaticLayout: true,
   largeFileOptimizations: true,
-  "semanticHighlighting.enabled": false,
-  renderValidationDecorations: "off",
-  occurrencesHighlight: "off",
-  codeLens: false,
+  // Heavy per-edit work that Monaco standalone can't do well without a
+  // project context (no tsconfig, no node_modules). Cheaper to leave off.
   folding: false,
-  links: false,
-  hover: { enabled: false },
-  stickyScroll: { enabled: false },
-  inlayHints: { enabled: "off" },
   bracketPairColorization: { enabled: false },
-  guides: {
-    bracketPairs: false,
-    bracketPairsHorizontal: false,
-    highlightActiveBracketPair: false,
-    highlightActiveIndentation: false,
-    indentation: false,
-  },
+  occurrencesHighlight: "off",
+  renderValidationDecorations: "off",
 } satisfies monaco.editor.IStandaloneEditorConstructionOptions;
+
+export function buildEditorOptions(
+  settings: MonacoEditorSettings,
+): monaco.editor.IStandaloneEditorConstructionOptions {
+  return {
+    ...baseEditorOptions,
+    fontSize: settings.fontSize,
+    tabSize: settings.tabSize,
+    wordWrap: settings.wordWrap,
+    minimap: { enabled: settings.minimap },
+    lineNumbers: settings.lineNumbers ? "on" : "off",
+    renderWhitespace: settings.renderWhitespace,
+  };
+}

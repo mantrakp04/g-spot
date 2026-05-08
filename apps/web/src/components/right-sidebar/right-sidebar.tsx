@@ -7,7 +7,7 @@ import {
   rightSidebarCollapsedAtom,
   rightSidebarTabAtom,
   type RightSidebarTab,
-} from "@/lib/right-sidebar-store";
+} from "@/lib/sidebars-store";
 import { useOpenDiffTab, useOpenFileTab } from "@/lib/tabs-store";
 
 import { ChangesTree } from "./changes-tree";
@@ -70,7 +70,7 @@ export function RightSidebar({ projectId, onOpenSearch }: RightSidebarProps) {
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col border-l border-border bg-background">
-      <div className="flex h-10 shrink-0 items-stretch gap-0 border-b border-border bg-muted/30">
+      <div className="flex h-10 shrink-0 items-stretch border-b border-border bg-muted/30">
         <div className="flex flex-1 items-stretch overflow-x-auto">
           {TAB_DEFS.map((tab) => {
             const Icon = tab.icon;
@@ -81,7 +81,7 @@ export function RightSidebar({ projectId, onOpenSearch }: RightSidebarProps) {
                 type="button"
                 onClick={() => setActiveTab(tab.id)}
                 className={cn(
-                  "relative flex items-center gap-1.5 px-3 text-[11px] font-medium transition-colors first:pl-[1.625rem]",
+                  "relative flex items-center gap-1.5 px-3 text-[11px] font-medium transition-colors",
                   active
                     ? "bg-background text-foreground"
                     : "text-muted-foreground hover:bg-background/40 hover:text-foreground",
@@ -92,24 +92,22 @@ export function RightSidebar({ projectId, onOpenSearch }: RightSidebarProps) {
                 {active && (
                   <span
                     aria-hidden
-                    className="absolute inset-x-2 -bottom-px h-px bg-primary"
+                    className="absolute inset-x-0 -bottom-px h-px bg-primary"
                   />
                 )}
               </button>
             );
           })}
         </div>
-        <div className="flex shrink-0 items-center gap-0.5 border-l border-border px-1">
-          <button
-            type="button"
-            onClick={onOpenSearch}
-            className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
-            aria-label="Search files"
-            title="Search files (⌘P)"
-          >
-            <Search className="size-3.5" />
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={onOpenSearch}
+          className="flex shrink-0 items-center justify-center px-3 text-muted-foreground transition-colors hover:bg-background/40 hover:text-foreground"
+          aria-label="Search files"
+          title="Search files (⌘P)"
+        >
+          <Search className="size-3.5" />
+        </button>
       </div>
 
       {/* Keep all three panels mounted so terminal PTY + tree expansion state

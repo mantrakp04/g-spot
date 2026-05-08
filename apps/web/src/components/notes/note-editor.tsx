@@ -60,6 +60,12 @@ export function NoteEditor({
       parent: containerRef.current,
     });
     viewRef.current = view;
+    // Auto-focus on mount so opening any note drops the cursor straight into
+    // the editor — no extra click required to start typing. Place the caret
+    // at end of doc so existing content isn't selected/overwritten.
+    view.focus();
+    const end = view.state.doc.length;
+    view.dispatch({ selection: { anchor: end } });
     return () => {
       view.destroy();
       viewRef.current = null;

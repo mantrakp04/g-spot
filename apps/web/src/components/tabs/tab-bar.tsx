@@ -1,11 +1,21 @@
 import { cn } from "@g-spot/ui/lib/utils";
 import { useNavigate } from "@tanstack/react-router";
 import { useAtom } from "jotai";
-import { PanelRightClose, PanelRightOpen } from "lucide-react";
+import {
+  ArrowLeftRight,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
+} from "lucide-react";
 import { useCallback, useEffect } from "react";
 
 import { useNewChat } from "@/hooks/use-new-chat";
-import { rightSidebarCollapsedAtom } from "@/lib/right-sidebar-store";
+import {
+  rightSidebarCollapsedAtom,
+  secondarySidebarCollapsedAtom,
+  sidebarsSwappedAtom,
+} from "@/lib/sidebars-store";
 import {
   type Tab,
   useActiveTabId,
@@ -31,9 +41,23 @@ export function TabBar({ projectId }: TabBarProps) {
   const openTerminal = useOpenTerminalTab();
   const { newChat, isPending: newChatPending } = useNewChat();
   const navigate = useNavigate();
-  const [sidebarCollapsed, setSidebarCollapsed] = useAtom(
+  const [secondaryCollapsed, setSecondaryCollapsed] = useAtom(
+    secondarySidebarCollapsedAtom,
+  );
+  const [rightCollapsed, setRightCollapsed] = useAtom(
     rightSidebarCollapsedAtom,
   );
+  const [swapped, setSwapped] = useAtom(sidebarsSwappedAtom);
+
+  // Each toggle button represents a *position*, not a sidebar identity.
+  // After a swap, the left-position toggle drives whichever sidebar lives on
+  // the left so the icons match what the user sees.
+  const leftCollapsed = swapped ? rightCollapsed : secondaryCollapsed;
+  const setLeftCollapsed = swapped ? setRightCollapsed : setSecondaryCollapsed;
+  const rightPosCollapsed = swapped ? secondaryCollapsed : rightCollapsed;
+  const setRightPosCollapsed = swapped
+    ? setSecondaryCollapsed
+    : setRightCollapsed;
 
   const handleNewChat = useCallback(async () => {
     await newChat(projectId);
@@ -89,6 +113,30 @@ export function TabBar({ projectId }: TabBarProps) {
         "border-b border-sidebar-border bg-muted/30",
       )}
     >
+      <div className="flex shrink-0 items-center gap-0.5 border-r border-sidebar-border px-1">
+        <button
+          type="button"
+          onClick={() => setLeftCollapsed((v) => !v)}
+          className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+          aria-label={leftCollapsed ? "Open left sidebar" : "Collapse left sidebar"}
+          title={leftCollapsed ? "Open left sidebar" : "Collapse left sidebar"}
+        >
+          {leftCollapsed ? (
+            <PanelLeftOpen className="size-3.5" />
+          ) : (
+            <PanelLeftClose className="size-3.5" />
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={() => setSwapped((v) => !v)}
+          className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+          aria-label="Swap sidebars"
+          title="Swap sidebars"
+        >
+          <ArrowLeftRight className="size-3.5" />
+        </button>
+      </div>
       <div className="flex min-w-0 flex-1 items-stretch overflow-x-auto">
         {tabs.map((tab) => (
           <TabItem
@@ -111,16 +159,16 @@ export function TabBar({ projectId }: TabBarProps) {
         <HistoryPopover projectId={projectId} />
         <button
           type="button"
-          onClick={() => setSidebarCollapsed((v) => !v)}
+          onClick={() => setRightPosCollapsed((v) => !v)}
           className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
           aria-label={
-            sidebarCollapsed ? "Open right sidebar" : "Collapse right sidebar"
+            rightPosCollapsed ? "Open right sidebar" : "Collapse right sidebar"
           }
           title={
-            sidebarCollapsed ? "Open right sidebar" : "Collapse right sidebar"
+            rightPosCollapsed ? "Open right sidebar" : "Collapse right sidebar"
           }
         >
-          {sidebarCollapsed ? (
+          {rightPosCollapsed ? (
             <PanelRightOpen className="size-3.5" />
           ) : (
             <PanelRightClose className="size-3.5" />

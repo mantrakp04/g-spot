@@ -108,6 +108,10 @@ function NotesPage() {
   const [editingTitle, setEditingTitle] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [renamingTreeId, setRenamingTreeId] = useState<string | null>(null);
+  // Folder id (or null for root) where new notes/folders are created from
+  // the toolbar. Tracks the user's last interaction in the tree so creation
+  // feels contextual; clicking empty tree space resets to root.
+  const [selectedParentId, setSelectedParentId] = useState<string | null>(null);
 
   // Navigation history (back/forward through opened notes).
   const [history, setHistory] = useState<string[]>([]);
@@ -265,6 +269,14 @@ function NotesPage() {
     setActiveNoteId(history[next] ?? null);
   }, [history, historyIndex]);
 
+  const ensureExpanded = useCallback(
+    (id: string | null) => {
+      if (!id) return;
+      if (!expansion.expanded.has(id)) expansion.toggle(id);
+    },
+    [expansion],
+  );
+
   const handleCreateNote = useCallback(
     async (parentId: string | null) => {
       const note = await createNote.mutateAsync({
@@ -272,10 +284,11 @@ function NotesPage() {
         parentId,
         kind: "note",
       });
+      ensureExpanded(parentId);
       navigateTo(note.id);
       setRenamingTreeId(note.id);
     },
-    [createNote, navigateTo],
+    [createNote, ensureExpanded, navigateTo],
   );
 
   const handleCreateFolder = useCallback(
@@ -285,9 +298,10 @@ function NotesPage() {
         parentId,
         kind: "folder",
       });
+      ensureExpanded(parentId);
       setRenamingTreeId(folder.id);
     },
-    [createNote],
+    [createNote, ensureExpanded],
   );
 
   const handleDelete = useCallback(
@@ -315,8 +329,11 @@ function NotesPage() {
         loadedNoteIdRef.current = null;
         setActiveNoteId(null);
       }
+      if (selectedParentId && deletedIds.has(selectedParentId)) {
+        setSelectedParentId(null);
+      }
     },
-    [confirm, deleteNote, activeNoteId, notesQuery.data],
+    [confirm, deleteNote, activeNoteId, selectedParentId, notesQuery.data],
   );
 
   const handleRename = useCallback(
@@ -465,12 +482,12 @@ function NotesPage() {
           <ToolbarBtn
             icon={<FilePlus2 className="h-3.5 w-3.5" />}
             title="New note"
-            onClick={() => handleCreateNote(null)}
+            onClick={() => handleCreateNote(selectedParentId)}
           />
           <ToolbarBtn
             icon={<FolderPlus className="h-3.5 w-3.5" />}
             title="New folder"
-            onClick={() => handleCreateFolder(null)}
+            onClick={() => handleCreateFolder(selectedParentId)}
           />
           <ToolbarBtn
             icon={<CalendarDays className="h-3.5 w-3.5" />}
@@ -666,6 +683,8 @@ function NotesPage() {
               onMove={handleMove}
               renamingId={renamingTreeId}
               onRequestRename={setRenamingTreeId}
+              selectedParentId={selectedParentId}
+              onActivateParent={setSelectedParentId}
             />
           )}
         </ScrollArea>
@@ -804,7 +823,9 @@ function NotesPage() {
           <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
             <div className="flex flex-col items-center gap-3">
               <span>No note selected</span>
-              <Button onClick={() => handleCreateNote(null)}>New note</Button>
+              <Button onClick={() => handleCreateNote(selectedParentId)}>
+                New note
+              </Button>
             </div>
           </div>
         )}

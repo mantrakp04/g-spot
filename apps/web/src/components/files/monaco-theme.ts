@@ -166,30 +166,35 @@ function withoutHash(color: string): string {
   return color.startsWith("#") ? color.slice(1) : color;
 }
 
-function buildRules({
-  fg,
-  mutedFg,
-  accent,
-  primary,
-  secondary,
-  destructive,
-}: MonacoThemePalette): monaco.editor.ITokenThemeRule[] {
+/**
+ * Custom token rules. Intentionally narrow — we only define the `diff.*`
+ * tokens we registered ourselves in `monaco-bootstrap.ts`. Every other
+ * language token (keyword, type, string, number, comment, ...) inherits
+ * from the base `vs` / `vs-dark` theme so syntax highlighting stays rich
+ * and distinguishable.
+ *
+ * Earlier this function tried to drive everything through a handful of
+ * design tokens (--primary, --secondary, --muted-foreground). On themes
+ * with a grayscale palette that flattened all syntax to one or two colors
+ * and made code unreadable.
+ */
+const DIFF_INSERTED_DARK = "4ade80";
+const DIFF_INSERTED_LIGHT = "16a34a";
+const DIFF_DELETED_DARK = "f87171";
+const DIFF_DELETED_LIGHT = "dc2626";
+
+function buildRules(
+  { mutedFg }: MonacoThemePalette,
+  resolved: "light" | "dark",
+): monaco.editor.ITokenThemeRule[] {
+  const inserted = resolved === "dark" ? DIFF_INSERTED_DARK : DIFF_INSERTED_LIGHT;
+  const deleted = resolved === "dark" ? DIFF_DELETED_DARK : DIFF_DELETED_LIGHT;
   return [
-    { token: "", foreground: withoutHash(fg) },
-    { token: "comment", foreground: withoutHash(mutedFg), fontStyle: "italic" },
-    { token: "keyword", foreground: withoutHash(primary) },
-    { token: "type", foreground: withoutHash(primary) },
-    { token: "identifier", foreground: withoutHash(fg) },
-    { token: "string", foreground: withoutHash(secondary) },
-    { token: "number", foreground: withoutHash(secondary) },
-    { token: "regexp", foreground: withoutHash(secondary) },
-    { token: "delimiter", foreground: withoutHash(mutedFg) },
-    { token: "operator", foreground: withoutHash(mutedFg) },
-    { token: "diff.header", foreground: withoutHash(primary), fontStyle: "bold" },
+    { token: "diff.header", foreground: withoutHash(mutedFg), fontStyle: "bold" },
     { token: "diff.meta", foreground: withoutHash(mutedFg) },
-    { token: "diff.range", foreground: withoutHash(accent), fontStyle: "bold" },
-    { token: "diff.inserted", foreground: withoutHash(secondary) },
-    { token: "diff.deleted", foreground: withoutHash(destructive) },
+    { token: "diff.range", foreground: withoutHash(mutedFg), fontStyle: "bold" },
+    { token: "diff.inserted", foreground: inserted },
+    { token: "diff.deleted", foreground: deleted },
   ];
 }
 
@@ -199,7 +204,7 @@ export function applyMonacoTheme(resolved: "light" | "dark"): string {
   monaco.editor.defineTheme(name, {
     base: resolved === "dark" ? "vs-dark" : "vs",
     inherit: true,
-    rules: buildRules(palette),
+    rules: buildRules(palette, resolved),
     colors: buildColors(palette),
   });
   monaco.editor.setTheme(name);

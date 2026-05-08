@@ -49,6 +49,13 @@ interface NotesTreeProps {
   onMove: (noteId: string, nextParentId: string | null) => void;
   renamingId: string | null;
   onRequestRename: (id: string | null) => void;
+  /**
+   * Folder id (or null for root) used as the destination for new notes/folders
+   * created from the toolbar. Updated whenever the user interacts with a row
+   * or clicks empty tree space.
+   */
+  selectedParentId: string | null;
+  onActivateParent: (parentId: string | null) => void;
 }
 
 interface RowProps {
@@ -56,6 +63,7 @@ interface RowProps {
   depth: number;
   isOpen: boolean;
   isActive: boolean;
+  isSelectedParent: boolean;
   isRenaming: boolean;
   onToggle: (id: string) => void;
   onSelect: NotesTreeProps["onSelect"];
@@ -63,6 +71,7 @@ interface RowProps {
   onStartRename: (id: string) => void;
   onSubmitRename: (note: Note, value: string) => void;
   onCancelRename: () => void;
+  onActivate: (parentId: string | null) => void;
 }
 
 function TreeRow({
@@ -70,6 +79,7 @@ function TreeRow({
   depth,
   isOpen,
   isActive,
+  isSelectedParent,
   isRenaming,
   onToggle,
   onSelect,
@@ -77,8 +87,10 @@ function TreeRow({
   onStartRename,
   onSubmitRename,
   onCancelRename,
+  onActivate,
 }: RowProps) {
   const isFolder = node.note.kind === "folder";
+  const activationTarget = isFolder ? node.note.id : node.note.parentId;
 
   const draggable = useDraggable({ id: `note-${node.note.id}` });
   const droppable = useDroppable({
@@ -97,9 +109,14 @@ function TreeRow({
         draggable.setNodeRef(el);
         droppable.setNodeRef(el);
       }}
+      onClick={(e) => {
+        e.stopPropagation();
+        onActivate(activationTarget);
+      }}
       className={cn(
         "group relative flex items-center gap-1 rounded px-1.5 py-0.5 text-[13px] hover:bg-muted/40",
         isActive && "bg-muted/70",
+        isSelectedParent && !isActive && "bg-primary/10",
         droppable.isOver && "ring-1 ring-primary/60",
         draggable.isDragging && "opacity-40",
       )}
@@ -110,6 +127,7 @@ function TreeRow({
           type="button"
           onClick={(e) => {
             e.stopPropagation();
+            onActivate(node.note.id);
             onToggle(node.note.id);
           }}
           className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground"
@@ -183,6 +201,8 @@ export function NotesTree({
   onMove,
   renamingId,
   onRequestRename,
+  selectedParentId,
+  onActivateParent,
 }: NotesTreeProps) {
   const tree = useMemo(() => buildTree(notes), [notes]);
   const noteById = useMemo(() => new Map(notes.map((n) => [n.id, n])), [notes]);
@@ -220,6 +240,8 @@ export function NotesTree({
   const renderNode = (node: TreeNode, depth: number) => {
     const isFolder = node.note.kind === "folder";
     const isOpen = expanded.has(node.note.id);
+    const isSelectedParent =
+      node.note.kind === "folder" && node.note.id === selectedParentId;
     return (
       <div key={node.note.id}>
         <TreeRow
@@ -227,6 +249,7 @@ export function NotesTree({
           depth={depth}
           isOpen={isOpen}
           isActive={node.note.id === activeNoteId}
+          isSelectedParent={isSelectedParent}
           isRenaming={renamingId === node.note.id}
           onToggle={onToggleExpanded}
           onSelect={onSelect}
@@ -240,6 +263,7 @@ export function NotesTree({
             onRequestRename(null);
           }}
           onCancelRename={() => onRequestRename(null)}
+          onActivate={onActivateParent}
         />
         {isFolder && isOpen ? (
           <div>{node.children.map((c) => renderNode(c, depth + 1))}</div>
@@ -256,8 +280,13 @@ export function NotesTree({
     >
       <div
         ref={rootDroppable.setNodeRef}
+        onClick={(e) => {
+          // Reset selection to root only on direct hits to the empty tree area;
+          // row clicks stop propagation so they don't reach this handler.
+          if (e.target === e.currentTarget) onActivateParent(null);
+        }}
         className={cn(
-          "flex flex-col py-1 min-h-12",
+          "flex flex-col py-1 min-h-full",
           rootDroppable.isOver && "ring-1 ring-primary/60 rounded",
         )}
       >

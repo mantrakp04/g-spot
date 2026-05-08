@@ -1,6 +1,11 @@
 import { cn } from "@g-spot/ui/lib/utils";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronRight, File, Folder } from "lucide-react";
+import { ChevronRight } from "lucide-react";
+import {
+  FileIcon,
+  FolderIcon,
+  OpenFolderIcon,
+} from "react-files-icons";
 import { type ReactNode, useState } from "react";
 
 import { fsKeys } from "@/lib/query-keys";
@@ -77,7 +82,11 @@ function DirectoryNode({
                   open && "rotate-90",
                 )}
               />
-              <Folder className="size-3.5 shrink-0 text-muted-foreground" />
+              {open ? (
+                <OpenFolderIcon name={name} className="size-3.5 shrink-0" />
+              ) : (
+                <FolderIcon name={name} className="size-3.5 shrink-0" />
+              )}
             </>
           }
           label={name}
@@ -103,7 +112,10 @@ function DirectoryNode({
                 icon={
                   <>
                     <span className="size-3 shrink-0" />
-                    <File className="size-3.5 shrink-0 text-muted-foreground/70" />
+                    <FileIcon
+                      name={entry.name}
+                      className="size-3.5 shrink-0"
+                    />
                   </>
                 }
                 label={entry.name}

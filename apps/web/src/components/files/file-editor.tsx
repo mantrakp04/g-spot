@@ -1,6 +1,7 @@
 import { Spinner } from "@g-spot/ui/components/spinner";
 import { Editor } from "@monaco-editor/react";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { useAtomValue } from "jotai";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type * as monaco from "monaco-editor";
 import { toast } from "sonner";
@@ -11,7 +12,9 @@ import { trpcClient } from "@/utils/trpc";
 
 import { languageFromPath } from "./language-from-path";
 import "./monaco-bootstrap";
-import { baseEditorOptions } from "./monaco-options";
+import { buildEditorOptions } from "./monaco-options";
+import { MonacoSettingsMenu } from "./monaco-settings-menu";
+import { monacoSettingsAtom } from "./monaco-settings-store";
 import { useMonacoTheme } from "./monaco-theme";
 
 type FileEditorProps = {
@@ -36,6 +39,8 @@ type SaveStatus = "saved" | "dirty" | "saving";
 export function FileEditor({ projectId, path, active }: FileEditorProps) {
   const { resolvedTheme } = useTheme();
   const monacoTheme = useMonacoTheme(resolvedTheme, active);
+  const settings = useAtomValue(monacoSettingsAtom);
+  const editorOptions = useMemo(() => buildEditorOptions(settings), [settings]);
   const fileQuery = useQuery({
     queryKey: fsKeys.read(projectId, path),
     queryFn: () => trpcClient.fs.read.query({ projectId, path }),
@@ -54,13 +59,6 @@ export function FileEditor({ projectId, path, active }: FileEditorProps) {
   const changeDisposableRef = useRef<monaco.IDisposable | null>(null);
   const statusRef = useRef<SaveStatus>("saved");
   const [status, setStatus] = useState<SaveStatus>("saved");
-  const editorOptions = useMemo(
-    () => ({
-      ...baseEditorOptions,
-      automaticLayout: active,
-    }),
-    [active],
-  );
 
   // Seed both refs once when the file first loads. After that the buffer is
   // owned by Monaco and we never write back into it.
@@ -79,12 +77,6 @@ export function FileEditor({ projectId, path, active }: FileEditorProps) {
       changeDisposableRef.current?.dispose();
     };
   }, []);
-
-  useEffect(() => {
-    if (active) {
-      requestAnimationFrame(() => editorRef.current?.layout());
-    }
-  }, [active]);
 
   const setSaveStatus = useCallback((next: SaveStatus) => {
     if (statusRef.current === next) return;
@@ -174,15 +166,18 @@ export function FileEditor({ projectId, path, active }: FileEditorProps) {
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <div className="flex h-6 shrink-0 items-center justify-between border-b border-border bg-muted/20 px-3 text-[10px] text-muted-foreground">
-        <span className="font-mono">{path}</span>
-        <span>
-          {status === "saving"
-            ? "Saving…"
-            : status === "dirty"
-              ? "Unsaved"
-              : "Saved"}
-        </span>
+      <div className="flex h-6 shrink-0 items-center justify-between gap-2 border-b border-border bg-muted/20 pl-3 pr-1 text-[10px] text-muted-foreground">
+        <span className="truncate font-mono">{path}</span>
+        <div className="flex items-center gap-2">
+          <span>
+            {status === "saving"
+              ? "Saving…"
+              : status === "dirty"
+                ? "Unsaved"
+                : "Saved"}
+          </span>
+          <MonacoSettingsMenu />
+        </div>
       </div>
       <div className="min-h-0 min-w-0 flex-1">
         <Editor

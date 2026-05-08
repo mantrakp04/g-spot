@@ -96,6 +96,8 @@ export type FileChangeStatus =
   | "typeChanged"
   | "unknown";
 
+export type DiffNumstat = { additions: number; deletions: number };
+
 export type FileChange = {
   path: string;
   oldPath: string | null;
@@ -103,6 +105,12 @@ export type FileChange = {
   code: string;
   staged: FileChangeStatus;
   unstaged: FileChangeStatus;
+  /** Per-mode line additions/deletions. Binary files report 0. */
+  stats: {
+    staged: DiffNumstat;
+    unstaged: DiffNumstat;
+    uncommitted: DiffNumstat;
+  };
 };
 
 function mapStatusChar(c: string): FileChangeStatus {
@@ -132,19 +140,107 @@ function mapStatusChar(c: string): FileChangeStatus {
   }
 }
 
+const ZERO_NUMSTAT: DiffNumstat = { additions: 0, deletions: 0 };
+
+/**
+ * Parse `git diff --numstat -z` output keyed by (new) path. Binary files
+ * report `-` for both columns and are coerced to 0. Renames emit an empty
+ * tail in the first token followed by two NUL-separated paths.
+ */
+async function readNumstat(args: string[], cwd: string): Promise<Map<string, DiffNumstat>> {
+  const map = new Map<string, DiffNumstat>();
+  let stdout: string;
+  try {
+    ({ stdout } = await execGit(args, cwd));
+  } catch {
+    return map;
+  }
+  const tokens = stdout.split("\0");
+  if (tokens.length > 0 && tokens.at(-1) === "") tokens.pop();
+
+  let i = 0;
+  while (i < tokens.length) {
+    const token = tokens[i]!;
+    const firstTab = token.indexOf("\t");
+    if (firstTab < 0) {
+      i += 1;
+      continue;
+    }
+    const secondTab = token.indexOf("\t", firstTab + 1);
+    if (secondTab < 0) {
+      i += 1;
+      continue;
+    }
+    const addStr = token.slice(0, firstTab);
+    const delStr = token.slice(firstTab + 1, secondTab);
+    const tail = token.slice(secondTab + 1);
+    const additions = addStr === "-" ? 0 : Number(addStr) || 0;
+    const deletions = delStr === "-" ? 0 : Number(delStr) || 0;
+    if (tail === "") {
+      // Rename: next two tokens hold the old and new paths.
+      const newPath = tokens[i + 2] ?? "";
+      if (newPath) map.set(newPath, { additions, deletions });
+      i += 3;
+    } else {
+      map.set(tail, { additions, deletions });
+      i += 1;
+    }
+  }
+  return map;
+}
+
+/**
+ * Count line additions for an untracked file (numstat doesn't see them).
+ * Mirrors what `git diff --no-index /dev/null <file>` would report. Reads
+ * a small slice and bails on binary content.
+ */
+async function countUntrackedAdditions(absPath: string): Promise<DiffNumstat> {
+  try {
+    const buf = await fs.readFile(absPath);
+    if (buf.length === 0) return ZERO_NUMSTAT;
+    // Heuristic: NUL byte ⇒ binary, treated as zero by numstat.
+    if (buf.includes(0)) return ZERO_NUMSTAT;
+    let lines = 0;
+    for (let i = 0; i < buf.length; i++) {
+      if (buf[i] === 0x0a) lines += 1;
+    }
+    if (buf[buf.length - 1] !== 0x0a) lines += 1;
+    return { additions: lines, deletions: 0 };
+  } catch {
+    return ZERO_NUMSTAT;
+  }
+}
+
 /**
  * Parse `git status --porcelain=v1 -z`. The -z form uses NUL separators and
  * does not quote paths — much safer than the default newline/quoted form.
  * Renames/copies emit two paths: "XY new\0orig\0".
+ *
+ * Each entry is enriched with per-mode line additions/deletions so the UI
+ * can render +/- counts without an extra round-trip.
  */
 export async function listChanges(cwd: string): Promise<FileChange[]> {
   if (!(await isGitRepo(cwd))) return [];
-  const { stdout } = await execGit(["status", "--porcelain=v1", "-z"], cwd);
+
+  const [statusRes, stagedStats, unstagedStats, uncommittedStats] = await Promise.all([
+    execGit(["status", "--porcelain=v1", "-z"], cwd),
+    readNumstat(["diff", "--numstat", "-z", "--cached"], cwd),
+    readNumstat(["diff", "--numstat", "-z"], cwd),
+    readNumstat(["diff", "--numstat", "-z", "HEAD"], cwd),
+  ]);
+
   const out: FileChange[] = [];
-  // Split on NUL, drop the trailing empty segment.
-  const tokens = stdout.split("\0");
+  const tokens = statusRes.stdout.split("\0");
   if (tokens.length > 0 && tokens.at(-1) === "") tokens.pop();
 
+  type Pending = {
+    path: string;
+    oldPath: string | null;
+    code: string;
+    x: string;
+    y: string;
+  };
+  const pending: Pending[] = [];
   let i = 0;
   while (i < tokens.length) {
     const entry = tokens[i]!;
@@ -158,18 +254,41 @@ export async function listChanges(cwd: string): Promise<FileChange[]> {
     const y = code[1]!;
     let oldPath: string | null = null;
     if (x === "R" || x === "C") {
-      // Next token holds the original path.
       oldPath = tokens[i + 1] ?? null;
       i += 2;
     } else {
       i += 1;
     }
+    pending.push({ path: filePath, oldPath, code, x, y });
+  }
+
+  // Untracked files don't appear in any numstat output; count their lines
+  // directly so they show as all-additions in unstaged/uncommitted views.
+  const untrackedStats = new Map<string, DiffNumstat>();
+  await Promise.all(
+    pending
+      .filter((p) => p.y === "?")
+      .map(async (p) => {
+        untrackedStats.set(
+          p.path,
+          await countUntrackedAdditions(path.join(cwd, p.path)),
+        );
+      }),
+  );
+
+  for (const p of pending) {
+    const untracked = untrackedStats.get(p.path);
     out.push({
-      path: filePath,
-      oldPath,
-      code,
-      staged: mapStatusChar(x),
-      unstaged: mapStatusChar(y),
+      path: p.path,
+      oldPath: p.oldPath,
+      code: p.code,
+      staged: mapStatusChar(p.x),
+      unstaged: mapStatusChar(p.y),
+      stats: {
+        staged: stagedStats.get(p.path) ?? ZERO_NUMSTAT,
+        unstaged: untracked ?? unstagedStats.get(p.path) ?? ZERO_NUMSTAT,
+        uncommitted: untracked ?? uncommittedStats.get(p.path) ?? ZERO_NUMSTAT,
+      },
     });
   }
   out.sort((a, b) => a.path.localeCompare(b.path));

@@ -54,7 +54,16 @@ export function useCreateNoteMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: CreateNoteInput) => trpcClient.notes.create.mutate(input),
-    onSuccess: () => {
+    onSuccess: (note: Note) => {
+      // Seed both caches synchronously so consumers that read the list (e.g.
+      // the active-note cleanup effect in /notes) and the detail (the editor)
+      // see the new note immediately, before the background refetch lands.
+      // Without this, navigating to the freshly created note races with the
+      // refetch and the active note gets cleared.
+      queryClient.setQueryData(noteKeys.detail(note.id), note);
+      queryClient.setQueryData<Note[]>(noteKeys.list(), (prev) =>
+        prev && !prev.some((n) => n.id === note.id) ? [...prev, note] : prev,
+      );
       queryClient.invalidateQueries({ queryKey: noteKeys.all() });
     },
   });

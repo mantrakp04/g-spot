@@ -1,14 +1,25 @@
+/**
+ * Singleton relay WebSocket client.
+ *
+ * Holds a single WebSocket to the relay service per server process. The
+ * latest Stack Auth header is stored in module state so re-auth from the
+ * desktop heartbeat keeps it fresh.
+ *
+ * Inbound `gmail.push` events are persisted via `processGmailPushNotification`
+ * (atomic per-account UPDATE) and trigger an incremental sync for matching
+ * accounts. Acks are only sent after both steps succeed — failure leaves the
+ * event un-acked so the relay redelivers.
+ */
+
 import { env } from "@g-spot/env/server";
 import { listGmailAccountsWithPendingNotifications } from "@g-spot/db/gmail";
 import WebSocket from "ws";
 import { z } from "zod";
 
-import { processGmailPushNotification } from "./gmail-push";
-import {
-  getActiveSync,
-  startSync,
-} from "./gmail-sync";
-import { getStackGmailAccessTokenForProviderAccountId } from "./stack-client-api";
+import { processGmailPushNotification } from "./push";
+import type { GmailPushAccount } from "./push";
+import { getActiveSync, startSync } from "./sync";
+import { getStackGmailAccessTokenForProviderAccountId } from "../stack-client-api";
 
 const STACK_AUTH_HEADER = "x-stack-auth";
 const RECONNECT_BASE_MS = 1_000;
@@ -88,7 +99,7 @@ async function handleMessage(s: RelayState, raw: string): Promise<void> {
 
   const { event } = push.data;
 
-  let accounts: Array<{ id: string; email: string; providerAccountId: string }>;
+  let accounts: GmailPushAccount[];
   try {
     const result = await processGmailPushNotification(
       { emailAddress: event.emailAddress, historyId: event.historyId },
@@ -109,7 +120,7 @@ async function handleMessage(s: RelayState, raw: string): Promise<void> {
 
 async function triggerIncrementalSyncForAccounts(
   authHeader: string,
-  accounts: Array<{ id: string; email: string; providerAccountId: string }>,
+  accounts: GmailPushAccount[],
 ): Promise<boolean> {
   if (accounts.length === 0) return true;
 
@@ -123,7 +134,7 @@ async function triggerIncrementalSyncForAccounts(
 
 async function triggerSyncForAccount(
   authHeader: string,
-  account: { id: string; email: string; providerAccountId: string },
+  account: GmailPushAccount,
 ): Promise<boolean> {
   const accountId = account.id;
 

@@ -1,10 +1,8 @@
 import { z } from "zod";
-import { filterConditionSchema, sectionFiltersSchema } from "@g-spot/types/filters";
+import { sectionFiltersSchema } from "@g-spot/types/filters";
 
 import {
   countFilteredThreads,
-  getContactSuggestions,
-  getFieldSuggestions,
   getGmailAccount,
   getLabels,
   getThread as getStoredThread,
@@ -68,17 +66,6 @@ type LabelCatalogEntry = {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function parseJsonLabels(value: string): string[] {
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed)
-      ? parsed.filter((item): item is string => typeof item === "string")
-      : [];
-  } catch {
-    return [];
-  }
-}
 
 function parseLabelColor(value: string | null): LabelCatalogEntry["color"] | undefined {
   if (!value) return undefined;
@@ -176,21 +163,18 @@ export const gmailRouter = router({
       );
 
       return {
-        threads: threads.map((t) => {
-          const labels = parseJsonLabels(t.labels);
-          return {
-            id: t.id,
-            threadId: t.gmailThreadId,
-            subject: t.subject,
-            from: { name: t.fromName, email: t.fromEmail },
-            snippet: t.snippet,
-            date: t.lastMessageAt ?? "",
-            isUnread: labels.includes("UNREAD"),
-            labels,
-            hasAttachment: t.hasAttachment,
-            avatarUrl: null,
-          };
-        }),
+        threads: threads.map((t) => ({
+          id: t.id,
+          threadId: t.gmailThreadId,
+          subject: t.subject,
+          from: { name: t.fromName, email: t.fromEmail },
+          snippet: t.snippet,
+          date: t.lastMessageAt ?? "",
+          isUnread: t.labels.includes("UNREAD"),
+          labels: t.labels,
+          hasAttachment: t.hasAttachment,
+          avatarUrl: null,
+        })),
         nextPageToken: hasMore
           ? (threads.at(-1)?.lastMessageAt ?? null)
           : null,
@@ -256,57 +240,6 @@ export const gmailRouter = router({
         .sort((a, b) => a.label.localeCompare(b.label));
     }),
 
-  getKnownContacts: publicProcedure
-    .input(z.object({ providerAccountId: z.string() }))
-    .query(async ({ input }) => {
-      const account = await getGmailAccount(input.providerAccountId);
-      if (!account) return [];
-
-      return getContactSuggestions(account.id);
-    }),
-
-  getProfile: publicProcedure
-    .input(z.object({ providerAccountId: z.string() }))
-    .query(async ({ input }) => {
-      const account = await getGmailAccount(input.providerAccountId);
-      if (!account) {
-        return { name: "Google Account", email: "", picture: "" };
-      }
-      return { name: account.email, email: account.email, picture: "" };
-    }),
-
-  getFilterSuggestions: publicProcedure
-    .input(
-      z.object({
-        providerAccountId: z.string(),
-        field: z.enum([
-          "from",
-          "to",
-          "cc",
-          "bcc",
-          "deliveredto",
-          "list",
-          "subject",
-          "filename",
-        ]),
-        filters: z.array(filterConditionSchema).default([]),
-      }),
-    )
-    .query(async ({ input }) => {
-      const account = await getGmailAccount(input.providerAccountId);
-      if (!account) return [];
-
-      if (
-        input.field === "bcc"
-        || input.field === "deliveredto"
-        || input.field === "list"
-      ) {
-        return [];
-      }
-
-      return getFieldSuggestions(account.id, input.field);
-    }),
-
   getThreadDrafts: publicProcedure
     .input(
       z.object({
@@ -343,20 +276,17 @@ export const gmailRouter = router({
         input.limit,
       );
 
-      return threads.map((t) => {
-        const labels = parseJsonLabels(t.labels);
-        return {
-          id: t.id,
-          threadId: t.gmailThreadId,
-          subject: t.subject,
-          from: { name: t.fromName, email: t.fromEmail },
-          snippet: t.snippet,
-          date: t.lastMessageAt ?? "",
-          isUnread: labels.includes("UNREAD"),
-          labels,
-          hasAttachment: t.hasAttachment,
-          avatarUrl: null,
-        };
-      });
+      return threads.map((t) => ({
+        id: t.id,
+        threadId: t.gmailThreadId,
+        subject: t.subject,
+        from: { name: t.fromName, email: t.fromEmail },
+        snippet: t.snippet,
+        date: t.lastMessageAt ?? "",
+        isUnread: t.labels.includes("UNREAD"),
+        labels: t.labels,
+        hasAttachment: t.hasAttachment,
+        avatarUrl: null,
+      }));
     }),
 });

@@ -43,6 +43,13 @@
       "when": 1777745022528,
       "tag": "0005_chat_agent_context",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1778688000000,
+      "tag": "0006_gmail_normalized_labels_and_fts",
+      "breakpoints": true
     }
   ]
 }

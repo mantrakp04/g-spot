@@ -2,7 +2,7 @@
  * Global Gmail API rate limiter.
  *
  * Token-bucket shared across every orchestrator, worker, and ad-hoc call that
- * goes through `fetchGmailJson`. Enforces `GMAIL_RATE_LIMIT_RPS` driver-wide so
+ * goes through `gmailFetch`. Enforces `GMAIL_RATE_LIMIT_RPS` driver-wide so
  * N concurrent account syncs can't collectively exceed Gmail's quota.
  */
 

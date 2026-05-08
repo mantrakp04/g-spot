@@ -4,9 +4,9 @@ import { createHash } from "node:crypto";
 import { publicProcedure, router } from "../index";
 import {
   ensureRelayConnection,
+  startGmailWatchDaemon,
   triggerPendingGmailNotificationSyncs,
-} from "../lib/relay-client";
-import { ensureLocalGmailWatches } from "../lib/gmail-watch";
+} from "../lib/gmail";
 
 const STACK_AUTH_HEADER = "x-stack-auth";
 const PENDING_SYNC_THROTTLE_MS = 60_000;
@@ -43,7 +43,7 @@ export const relayRouter = router({
       });
     }
 
-    await ensureLocalGmailWatches(authHeader);
+    startGmailWatchDaemon(authHeader);
     const result = await ensureRelayConnection(authHeader);
     await triggerPendingGmailNotificationSyncsThrottled(authHeader);
     return result;

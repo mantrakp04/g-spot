@@ -66,7 +66,7 @@ export const gmailLabels = sqliteTable(
 );
 
 // ---------------------------------------------------------------------------
-// gmail_threads — thread metadata, labels as JSON array
+// gmail_threads — thread metadata
 // ---------------------------------------------------------------------------
 export const gmailThreads = sqliteTable(
   "gmail_threads",
@@ -80,7 +80,6 @@ export const gmailThreads = sqliteTable(
     snippet: text("snippet").notNull().default(""),
     lastMessageAt: text("last_message_at"),
     messageCount: integer("message_count").notNull().default(0),
-    labels: text("labels").notNull().default("[]"), // JSON string[]
     historyId: text("history_id"),
     isProcessed: integer("is_processed", { mode: "boolean" })
       .notNull()
@@ -109,6 +108,29 @@ export const gmailThreads = sqliteTable(
 );
 
 // ---------------------------------------------------------------------------
+// gmail_thread_labels — normalized label membership for threads
+// ---------------------------------------------------------------------------
+export const gmailThreadLabels = sqliteTable(
+  "gmail_thread_labels",
+  {
+    accountId: text("account_id")
+      .notNull()
+      .references(() => gmailAccounts.id, { onDelete: "cascade" }),
+    threadId: text("thread_id")
+      .notNull()
+      .references(() => gmailThreads.id, { onDelete: "cascade" }),
+    label: text("label").notNull(),
+  },
+  (table) => [
+    uniqueIndex("gmail_thread_labels_pk").on(table.threadId, table.label),
+    index("gmail_thread_labels_account_label_idx").on(
+      table.accountId,
+      table.label,
+    ),
+  ],
+);
+
+// ---------------------------------------------------------------------------
 // gmail_messages — full message content
 // ---------------------------------------------------------------------------
 export const gmailMessages = sqliteTable(
@@ -132,7 +154,6 @@ export const gmailMessages = sqliteTable(
     bodyHtml: text("body_html"),
     bodyText: text("body_text"),
     snippet: text("snippet").notNull().default(""),
-    labels: text("labels").notNull().default("[]"), // JSON string[]
     messageIdHeader: text("message_id_header"),
     inReplyTo: text("in_reply_to"),
     referencesHeader: text("references_header"),
@@ -155,6 +176,29 @@ export const gmailMessages = sqliteTable(
 );
 
 // ---------------------------------------------------------------------------
+// gmail_message_labels — normalized label membership for messages
+// ---------------------------------------------------------------------------
+export const gmailMessageLabels = sqliteTable(
+  "gmail_message_labels",
+  {
+    accountId: text("account_id")
+      .notNull()
+      .references(() => gmailAccounts.id, { onDelete: "cascade" }),
+    messageId: text("message_id")
+      .notNull()
+      .references(() => gmailMessages.id, { onDelete: "cascade" }),
+    label: text("label").notNull(),
+  },
+  (table) => [
+    uniqueIndex("gmail_message_labels_pk").on(table.messageId, table.label),
+    index("gmail_message_labels_account_label_idx").on(
+      table.accountId,
+      table.label,
+    ),
+  ],
+);
+
+// ---------------------------------------------------------------------------
 // gmail_attachments — metadata only (content stays in Gmail)
 // ---------------------------------------------------------------------------
 export const gmailAttachments = sqliteTable(
@@ -173,35 +217,6 @@ export const gmailAttachments = sqliteTable(
       .default(sql`(current_timestamp)`),
   },
   (table) => [index("gmail_attachments_message_idx").on(table.messageId)],
-);
-
-// ---------------------------------------------------------------------------
-// gmail_sync_state — live sync progress per account
-// ---------------------------------------------------------------------------
-export const gmailSyncState = sqliteTable(
-  "gmail_sync_state",
-  {
-    id: text("id").primaryKey(),
-    accountId: text("account_id")
-      .notNull()
-      .references(() => gmailAccounts.id, { onDelete: "cascade" }),
-    status: text("status").notNull().default("idle"), // idle|running|paused|completed|error
-    mode: text("mode"), // full|incremental
-    totalThreads: integer("total_threads").notNull().default(0),
-    fetchedThreads: integer("fetched_threads").notNull().default(0),
-    processableThreads: integer("processable_threads").notNull().default(0),
-    processedThreads: integer("processed_threads").notNull().default(0),
-    failedThreads: integer("failed_threads").notNull().default(0),
-    startedAt: text("started_at"),
-    completedAt: text("completed_at"),
-    lastError: text("last_error"),
-    updatedAt: text("updated_at")
-      .notNull()
-      .default(sql`(current_timestamp)`),
-  },
-  (table) => [
-    uniqueIndex("gmail_sync_state_account_idx").on(table.accountId),
-  ],
 );
 
 // ---------------------------------------------------------------------------
@@ -327,9 +342,10 @@ export const gmailAgentWorkflows = sqliteTable(
 export type GmailAccountRow = typeof gmailAccounts.$inferSelect;
 export type GmailLabelRow = typeof gmailLabels.$inferSelect;
 export type GmailThreadRow = typeof gmailThreads.$inferSelect;
+export type GmailThreadLabelRow = typeof gmailThreadLabels.$inferSelect;
 export type GmailMessageRow = typeof gmailMessages.$inferSelect;
+export type GmailMessageLabelRow = typeof gmailMessageLabels.$inferSelect;
 export type GmailAttachmentRow = typeof gmailAttachments.$inferSelect;
-export type GmailSyncStateRow = typeof gmailSyncState.$inferSelect;
 export type GmailFetchStateRow = typeof gmailFetchState.$inferSelect;
 export type GmailAnalysisStateRow = typeof gmailAnalysisState.$inferSelect;
 export type GmailSyncFailureRow = typeof gmailSyncFailures.$inferSelect;

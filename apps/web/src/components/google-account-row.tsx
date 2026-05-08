@@ -41,9 +41,8 @@ export function GoogleAccountRow({
       const data = query.state.data;
       return data
         && (
-          data.fetch.full.status === "running"
-          || data.fetch.incremental.status === "running"
-          || data.analysis.status === "running"
+          data.sync.status === "running"
+          || data.extraction.status === "running"
         )
         ? 1500
         : false;
@@ -139,9 +138,8 @@ export function GoogleAccountRow({
   const isSyncing = Boolean(
     syncData
     && (
-      syncData.fetch.full.status === "running"
-      || syncData.fetch.incremental.status === "running"
-      || syncData.analysis.status === "running"
+      syncData.sync.status === "running"
+      || syncData.extraction.status === "running"
     ),
   );
   const showSyncControls = Boolean(syncData || !q.isError);
@@ -246,64 +244,57 @@ function SyncControls({
   onStartExtraction: () => void;
   onCancel: () => void;
 }) {
-  const full = syncData?.fetch.full;
-  const incremental = syncData?.fetch.incremental;
-  const analysis = syncData?.analysis;
+  const sync = syncData?.sync;
+  const extraction = syncData?.extraction;
   const activeKind = getActiveOperation(syncData);
   const disableStart = isBusy || isSyncing;
   const localThreadCount = syncData?.local.totalThreads ?? 0;
   const inboxThreadCount = syncData?.local.inboxThreads ?? 0;
-  const remainingInboxAnalysis = analysis?.remainingInboxThreads ?? 0;
-  const fullState = getFetchOperationState(
-    full?.status,
+  const remainingInboxAnalysis = syncData?.local.unprocessedInboxThreads ?? 0;
+  const syncState = getSyncOperationState(
+    sync?.status,
+    sync?.mode,
     Boolean(syncData?.account.hasCompletedFullSync),
-  );
-  const incrementalState = getFetchOperationState(
-    incremental?.status,
     Boolean(syncData?.account.hasCompletedIncrementalSync),
   );
-  const analysisState = getAnalysisOperationState(analysis?.status);
-  const showingFullRun = isLiveState(fullState);
-  const showingIncrementalRun = isLiveState(incrementalState);
-  const showingAnalysisRun = isLiveState(analysisState);
+  const extractionState = getExtractionOperationState(extraction?.status);
+  const showingSyncRun = isLiveState(syncState);
+  const showingExtractionRun = isLiveState(extractionState);
+
+  const syncTitle = sync?.mode === "incremental" ? "Incremental sync" : "Sync";
+  const syncDetail = sync?.mode === "incremental"
+    ? "Recent changes"
+    : "All Gmail threads";
 
   return (
     <div className="mt-2 ml-10 space-y-1.5">
       <OperationRow
-        title="Full sync"
-        detail="All Gmail threads"
+        title={syncTitle}
+        detail={syncDetail}
         tone="blue"
-        total={showingFullRun ? (full?.totalThreads ?? 0) : localThreadCount}
-        done={showingFullRun ? (full?.syncedThreads ?? 0) : localThreadCount}
-        state={fullState}
-        actionLabel={fullState === "paused" || fullState === "interrupted" ? "Resume" : "Run"}
-        actionIcon={fullState === "paused" || fullState === "interrupted" ? "resume" : "start"}
-        disabled={disableStart && activeKind !== "full"}
-        busy={isBusy && activeKind === "full"}
+        total={showingSyncRun ? (sync?.totalThreads ?? 0) : localThreadCount}
+        done={showingSyncRun ? (sync?.fetchedThreads ?? 0) : localThreadCount}
+        state={syncState}
+        actionLabel={syncState === "paused" || syncState === "interrupted" ? "Resume" : "Run"}
+        actionIcon={syncState === "paused" || syncState === "interrupted" ? "resume" : "start"}
+        disabled={disableStart && activeKind !== "sync"}
+        busy={isBusy && activeKind === "sync"}
         onAction={() => {
-          if (activeKind === "full" && isSyncing) onCancel();
-          else onStartSync(fullState === "paused" || fullState === "interrupted" ? "auto" : "full");
+          if (activeKind === "sync" && isSyncing) onCancel();
+          else onStartSync(syncState === "paused" || syncState === "interrupted" ? "auto" : "full");
         }}
-      />
-      <OperationRow
-        title="Incremental sync"
-        detail="Automatic changes"
-        tone="amber"
-        total={showingIncrementalRun ? (incremental?.totalThreads ?? 0) : 0}
-        done={showingIncrementalRun ? (incremental?.syncedThreads ?? 0) : 0}
-        state={incrementalState}
       />
       <OperationRow
         title="Inbox analysis"
         detail={`${remainingInboxAnalysis} remaining`}
         tone="emerald"
-        total={showingAnalysisRun ? (analysis?.totalInboxThreads ?? 0) : inboxThreadCount}
-        done={showingAnalysisRun
-          ? (analysis?.analyzedInboxThreads ?? 0)
+        total={showingExtractionRun ? (extraction?.totalThreads ?? 0) : inboxThreadCount}
+        done={showingExtractionRun
+          ? (extraction?.processedThreads ?? 0)
           : Math.max(0, inboxThreadCount - remainingInboxAnalysis)}
-        state={analysisState}
-        actionLabel={analysisState === "paused" ? "Resume" : "Analyze"}
-        actionIcon={analysisState === "paused" ? "resume" : "start"}
+        state={extractionState}
+        actionLabel={extractionState === "paused" ? "Resume" : "Analyze"}
+        actionIcon={extractionState === "paused" ? "resume" : "start"}
         disabled={disableStart && activeKind !== "extract"}
         busy={isBusy && activeKind === "extract"}
         onAction={() => {
@@ -319,9 +310,10 @@ type SyncProgressData = NonNullable<
   Awaited<ReturnType<typeof trpcClient.gmailSync.getSyncProgress.query>>
 >;
 
-type OperationKind = "full" | "incremental" | "extract";
+type OperationKind = "sync" | "extract";
 type OperationState = "idle" | "running" | "paused" | "interrupted" | "completed" | "blocked";
-type ProgressStatus = "idle" | "running" | "paused" | "interrupted" | "completed" | "error";
+type SyncProgressStatus = "idle" | "running" | "paused" | "interrupted" | "completed" | "error";
+type ExtractionProgressStatus = Exclude<SyncProgressStatus, "interrupted">;
 
 function OperationRow({
   title,
@@ -338,7 +330,7 @@ function OperationRow({
 }: {
   title: string;
   detail: string;
-  tone: "blue" | "amber" | "emerald";
+  tone: "blue" | "emerald";
   total: number;
   done: number;
   state: OperationState;
@@ -371,7 +363,6 @@ function OperationRow({
               className={cn(
                 "h-full transition-all duration-500",
                 tone === "blue" && "bg-blue-500/70",
-                tone === "amber" && "bg-amber-500/70",
                 tone === "emerald" && "bg-emerald-500/70",
               )}
               style={{ width: `${pct}%` }}
@@ -381,7 +372,6 @@ function OperationRow({
             <span
               className={cn(
                 tone === "blue" && "text-blue-400",
-                tone === "amber" && "text-amber-300",
                 tone === "emerald" && "text-emerald-400",
               )}
             >
@@ -447,14 +437,16 @@ function getActiveOperation(
   syncData: SyncProgressData | null | undefined,
 ): OperationKind | null {
   if (!syncData) return null;
-  if (syncData.fetch.activeMode) return syncData.fetch.activeMode;
-  if (syncData.analysis.status === "running") return "extract";
+  if (syncData.sync.status === "running") return "sync";
+  if (syncData.extraction.status === "running") return "extract";
   return null;
 }
 
-function getFetchOperationState(
-  status: ProgressStatus | undefined,
-  completed: boolean,
+function getSyncOperationState(
+  status: SyncProgressStatus | undefined,
+  mode: "full" | "incremental" | null | undefined,
+  completedFull: boolean,
+  completedIncremental: boolean,
 ): OperationState {
   if (status === "error") return "blocked";
   if (
@@ -465,11 +457,12 @@ function getFetchOperationState(
   ) {
     return status;
   }
-  return completed ? "completed" : "idle";
+  if (mode === "incremental" && completedIncremental) return "completed";
+  return completedFull ? "completed" : "idle";
 }
 
-function getAnalysisOperationState(
-  status: Exclude<ProgressStatus, "interrupted"> | undefined,
+function getExtractionOperationState(
+  status: ExtractionProgressStatus | undefined,
 ): OperationState {
   if (status === "error") return "blocked";
   if (
@@ -490,8 +483,5 @@ function getProgressError(
   syncData: SyncProgressData | null | undefined,
 ): string | null {
   if (!syncData) return null;
-  return syncData.fetch.full.error
-    ?? syncData.fetch.incremental.error
-    ?? syncData.analysis.error
-    ?? null;
+  return syncData.sync.error ?? syncData.extraction.error ?? null;
 }

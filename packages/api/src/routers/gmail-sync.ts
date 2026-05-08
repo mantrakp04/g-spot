@@ -22,42 +22,46 @@ import {
   getActiveSync,
   syncStartIntents,
   startSync,
-} from "../lib/gmail-sync";
+} from "../lib/gmail";
 import {
   cancelGmailExtraction,
   getActiveGmailExtraction,
-  startGmailExtraction,
-} from "../lib/gmail-extraction";
-import { getProfile } from "../lib/gmail-client";
+  runExtraction,
+} from "../lib/gmail";
+import { getProfile } from "../lib/gmail";
 
-type OperationStatus = "idle" | "running" | "paused" | "interrupted" | "completed" | "error";
+// ---------------------------------------------------------------------------
+// Response shape
+// ---------------------------------------------------------------------------
 
-type FetchProgressResponse = {
-  status: OperationStatus;
-  totalThreads: number;
-  syncedThreads: number;
-  failedThreads: number;
-  startedAt: string | null;
-  error: string | null;
-};
+type SyncStatus =
+  | "idle"
+  | "running"
+  | "paused"
+  | "interrupted"
+  | "completed"
+  | "error";
 
-type AnalysisProgressResponse = {
-  status: Exclude<OperationStatus, "interrupted">;
-  totalInboxThreads: number;
-  analyzedInboxThreads: number;
-  failedInboxThreads: number;
-  remainingInboxThreads: number;
-  startedAt: string | null;
-  error: string | null;
-};
+type ExtractionStatus = Exclude<SyncStatus, "interrupted">;
 
 type SyncProgressResponse = {
-  fetch: {
-    activeMode: "full" | "incremental" | null;
-    full: FetchProgressResponse;
-    incremental: FetchProgressResponse;
+  sync: {
+    status: SyncStatus;
+    mode: "full" | "incremental" | null;
+    totalThreads: number;
+    fetchedThreads: number;
+    failedThreads: number;
+    startedAt: string | null;
+    error: string | null;
   };
-  analysis: AnalysisProgressResponse;
+  extraction: {
+    status: ExtractionStatus;
+    totalThreads: number;
+    processedThreads: number;
+    failedThreads: number;
+    startedAt: string | null;
+    error: string | null;
+  };
   account: {
     hasCompletedFullSync: boolean;
     hasCompletedIncrementalSync: boolean;
@@ -70,81 +74,52 @@ type SyncProgressResponse = {
   };
 };
 
-function emptyFetchProgress(): FetchProgressResponse {
+function isSyncStatus(value: string): value is SyncStatus {
+  return (
+    value === "idle"
+    || value === "running"
+    || value === "paused"
+    || value === "interrupted"
+    || value === "completed"
+    || value === "error"
+  );
+}
+
+function isExtractionStatus(value: string): value is ExtractionStatus {
+  return (
+    value === "idle"
+    || value === "running"
+    || value === "paused"
+    || value === "completed"
+    || value === "error"
+  );
+}
+
+function emptySync(): SyncProgressResponse["sync"] {
   return {
     status: "idle",
+    mode: null,
     totalThreads: 0,
-    syncedThreads: 0,
+    fetchedThreads: 0,
     failedThreads: 0,
     startedAt: null,
     error: null,
   };
 }
 
-function emptyAnalysisProgress(local: {
+function emptyExtraction(local: {
   inboxThreads: number;
   unprocessedInboxThreads: number;
-}): AnalysisProgressResponse {
+}): SyncProgressResponse["extraction"] {
   return {
     status: local.inboxThreads > 0 && local.unprocessedInboxThreads === 0
       ? "completed"
       : "idle",
-    totalInboxThreads: local.inboxThreads,
-    analyzedInboxThreads: Math.max(0, local.inboxThreads - local.unprocessedInboxThreads),
-    failedInboxThreads: 0,
-    remainingInboxThreads: local.unprocessedInboxThreads,
+    totalThreads: local.inboxThreads,
+    processedThreads: Math.max(0, local.inboxThreads - local.unprocessedInboxThreads),
+    failedThreads: 0,
     startedAt: null,
     error: null,
-  };
-}
-
-function toFetchProgressResponse(input: {
-  status: string;
-  totalThreads: number;
-  fetchedThreads: number;
-  failedThreads: number;
-  startedAt: string | null;
-  error: string | null;
-}): FetchProgressResponse {
-  const status = isOperationStatus(input.status) ? input.status : "idle";
-
-  return {
-    status,
-    totalThreads: input.totalThreads,
-    syncedThreads: input.fetchedThreads,
-    failedThreads: input.failedThreads,
-    startedAt: input.startedAt,
-    error: input.error,
-  };
-}
-
-function toAnalysisProgressResponse(
-  input: {
-    status: string;
-    totalThreads: number;
-    analyzedThreads: number;
-    failedThreads: number;
-    startedAt: string | null;
-    error: string | null;
-  },
-  local: { inboxThreads: number; unprocessedInboxThreads: number },
-): AnalysisProgressResponse {
-  const status = isAnalysisStatus(input.status) ? input.status : "idle";
-  const totalInboxThreads = status === "running" || status === "paused" || status === "error"
-    ? input.totalThreads
-    : local.inboxThreads;
-  const analyzedInboxThreads = status === "running" || status === "paused" || status === "error"
-    ? input.analyzedThreads
-    : Math.max(0, local.inboxThreads - local.unprocessedInboxThreads);
-
-  return {
-    status,
-    totalInboxThreads,
-    analyzedInboxThreads,
-    failedInboxThreads: input.failedThreads,
-    remainingInboxThreads: local.unprocessedInboxThreads,
-    startedAt: input.startedAt,
-    error: input.error,
   };
 }
 
@@ -159,105 +134,84 @@ async function buildProgressResponse(account: {
     listFetchStates(account.id),
     getAnalysisState(account.id),
   ]);
-  const fetch = {
-    activeMode: null as "full" | "incremental" | null,
-    full: emptyFetchProgress(),
-    incremental: emptyFetchProgress(),
-  };
 
-  for (const state of fetchStates) {
-    if (state.mode !== "full" && state.mode !== "incremental") continue;
-    fetch[state.mode] = toFetchProgressResponse({
-      status: state.status,
-      totalThreads: state.totalThreads,
-      fetchedThreads: state.fetchedThreads,
-      failedThreads: state.failedThreads,
-      startedAt: state.startedAt,
-      error: state.lastError,
-    });
-    if (fetch[state.mode].status === "running") {
-      fetch.activeMode = state.mode;
-    }
+  let sync: SyncProgressResponse["sync"] = emptySync();
+
+  // Pick the most recently active fetch state. Prefer running > paused/
+  // interrupted > most-recent startedAt.
+  const sortedStates = [...fetchStates].sort((a, b) => {
+    const rank = (status: string) => {
+      if (status === "running") return 0;
+      if (status === "paused" || status === "interrupted") return 1;
+      return 2;
+    };
+    const r = rank(a.status) - rank(b.status);
+    if (r !== 0) return r;
+    return (b.startedAt ?? "").localeCompare(a.startedAt ?? "");
+  });
+  const primaryState = sortedStates[0];
+  if (primaryState && (primaryState.mode === "full" || primaryState.mode === "incremental")) {
+    sync = {
+      status: isSyncStatus(primaryState.status) ? primaryState.status : "idle",
+      mode: primaryState.mode,
+      totalThreads: primaryState.totalThreads,
+      fetchedThreads: primaryState.fetchedThreads,
+      failedThreads: primaryState.failedThreads,
+      startedAt: primaryState.startedAt,
+      error: primaryState.lastError,
+    };
   }
 
   const active = getActiveSync(account.id);
   if (active) {
     const progress = active.getProgress();
-    const mode = progress.mode;
-    if (mode === "full" || mode === "incremental") {
-      fetch[mode] = toFetchProgressResponse({
+    if (progress.mode === "full" || progress.mode === "incremental") {
+      sync = {
         status: progress.status,
+        mode: progress.mode,
         totalThreads: progress.totalThreads,
         fetchedThreads: progress.fetchedThreads,
         failedThreads: progress.failedThreads,
         startedAt: progress.startedAt,
         error: progress.error,
-      });
-      fetch.activeMode = mode;
+      };
     }
   }
 
-  let analysis = analysisState
-    ? toAnalysisProgressResponse(
-        {
-          status: analysisState.status,
-          totalThreads: analysisState.totalThreads,
-          analyzedThreads: analysisState.analyzedThreads,
-          failedThreads: analysisState.failedThreads,
-          startedAt: analysisState.startedAt,
-          error: analysisState.lastError,
-        },
-        local,
-      )
-    : emptyAnalysisProgress(local);
+  let extraction: SyncProgressResponse["extraction"] = analysisState
+    ? {
+        status: isExtractionStatus(analysisState.status) ? analysisState.status : "idle",
+        totalThreads: analysisState.totalThreads,
+        processedThreads: analysisState.analyzedThreads,
+        failedThreads: analysisState.failedThreads,
+        startedAt: analysisState.startedAt,
+        error: analysisState.lastError,
+      }
+    : emptyExtraction(local);
 
   const activeExtraction = getActiveGmailExtraction(account.id);
   if (activeExtraction) {
     const progress = activeExtraction.getProgress();
-    analysis = toAnalysisProgressResponse(
-      {
-        status: progress.status,
-        totalThreads: progress.totalThreads,
-        analyzedThreads: progress.processedThreads,
-        failedThreads: progress.failedThreads,
-        startedAt: progress.startedAt,
-        error: progress.error,
-      },
-      local,
-    );
+    extraction = {
+      status: progress.status,
+      totalThreads: progress.totalThreads,
+      processedThreads: progress.processedThreads,
+      failedThreads: progress.failedThreads,
+      startedAt: progress.startedAt,
+      error: progress.error,
+    };
   }
 
   return {
+    sync,
+    extraction,
     account: {
       hasCompletedFullSync: Boolean(account.lastFullSyncAt),
       hasCompletedIncrementalSync: Boolean(account.lastIncrementalSyncAt),
       needsFullResync: account.needsFullResync,
     },
     local,
-    fetch,
-    analysis,
   };
-}
-
-function isOperationStatus(value: string): value is OperationStatus {
-  return (
-    value === "idle"
-    || value === "running"
-    || value === "paused"
-    || value === "interrupted"
-    || value === "completed"
-    || value === "error"
-  );
-}
-
-function isAnalysisStatus(value: string): value is AnalysisProgressResponse["status"] {
-  return (
-    value === "idle"
-    || value === "running"
-    || value === "paused"
-    || value === "completed"
-    || value === "error"
-  );
 }
 
 function parseDisabledToolNames(value: string) {
@@ -349,9 +303,7 @@ export const gmailSyncRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
-      const existingAccount = await getGmailAccount(
-        input.providerAccountId,
-      );
+      const existingAccount = await getGmailAccount(input.providerAccountId);
       let accountId = existingAccount?.id;
       let initialProfile: Awaited<ReturnType<typeof getProfile>> | null = null;
 
@@ -399,7 +351,7 @@ export const gmailSyncRouter = router({
         throw new Error("Gmail sync is in progress for this account");
       }
 
-      await startGmailExtraction(account.id);
+      runExtraction({ accountId: account.id, mode: "all" });
 
       return {
         accountId: account.id,

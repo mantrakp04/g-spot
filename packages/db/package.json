@@ -8,6 +8,9 @@
     "./schema": {
       "default": "./src/schema/index.ts"
     },
+    "./gmail": {
+      "default": "./src/gmail/index.ts"
+    },
     "./*": {
       "default": "./src/*.ts"
     }

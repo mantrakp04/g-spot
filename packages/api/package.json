@@ -27,11 +27,14 @@
     "@tanstack/pacer": "^0.20.1",
     "@trpc/client": "catalog:",
     "@trpc/server": "catalog:",
+    "addressparser": "^1.0.1",
     "chat": "^4.26.0",
     "dotenv": "catalog:",
+    "html-to-text": "^10.0.0",
     "jszip": "^3.10.1",
     "mammoth": "^1.8.0",
     "nanoid": "^5.1.7",
+    "p-limit": "^7.3.0",
     "unique-names-generator": "catalog:",
     "unpdf": "^1.6.0",
     "ws": "^8.18.3",
@@ -41,9 +44,10 @@
   "devDependencies": {
     "@aws-sdk/client-s3": "^3.1019.0",
     "@g-spot/config": "workspace:*",
+    "@types/html-to-text": "^9.0.4",
+    "@types/ws": "^8.18.1",
     "elysia": "catalog:",
     "mock-aws-s3-v3": "^6.1.12",
-    "@types/ws": "^8.18.1",
     "typescript": "^6",
     "vitest": "^4.1.2"
   }

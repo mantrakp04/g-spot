@@ -10,15 +10,15 @@ import {
 import type { GmailAgentToolName } from "@g-spot/types";
 
 import {
-  createGmailDraft,
-  deleteGmailDraft,
-  modifyGmailThreadLabels,
-  sendGmailDraft,
-  sendGmailMessage,
-  trashGmailThread,
-  updateGmailDraft,
-} from "./gmail-browse";
-import { listAllDraftMappings } from "./gmail-client";
+  createDraft,
+  deleteDraft,
+  listAllDraftMappings,
+  modifyThreadLabels,
+  sendDraft,
+  sendMessage,
+  trashThread,
+  updateDraft,
+} from "./gmail";
 
 type GmailToolContext = {
   accountId: string;
@@ -189,7 +189,7 @@ export function createGmailAgentTools(
         removeLabelIds: Type.Optional(Type.Array(Type.String())),
       }),
       async execute(_toolCallId, params) {
-        await modifyGmailThreadLabels(
+        await modifyThreadLabels(
           context.token,
           params.gmailThreadId,
           params.addLabelIds,
@@ -221,7 +221,7 @@ export function createGmailAgentTools(
       }),
       async execute(_toolCallId, params) {
         const raw = buildRawMessage(context, params);
-        const draft = await createGmailDraft(context.token, raw, params.threadId);
+        const draft = await createDraft(context.token, raw, params.threadId);
         await refreshDraftMappings(context);
         return jsonText({ draft });
       },
@@ -249,7 +249,7 @@ export function createGmailAgentTools(
       }),
       async execute(_toolCallId, params) {
         const raw = buildRawMessage(context, params);
-        const draft = await updateGmailDraft(
+        const draft = await updateDraft(
           context.token,
           params.draftId,
           raw,
@@ -269,7 +269,7 @@ export function createGmailAgentTools(
         draftId: Type.String(),
       }),
       async execute(_toolCallId, params) {
-        await deleteGmailDraft(context.token, params.draftId);
+        await deleteDraft(context.token, params.draftId);
         await refreshDraftMappings(context);
         return jsonText({ ok: true });
       },
@@ -284,7 +284,7 @@ export function createGmailAgentTools(
         gmailThreadId: Type.String(),
       }),
       async execute(_toolCallId, params) {
-        await trashGmailThread(context.token, params.gmailThreadId);
+        await trashThread(context.token, params.gmailThreadId);
         return jsonText({ ok: true });
       },
     }),
@@ -316,8 +316,8 @@ export function createGmailAgentTools(
           );
         }
         const sent = params.draftId
-          ? await sendGmailDraft(context.token, params.draftId)
-          : await sendGmailMessage(
+          ? await sendDraft(context.token, params.draftId)
+          : await sendMessage(
               context.token,
               buildRawMessage(context, {
                 to: params.to ?? "",

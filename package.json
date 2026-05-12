@@ -67,6 +67,7 @@
     "@mariozechner/pi-ai": "^0.72.0",
     "@mariozechner/pi-coding-agent": "^0.72.0",
     "@mariozechner/pi-tui": "^0.72.0",
+    "@stackframe/react": "^2.8.89",
     "dotenv": "catalog:",
     "jose": "^6.2.2",
     "zod": "catalog:"

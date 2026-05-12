@@ -10,7 +10,7 @@ import {
 } from "@/lib/sidebars-store";
 import { useOpenDiffTab, useOpenFileTab } from "@/lib/tabs-store";
 
-import { ChangesTree } from "./changes-tree";
+import { ChangesPanel } from "./changes";
 import { FileTree } from "./file-tree";
 
 type RightSidebarProps = {
@@ -130,9 +130,15 @@ export function RightSidebar({ projectId, onOpenSearch }: RightSidebarProps) {
             activeTab === "changes" ? "flex" : "hidden",
           )}
         >
-          <ChangesTree
+          <ChangesPanel
             projectId={projectId}
-            onChangeClick={(path, mode) => openDiff(projectId, path, mode)}
+            onChangeClick={(path, mode, opts) => {
+              if (opts?.openFile) {
+                openFile(projectId, path);
+                return;
+              }
+              openDiff(projectId, path, mode);
+            }}
           />
         </div>
         <div

@@ -39,6 +39,12 @@ export const gitKeys = {
   changes: (projectId: string) => ["git", "changes", projectId] as const,
   fileDiff: (projectId: string, path: string, mode: string) =>
     ["git", "file-diff", projectId, path, mode] as const,
+  repoState: (projectId: string) => ["git", "repo-state", projectId] as const,
+  currentBranch: (projectId: string) =>
+    ["git", "current-branch", projectId] as const,
+  stashList: (projectId: string) => ["git", "stash-list", projectId] as const,
+  commitDraft: (projectId: string) =>
+    ["git", "commit-draft", projectId] as const,
 };
 
 export const projectKeys = {

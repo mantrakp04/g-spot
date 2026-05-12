@@ -1,4 +1,4 @@
-import { execFile as execFileCallback } from "node:child_process";
+import { execFile as execFileCallback, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import os from "node:os";
@@ -82,6 +82,54 @@ function isNonGitRepoError(error: unknown): boolean {
 
 async function execGit(args: string[], cwd: string) {
   return execFile("git", args, { cwd, maxBuffer: 50 * 1024 * 1024 });
+}
+
+/**
+ * Like `execGit` but pipes `stdin` to git's stdin. Used for `git apply`.
+ * Throws an Error whose `message` contains stderr on non-zero exit.
+ */
+async function execGitStdin(
+  args: string[],
+  cwd: string,
+  stdin: string,
+): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn("git", args, { cwd });
+    let stdout = "";
+    let stderr = "";
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
+    const MAX = 50 * 1024 * 1024;
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdoutBytes += chunk.length;
+      if (stdoutBytes <= MAX) stdout += chunk.toString("utf8");
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderrBytes += chunk.length;
+      if (stderrBytes <= MAX) stderr += chunk.toString("utf8");
+    });
+    child.on("error", (err) => reject(err));
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve({ stdout, stderr });
+      } else {
+        const err = new Error(stderr || `git ${args.join(" ")} exited ${code}`) as Error & {
+          stdout?: string;
+          stderr?: string;
+          code?: number;
+        };
+        err.stdout = stdout;
+        err.stderr = stderr;
+        err.code = code ?? undefined;
+        reject(err);
+      }
+    });
+    child.stdin.on("error", () => {
+      // Ignore EPIPE — git may close stdin early on parse error and we
+      // surface the actual reason via stderr above.
+    });
+    child.stdin.end(stdin);
+  });
 }
 
 export type FileChangeStatus =
@@ -223,7 +271,7 @@ export async function listChanges(cwd: string): Promise<FileChange[]> {
   if (!(await isGitRepo(cwd))) return [];
 
   const [statusRes, stagedStats, unstagedStats, uncommittedStats] = await Promise.all([
-    execGit(["status", "--porcelain=v1", "-z"], cwd),
+    execGit(["status", "--porcelain=v1", "-z", "--untracked-files=all"], cwd),
     readNumstat(["diff", "--numstat", "-z", "--cached"], cwd),
     readNumstat(["diff", "--numstat", "-z"], cwd),
     readNumstat(["diff", "--numstat", "-z", "HEAD"], cwd),
@@ -703,4 +751,507 @@ export async function removeWorktree(args: {
   } catch {
     // Branch may already be gone.
   }
+}
+
+// ---------------------------------------------------------------------------
+// VSCode Source Control parity
+// ---------------------------------------------------------------------------
+
+export type RepoStateKind =
+  | "clean"
+  | "merging"
+  | "rebasing"
+  | "cherry-picking"
+  | "reverting";
+
+export type RepoState = {
+  state: RepoStateKind;
+  conflicted: boolean;
+  hasStaged: boolean;
+  hasUnstaged: boolean;
+};
+
+export type CurrentBranchInfo = {
+  branch: string | null;
+  ahead: number;
+  behind: number;
+  upstream: string | null;
+};
+
+export type StashEntry = {
+  index: number;
+  message: string;
+  branch: string | null;
+  sha: string;
+};
+
+function assertSafePath(p: string): void {
+  if (path.isAbsolute(p)) {
+    throw new Error(`Path must be relative: ${p}`);
+  }
+  const segments = p.split(/[/\\]/);
+  if (segments.some((s) => s === "..")) {
+    throw new Error(`Path must not contain '..' segments: ${p}`);
+  }
+}
+
+function assertSafePaths(paths: string[]): void {
+  for (const p of paths) assertSafePath(p);
+}
+
+async function gitDir(cwd: string): Promise<string> {
+  const { stdout } = await execGit(["rev-parse", "--git-dir"], cwd);
+  const dir = stdout.trim();
+  return path.isAbsolute(dir) ? dir : path.join(cwd, dir);
+}
+
+async function hasHead(cwd: string): Promise<boolean> {
+  try {
+    await execGit(["rev-parse", "--verify", "HEAD"], cwd);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function stagePaths(cwd: string, paths: string[]): Promise<void> {
+  if (!(await isGitRepo(cwd))) throw new Error("Not a git repository");
+  assertSafePaths(paths);
+  await execGit(["add", "-A", "--", ...paths], cwd);
+}
+
+export async function unstagePaths(cwd: string, paths: string[]): Promise<void> {
+  if (!(await isGitRepo(cwd))) throw new Error("Not a git repository");
+  assertSafePaths(paths);
+  if (await hasHead(cwd)) {
+    await execGit(["reset", "HEAD", "--", ...paths], cwd);
+  } else {
+    await execGit(["rm", "--cached", "--", ...paths], cwd);
+  }
+}
+
+export async function stageAll(cwd: string): Promise<void> {
+  if (!(await isGitRepo(cwd))) throw new Error("Not a git repository");
+  await execGit(["add", "-A"], cwd);
+}
+
+export async function unstageAll(cwd: string): Promise<void> {
+  if (!(await isGitRepo(cwd))) throw new Error("Not a git repository");
+  if (await hasHead(cwd)) {
+    await execGit(["reset", "HEAD", "--"], cwd);
+  } else {
+    await execGit(["rm", "--cached", "-r", "."], cwd);
+  }
+}
+
+export async function applyPatch(args: {
+  cwd: string;
+  patch: string;
+  cached: boolean;
+  reverse: boolean;
+}): Promise<void> {
+  const { cwd, patch, cached, reverse } = args;
+  if (!(await isGitRepo(cwd))) throw new Error("Not a git repository");
+  const flags = ["apply", "--unidiff-zero", "--whitespace=nowarn"];
+  if (cached) flags.push("--cached");
+  if (reverse) flags.push("--reverse");
+  await execGitStdin(flags, cwd, patch);
+}
+
+export async function discardPaths(cwd: string, paths: string[]): Promise<void> {
+  if (!(await isGitRepo(cwd))) throw new Error("Not a git repository");
+  assertSafePaths(paths);
+
+  const changes = await listChanges(cwd);
+  const byPath = new Map(changes.map((c) => [c.path, c]));
+  const tracked: string[] = [];
+  const untracked: string[] = [];
+
+  for (const p of paths) {
+    const change = byPath.get(p);
+    if (!change) {
+      // Not in status — nothing to discard.
+      continue;
+    }
+    if (change.code === "??") {
+      untracked.push(p);
+    } else {
+      tracked.push(p);
+    }
+  }
+
+  if (tracked.length > 0) {
+    await execGit(["checkout", "--", ...tracked], cwd);
+  }
+  await Promise.all(
+    untracked.map((p) =>
+      fs.rm(path.join(cwd, p), { recursive: true, force: true }),
+    ),
+  );
+}
+
+export async function discardAll(cwd: string): Promise<void> {
+  if (!(await isGitRepo(cwd))) throw new Error("Not a git repository");
+  try {
+    await execGit(["checkout", "--", "."], cwd);
+  } catch {
+    // No tracked changes is fine.
+  }
+  await execGit(["clean", "-fd"], cwd);
+}
+
+export async function cleanUntracked(cwd: string, paths: string[]): Promise<void> {
+  if (!(await isGitRepo(cwd))) throw new Error("Not a git repository");
+  assertSafePaths(paths);
+  await Promise.all(
+    paths.map((p) =>
+      fs.rm(path.join(cwd, p), { recursive: true, force: true }),
+    ),
+  );
+}
+
+export async function acceptCurrent(cwd: string, paths: string[]): Promise<void> {
+  if (!(await isGitRepo(cwd))) throw new Error("Not a git repository");
+  assertSafePaths(paths);
+  await execGit(["checkout", "--ours", "--", ...paths], cwd);
+  await execGit(["add", "--", ...paths], cwd);
+}
+
+export async function acceptIncoming(cwd: string, paths: string[]): Promise<void> {
+  if (!(await isGitRepo(cwd))) throw new Error("Not a git repository");
+  assertSafePaths(paths);
+  await execGit(["checkout", "--theirs", "--", ...paths], cwd);
+  await execGit(["add", "--", ...paths], cwd);
+}
+
+export async function acceptBoth(cwd: string, paths: string[]): Promise<void> {
+  if (!(await isGitRepo(cwd))) throw new Error("Not a git repository");
+  assertSafePaths(paths);
+  await execGit(["add", "--", ...paths], cwd);
+}
+
+export async function commit(args: {
+  cwd: string;
+  message: string;
+  amend: boolean;
+  signoff: boolean;
+  all: boolean;
+}): Promise<{ sha: string }> {
+  const { cwd, message, amend, signoff, all } = args;
+  if (!(await isGitRepo(cwd))) throw new Error("Not a git repository");
+  const flags = ["commit"];
+  if (amend) flags.push("--amend");
+  if (signoff) flags.push("--signoff");
+  if (all) flags.push("-a");
+  flags.push("-m", message);
+  await execGit(flags, cwd);
+  const { stdout } = await execGit(["rev-parse", "HEAD"], cwd);
+  return { sha: stdout.trim() };
+}
+
+export async function lastCommitMessage(cwd: string): Promise<string | null> {
+  if (!(await isGitRepo(cwd))) throw new Error("Not a git repository");
+  if (!(await hasHead(cwd))) return null;
+  try {
+    const { stdout } = await execGit(["log", "-1", "--pretty=%B"], cwd);
+    // Strip trailing newline that git appends.
+    return stdout.replace(/\n$/, "");
+  } catch {
+    return null;
+  }
+}
+
+function commitDraftPath(gitDirPath: string): string {
+  return path.join(gitDirPath, ".gspot-commit-draft.txt");
+}
+
+export async function readCommitMessageDraft(cwd: string): Promise<string> {
+  if (!(await isGitRepo(cwd))) throw new Error("Not a git repository");
+  const dir = await gitDir(cwd);
+  try {
+    return await fs.readFile(commitDraftPath(dir), "utf8");
+  } catch {
+    return "";
+  }
+}
+
+export async function writeCommitMessageDraft(
+  cwd: string,
+  draft: string,
+): Promise<void> {
+  if (!(await isGitRepo(cwd))) throw new Error("Not a git repository");
+  const dir = await gitDir(cwd);
+  const target = commitDraftPath(dir);
+  const tmp = `${target}.tmp`;
+  await fs.writeFile(tmp, draft, "utf8");
+  await fs.rename(tmp, target);
+}
+
+async function dirExists(p: string): Promise<boolean> {
+  try {
+    const stat = await fs.stat(p);
+    return stat.isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+async function fileExists(p: string): Promise<boolean> {
+  try {
+    await fs.access(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function getRepoState(cwd: string): Promise<RepoState> {
+  if (!(await isGitRepo(cwd))) throw new Error("Not a git repository");
+  const dir = await gitDir(cwd);
+
+  const [merging, rebaseApply, rebaseMerge, cherry, revert, changes] =
+    await Promise.all([
+      fileExists(path.join(dir, "MERGE_HEAD")),
+      dirExists(path.join(dir, "rebase-apply")),
+      dirExists(path.join(dir, "rebase-merge")),
+      fileExists(path.join(dir, "CHERRY_PICK_HEAD")),
+      fileExists(path.join(dir, "REVERT_HEAD")),
+      listChanges(cwd),
+    ]);
+
+  let state: RepoStateKind = "clean";
+  if (merging) state = "merging";
+  else if (rebaseApply || rebaseMerge) state = "rebasing";
+  else if (cherry) state = "cherry-picking";
+  else if (revert) state = "reverting";
+
+  let conflicted = false;
+  let hasStaged = false;
+  let hasUnstaged = false;
+  for (const c of changes) {
+    if (c.staged === "conflicted" || c.unstaged === "conflicted") conflicted = true;
+    if (c.code === "??") {
+      hasUnstaged = true;
+      continue;
+    }
+    const x = c.code[0];
+    const y = c.code[1];
+    if (x && x !== " " && x !== "?") hasStaged = true;
+    if (y && y !== " " && y !== "?") hasUnstaged = true;
+  }
+
+  return { state, conflicted, hasStaged, hasUnstaged };
+}
+
+export async function getCurrentBranch(cwd: string): Promise<CurrentBranchInfo> {
+  if (!(await isGitRepo(cwd))) throw new Error("Not a git repository");
+
+  let branch: string | null = null;
+  try {
+    const { stdout } = await execGit(["rev-parse", "--abbrev-ref", "HEAD"], cwd);
+    const name = stdout.trim();
+    branch = name && name !== "HEAD" ? name : null;
+  } catch {
+    branch = null;
+  }
+
+  let upstream: string | null = null;
+  try {
+    const { stdout } = await execGit(
+      ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
+      cwd,
+    );
+    const u = stdout.trim();
+    upstream = u || null;
+  } catch {
+    upstream = null;
+  }
+
+  let ahead = 0;
+  let behind = 0;
+  if (upstream) {
+    try {
+      const { stdout } = await execGit(
+        ["rev-list", "--left-right", "--count", "HEAD...@{upstream}"],
+        cwd,
+      );
+      const parts = stdout.trim().split(/\s+/);
+      ahead = Number(parts[0]) || 0;
+      behind = Number(parts[1]) || 0;
+    } catch {
+      ahead = 0;
+      behind = 0;
+    }
+  }
+
+  return { branch, ahead, behind, upstream };
+}
+
+export async function gitFetch(args: {
+  cwd: string;
+  remote?: string | null;
+  all?: boolean;
+}): Promise<void> {
+  const { cwd, remote, all } = args;
+  if (!(await isGitRepo(cwd))) throw new Error("Not a git repository");
+  const flags = ["fetch"];
+  if (all || (!remote && all !== false)) {
+    flags.push("--all");
+  } else if (remote) {
+    flags.push(remote);
+  }
+  await execGit(flags, cwd);
+}
+
+export async function gitPull(args: {
+  cwd: string;
+  rebase?: boolean;
+}): Promise<void> {
+  const { cwd, rebase } = args;
+  if (!(await isGitRepo(cwd))) throw new Error("Not a git repository");
+  const flags = ["pull"];
+  if (rebase) flags.push("--rebase");
+  try {
+    await execGit(flags, cwd);
+  } catch (error) {
+    const text = getErrorText(error);
+    throw new Error(text || "git pull failed");
+  }
+}
+
+export async function gitPush(args: {
+  cwd: string;
+  force?: boolean;
+  setUpstream?: boolean;
+}): Promise<void> {
+  const { cwd, force, setUpstream } = args;
+  if (!(await isGitRepo(cwd))) throw new Error("Not a git repository");
+  const flags = ["push"];
+  if (force) flags.push("--force-with-lease");
+  if (setUpstream) {
+    const { branch } = await getCurrentBranch(cwd);
+    if (!branch) throw new Error("Cannot set upstream on detached HEAD");
+    flags.push("-u", "origin", branch);
+  }
+  try {
+    await execGit(flags, cwd);
+  } catch (error) {
+    const text = getErrorText(error);
+    throw new Error(text || "git push failed");
+  }
+}
+
+export async function gitSync(cwd: string): Promise<void> {
+  await gitPull({ cwd });
+  await gitPush({ cwd });
+}
+
+export async function publishBranch(cwd: string): Promise<void> {
+  if (!(await isGitRepo(cwd))) throw new Error("Not a git repository");
+  const { branch } = await getCurrentBranch(cwd);
+  if (!branch) throw new Error("Detached HEAD — nothing to publish");
+  try {
+    await execGit(["push", "-u", "origin", branch], cwd);
+  } catch (error) {
+    const text = getErrorText(error);
+    throw new Error(text || "Failed to publish branch");
+  }
+}
+
+export async function listStashes(cwd: string): Promise<StashEntry[]> {
+  if (!(await isGitRepo(cwd))) throw new Error("Not a git repository");
+  let stdout: string;
+  try {
+    ({ stdout } = await execGit(
+      ["stash", "list", "--pretty=%gd|%s|%H"],
+      cwd,
+    ));
+  } catch {
+    return [];
+  }
+  const out: StashEntry[] = [];
+  for (const line of stdout.split("\n")) {
+    if (!line) continue;
+    const parts = line.split("|");
+    if (parts.length < 3) continue;
+    const ref = parts[0]!;
+    const message = parts.slice(1, -1).join("|");
+    const sha = parts[parts.length - 1]!;
+    const m = ref.match(/^stash@\{(\d+)\}$/);
+    if (!m) continue;
+    const index = Number(m[1]);
+    let branch: string | null = null;
+    const wipMatch = message.match(/^WIP on ([^:]+):/);
+    const onMatch = message.match(/^On ([^:]+):/);
+    if (wipMatch) branch = wipMatch[1] ?? null;
+    else if (onMatch) branch = onMatch[1] ?? null;
+    out.push({ index, message, branch, sha });
+  }
+  return out;
+}
+
+export async function stashPush(args: {
+  cwd: string;
+  message?: string | null;
+  includeUntracked?: boolean;
+  keepIndex?: boolean;
+}): Promise<void> {
+  const { cwd, message, includeUntracked, keepIndex } = args;
+  if (!(await isGitRepo(cwd))) throw new Error("Not a git repository");
+  const flags = ["stash", "push"];
+  if (includeUntracked) flags.push("--include-untracked");
+  if (keepIndex) flags.push("--keep-index");
+  if (message) flags.push("-m", message);
+  await execGit(flags, cwd);
+}
+
+export async function stashPop(cwd: string, index: number): Promise<void> {
+  if (!(await isGitRepo(cwd))) throw new Error("Not a git repository");
+  await execGit(["stash", "pop", `stash@{${index}}`], cwd);
+}
+
+export async function stashApply(cwd: string, index: number): Promise<void> {
+  if (!(await isGitRepo(cwd))) throw new Error("Not a git repository");
+  await execGit(["stash", "apply", `stash@{${index}}`], cwd);
+}
+
+export async function stashDrop(cwd: string, index: number): Promise<void> {
+  if (!(await isGitRepo(cwd))) throw new Error("Not a git repository");
+  await execGit(["stash", "drop", `stash@{${index}}`], cwd);
+}
+
+export async function addToGitignore(cwd: string, paths: string[]): Promise<void> {
+  if (!(await isGitRepo(cwd))) throw new Error("Not a git repository");
+  assertSafePaths(paths);
+  const target = path.join(cwd, ".gitignore");
+  let existing = "";
+  try {
+    existing = await fs.readFile(target, "utf8");
+  } catch {
+    existing = "";
+  }
+  const lines = existing.split("\n");
+  const present = new Set(lines.map((l) => l.trim()).filter(Boolean));
+  const additions: string[] = [];
+  for (const p of paths) {
+    if (!present.has(p)) {
+      additions.push(p);
+      present.add(p);
+    }
+  }
+  if (additions.length === 0) return;
+  let next = existing;
+  if (next.length > 0 && !next.endsWith("\n")) next += "\n";
+  next += `${additions.join("\n")}\n`;
+  await fs.writeFile(target, next, "utf8");
+}
+
+export async function gitReset(args: {
+  cwd: string;
+  mode: "soft" | "mixed" | "hard";
+  ref: string;
+}): Promise<void> {
+  const { cwd, mode, ref } = args;
+  if (!(await isGitRepo(cwd))) throw new Error("Not a git repository");
+  await execGit(["reset", `--${mode}`, ref], cwd);
 }

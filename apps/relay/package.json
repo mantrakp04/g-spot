@@ -13,7 +13,7 @@
     "@g-spot/chat-adapter-gmail": "workspace:*",
     "@g-spot/chat-state-sqlite": "workspace:*",
     "@g-spot/env": "workspace:*",
-    "@stackframe/react": "^2.8.78",
+    "@stackframe/react": "^2.8.89",
     "chat": "^4.26.0",
     "zod": "catalog:"
   },

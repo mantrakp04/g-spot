@@ -61,6 +61,14 @@ let nativeWindowTabs:
         args: [typeof FFIType.ptr, typeof FFIType.cstring];
         returns: typeof FFIType.void;
       };
+      gspot_install_resize_propagator: {
+        args: [typeof FFIType.ptr];
+        returns: typeof FFIType.void;
+      };
+      gspot_force_window_resize: {
+        args: [typeof FFIType.ptr];
+        returns: typeof FFIType.void;
+      };
     }>>
   | null
   | undefined;
@@ -118,9 +126,21 @@ function getNativeWindowTabs() {
       args: [FFIType.ptr, FFIType.cstring],
       returns: FFIType.void,
     },
+    gspot_install_resize_propagator: {
+      args: [FFIType.ptr],
+      returns: FFIType.void,
+    },
+    gspot_force_window_resize: {
+      args: [FFIType.ptr],
+      returns: FFIType.void,
+    },
   });
 
   return nativeWindowTabs;
+}
+
+function installNativeResizePropagator(win: BrowserWindow): void {
+  getNativeWindowTabs()?.symbols.gspot_install_resize_propagator(windowPtr(win));
 }
 
 function configureNativeWindowTabbing(win: BrowserWindow): void {
@@ -458,6 +478,7 @@ async function createDesktopWindow({
   });
 
   configureNativeWindowTabbing(win);
+  installNativeResizePropagator(win);
   win.webview.setNavigationRules([...INTERNAL_NAVIGATION_RULES]);
   win.webview.on("will-navigate", (event) => {
     const data = (event as { data?: { url?: string; allowed?: boolean } }).data;

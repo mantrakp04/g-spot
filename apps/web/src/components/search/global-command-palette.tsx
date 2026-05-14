@@ -12,7 +12,6 @@ import {
 } from "@g-spot/ui/components/command";
 import { Badge } from "@g-spot/ui/components/badge";
 import { Skeleton } from "@g-spot/ui/components/skeleton";
-import { useHotkeys } from "@tanstack/react-hotkeys";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Bot, Brain, Database, Github, Mail, MessageSquare, NotebookText, Search, User } from "lucide-react";
@@ -80,13 +79,20 @@ export function GlobalCommandPalette() {
   const debouncedQuery = useDebouncedValue(query, 120);
   const navigate = useNavigate();
 
-  useHotkeys([
-    {
-      hotkey: "Mod+K",
-      callback: () => setOpen((value) => !value),
-      options: { meta: { name: "Search everything" } },
-    },
-  ]);
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.shiftKey || event.altKey) {
+        return;
+      }
+      if (event.key.toLowerCase() !== "k") return;
+
+      event.preventDefault();
+      setOpen((value) => !value);
+    };
+
+    window.addEventListener("keydown", handler, true);
+    return () => window.removeEventListener("keydown", handler, true);
+  }, []);
 
   useEffect(() => {
     if (!open) {

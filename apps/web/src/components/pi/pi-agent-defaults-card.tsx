@@ -43,7 +43,6 @@ import {
   normalizeAgentConfig,
   QUEUE_MODE_OPTIONS,
   SANDBOX_MODE_OPTIONS,
-  THINKING_LEVEL_OPTIONS,
   updateAgentConfigModel,
 } from "@/lib/pi-agent-config";
 
@@ -103,7 +102,6 @@ function ConfigSelect<TValue extends string>({
 function getSharedDraftConfig(chat: PiAgentConfig, worker: PiAgentConfig): PiAgentConfig {
   return {
     ...chat,
-    thinkingLevel: chat.thinkingLevel,
     transport: chat.transport,
     steeringMode: chat.steeringMode,
     followUpMode: chat.followUpMode,
@@ -120,7 +118,6 @@ function applySharedDraftConfig(
 ): PiAgentConfig {
   return {
     ...config,
-    thinkingLevel: shared.thinkingLevel,
     transport: shared.transport,
     steeringMode: shared.steeringMode,
     followUpMode: shared.followUpMode,
@@ -190,8 +187,8 @@ function PiAgentDefaultsCardInner({
         <div className="space-y-1">
           <CardTitle>Pi Defaults</CardTitle>
           <CardDescription>
-            Chat and worker agents now share the same settings. Only the selected
-            model can differ between them.
+            Chat and worker agents share safety/tool settings, but each keeps its
+            own model and thinking level.
           </CardDescription>
         </div>
       </CardHeader>
@@ -210,6 +207,17 @@ function PiAgentDefaultsCardInner({
               models={allModels}
               configuredProviders={configuredProviders}
               oauthProviders={oauthProviders}
+              thinkingLevel={drafts.chat.thinkingLevel}
+              onThinkingLevelChange={(thinkingLevel) => {
+                setDrafts((current) =>
+                  current
+                    ? {
+                        ...current,
+                        chat: { ...current.chat, thinkingLevel },
+                      }
+                    : current,
+                );
+              }}
               onValueChange={(value) => {
                 setDrafts((current) =>
                   current
@@ -251,6 +259,17 @@ function PiAgentDefaultsCardInner({
               models={allModels}
               configuredProviders={configuredProviders}
               oauthProviders={oauthProviders}
+              thinkingLevel={drafts.worker.thinkingLevel}
+              onThinkingLevelChange={(thinkingLevel) => {
+                setDrafts((current) =>
+                  current
+                    ? {
+                        ...current,
+                        worker: { ...current.worker, thinkingLevel },
+                      }
+                    : current,
+                );
+              }}
               onValueChange={(value) => {
                 setDrafts((current) =>
                   current
@@ -280,25 +299,6 @@ function PiAgentDefaultsCardInner({
             </Badge>
           </SettingsField>
 
-          <SettingsField label="Thinking" description="Controls how much reasoning budget the agent should spend.">
-            <ConfigSelect
-              value={sharedConfig.thinkingLevel}
-              onValueChange={(thinkingLevel) => {
-                setDrafts((current) => {
-                  if (!current) return current;
-                  const nextShared = {
-                    ...getSharedDraftConfig(current.chat, current.worker),
-                    thinkingLevel,
-                  };
-                  return {
-                    chat: applySharedDraftConfig(current.chat, nextShared),
-                    worker: applySharedDraftConfig(current.worker, nextShared),
-                  };
-                });
-              }}
-              options={THINKING_LEVEL_OPTIONS}
-            />
-          </SettingsField>
 
           <SettingsField label="Steering Mode" description="Controls how the agent sequences planned actions.">
             <ConfigSelect

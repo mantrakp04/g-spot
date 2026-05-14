@@ -343,19 +343,6 @@ export function PRReviewView({
     [fileList, fileVirtualizer],
   );
 
-  // composedPath reaches into shadow DOM. Pierre's file tree and diff viewer
-  // render their inputs inside shadow roots, so the window-level target is
-  // the shadow host — the library's default ignoreInputs can't see through.
-  const isInShadowInput = (e: KeyboardEvent) => {
-    for (const node of e.composedPath()) {
-      if (!(node instanceof HTMLElement)) continue;
-      const tag = node.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || node.isContentEditable)
-        return true;
-    }
-    return false;
-  };
-
   const jumpFile = (direction: -1 | 1) => {
     if (fileList.length === 0) return;
     const idx = fileList.findIndex((f) => f.filename === activeFile);
@@ -370,18 +357,12 @@ export function PRReviewView({
   useHotkeys([
     {
       hotkey: "J",
-      callback: (e) => {
-        if (isInShadowInput(e)) return;
-        jumpFile(1);
-      },
+      callback: () => jumpFile(1),
       options: { meta: { name: "Next file" } },
     },
     {
       hotkey: "K",
-      callback: (e) => {
-        if (isInShadowInput(e)) return;
-        jumpFile(-1);
-      },
+      callback: () => jumpFile(-1),
       options: { meta: { name: "Previous file" } },
     },
   ]);

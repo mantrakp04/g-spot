@@ -68,6 +68,7 @@ export function TabsContent() {
                 chatId={tab.chatId}
                 focusMessageId={tab.focusMessageId}
                 searchText={tab.searchText}
+                active={active}
               />
             )}
             {tab.kind === "terminal" && (

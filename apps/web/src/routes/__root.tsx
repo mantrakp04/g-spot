@@ -1,7 +1,7 @@
-import { useCallback, useEffect } from "react";
+import { useEffect } from "react";
 
 import { Toaster } from "@g-spot/ui/components/sonner";
-import { HotkeysProvider, useHotkeys } from "@tanstack/react-hotkeys";
+import { HotkeysProvider } from "@tanstack/react-hotkeys";
 import type { QueryClient } from "@tanstack/react-query";
 import { HeadContent, Outlet, createRootRouteWithContext } from "@tanstack/react-router";
 import { useAtom } from "jotai";
@@ -42,37 +42,28 @@ function SidebarHotkeys() {
   const { toggle: toggleSecondary } = useSecondarySidebar();
   const [, setRightCollapsed] = useAtom(rightSidebarCollapsedAtom);
 
-  const isEditableTarget = () => {
-    const activeElement = document.activeElement;
-    return (
-      activeElement instanceof HTMLElement &&
-      (activeElement.isContentEditable ||
-        activeElement.matches("input, textarea, select, [role='textbox']"))
-    );
-  };
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.shiftKey || event.altKey) {
+        return;
+      }
 
-  const handleToggleSecondary = useCallback(() => {
-    if (isEditableTarget()) return;
-    toggleSecondary();
-  }, [toggleSecondary]);
+      const key = event.key.toLowerCase();
+      if (key === "b") {
+        event.preventDefault();
+        toggleSecondary();
+        return;
+      }
 
-  const handleToggleRight = useCallback(() => {
-    if (isEditableTarget()) return;
-    setRightCollapsed((v) => !v);
-  }, [setRightCollapsed]);
+      if (key === "l") {
+        event.preventDefault();
+        setRightCollapsed((v) => !v);
+      }
+    };
 
-  useHotkeys([
-    {
-      hotkey: "Mod+B",
-      callback: handleToggleSecondary,
-      options: { meta: { name: "Toggle sidebar" } },
-    },
-    {
-      hotkey: "Mod+L",
-      callback: handleToggleRight,
-      options: { meta: { name: "Toggle right sidebar" } },
-    },
-  ]);
+    window.addEventListener("keydown", handler, true);
+    return () => window.removeEventListener("keydown", handler, true);
+  }, [setRightCollapsed, toggleSecondary]);
 
   return null;
 }
@@ -135,7 +126,12 @@ function RootComponent() {
     <>
       <HeadContent />
       <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
-        <HotkeysProvider>
+        <HotkeysProvider
+          defaultOptions={{
+            hotkey: { ignoreInputs: false },
+            hotkeySequence: { ignoreInputs: false },
+          }}
+        >
           <ConfirmDialogProvider>
             <RootShell />
           </ConfirmDialogProvider>

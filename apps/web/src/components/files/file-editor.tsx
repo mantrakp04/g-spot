@@ -125,8 +125,11 @@ export function FileEditor({ projectId, path, active }: FileEditorProps) {
       editorRef.current = editor;
       changeDisposableRef.current?.dispose();
       changeDisposableRef.current = editor.onDidChangeModelContent(scheduleSave);
+      if (active) {
+        window.requestAnimationFrame(() => editor.focus());
+      }
     },
-    [scheduleSave],
+    [active, scheduleSave],
   );
 
   useEffect(() => {
@@ -135,6 +138,15 @@ export function FileEditor({ projectId, path, active }: FileEditorProps) {
     changeDisposableRef.current?.dispose();
     changeDisposableRef.current = editor.onDidChangeModelContent(scheduleSave);
   }, [scheduleSave]);
+
+  useEffect(() => {
+    if (!active) return;
+    const editor = editorRef.current;
+    if (!editor) return;
+
+    const frame = window.requestAnimationFrame(() => editor.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [active]);
 
   useEffect(() => {
     if (debounceRef.current !== null) {

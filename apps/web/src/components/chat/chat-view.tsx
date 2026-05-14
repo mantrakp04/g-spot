@@ -118,8 +118,8 @@ import {
   normalizeAgentConfig,
   PERMISSION_MODE_PRESETS,
   PERMISSION_MODE_PRESET_ORDER,
-  THINKING_LEVEL_OPTIONS,
   type PermissionModePresetId,
+  type PiModelOption,
 } from "@/lib/pi-agent-config";
 import { chatKeys } from "@/lib/query-keys";
 import { consumePendingChatSubmission, setPendingChatSubmission } from "@/lib/pending-chat-submissions";
@@ -185,6 +185,7 @@ interface ChatViewProps {
   projectId: string;
   focusMessageId?: string;
   searchText?: string;
+  active?: boolean;
 }
 
 type ChatUiMessage = UIMessage;
@@ -231,7 +232,13 @@ async function getChatHeaders(): Promise<Record<string, string>> {
  * then mounts ChatViewInner only once data is ready.
  * This ensures useChat initializes with the actual messages.
  */
-export function ChatView({ chatId, projectId, focusMessageId, searchText }: ChatViewProps) {
+export function ChatView({
+  chatId,
+  projectId,
+  focusMessageId,
+  searchText,
+  active = true,
+}: ChatViewProps) {
   const { data: chat, isLoading: isLoadingChat } = useChatDetail(chatId ?? "");
   const { data: dbMessages, isLoading: isLoadingMessages } = useChatMessages(chatId ?? "");
   const projectQuery = useProject(projectId);
@@ -271,6 +278,7 @@ export function ChatView({ chatId, projectId, focusMessageId, searchText }: Chat
       dbMessages={dbMessages ?? []}
       focusMessageId={focusMessageId}
       searchText={searchText}
+      active={active}
     />
   );
 }
@@ -284,6 +292,7 @@ interface ChatViewInnerProps {
   dbMessages: PiChatHistoryMessage[];
   focusMessageId?: string;
   searchText?: string;
+  active: boolean;
 }
 
 function ChatViewInner({
@@ -295,6 +304,7 @@ function ChatViewInner({
   dbMessages,
   focusMessageId,
   searchText,
+  active,
 }: ChatViewInnerProps) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -1368,6 +1378,7 @@ function ChatViewInner({
                       },
                     }}
                     layout="empty"
+                    active={active}
                   />
                 </PromptInputProvider>
 
@@ -1452,6 +1463,7 @@ function ChatViewInner({
                   },
                 }}
                 layout="docked"
+                active={active}
               />
             </PromptInputProvider>
           </div>
@@ -1461,12 +1473,6 @@ function ChatViewInner({
   );
 }
 
-type ChatPromptModel = {
-  id: string;
-  name: string;
-  provider: string;
-};
-
 interface ChatPromptInputAreaProps {
   chatId: string | null;
   projectId: string;
@@ -1475,7 +1481,7 @@ interface ChatPromptInputAreaProps {
   status: ChatStatus;
   onStop: () => void;
   agentConfig: PiAgentConfig;
-  allModels: readonly ChatPromptModel[];
+  allModels: readonly PiModelOption[];
   configuredProviders: ReadonlySet<string>;
   oauthProviders: ReadonlySet<string>;
   onThinkingLevelChange: (
@@ -1488,6 +1494,7 @@ interface ChatPromptInputAreaProps {
   onBranchChange: (branch: string | null) => Promise<void> | void;
   builtinHandlers: BuiltinHandlers;
   layout: "empty" | "docked";
+  active: boolean;
 }
 
 function ChatPromptInputArea({
@@ -1507,6 +1514,7 @@ function ChatPromptInputArea({
   onBranchChange,
   builtinHandlers,
   layout,
+  active,
 }: ChatPromptInputAreaProps) {
   // `agentConfig` stores the three permission fields individually, so pick
   // the preset that matches them (or fall back to "default" as the display
@@ -1515,6 +1523,19 @@ function ChatPromptInputArea({
   const controller = usePromptInputController();
   const popoverRef = useRef<SlashCommandPopoverHandle>(null);
   const anchorRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!active) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      const textarea = anchorRef.current?.querySelector<HTMLTextAreaElement>(
+        'textarea[name="message"]',
+      );
+      textarea?.focus();
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [active, layout]);
 
   const handleTextareaKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1556,7 +1577,6 @@ function ChatPromptInputArea({
       <PromptInput onSubmit={onSubmit}>
         <AttachmentPreviews />
         <PromptInputTextarea
-          autoFocus={chatId === null}
           className="max-h-[9.6rem] min-h-[3.2rem]"
           placeholder={
             layout === "empty"
@@ -1604,33 +1624,15 @@ function ChatPromptInputArea({
               configuredProviders={configuredProviders}
               oauthProviders={oauthProviders}
               compact
+              thinkingLevel={agentConfig.thinkingLevel}
+              onThinkingLevelChange={(level) => {
+                void onThinkingLevelChange(level);
+              }}
               onValueChange={(value) => {
                 void onModelChange(value as string);
               }}
             />
 
-            <PromptInputSelect
-              value={agentConfig.thinkingLevel}
-              onValueChange={(value) => {
-                void onThinkingLevelChange(
-                  value as PiAgentConfig["thinkingLevel"],
-                );
-              }}
-            >
-              <PromptInputSelectTrigger size="sm" aria-label="Reasoning effort">
-                <PromptInputSelectValue />
-              </PromptInputSelectTrigger>
-              <PromptInputSelectContent>
-                {THINKING_LEVEL_OPTIONS.map((option) => (
-                  <PromptInputSelectItem
-                    key={option.value}
-                    value={option.value}
-                  >
-                    {option.label}
-                  </PromptInputSelectItem>
-                ))}
-              </PromptInputSelectContent>
-            </PromptInputSelect>
 
             <PromptInputSubmit size="icon-xs" status={status} onStop={onStop} />
           </div>

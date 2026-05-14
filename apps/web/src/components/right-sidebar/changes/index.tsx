@@ -233,16 +233,6 @@ export function ChangesPanel({ projectId, onChangeClick }: Props) {
   );
 
   const handlePanelKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    // Avoid hijacking input/textarea.
-    const target = e.target as HTMLElement;
-    if (
-      target.tagName === "INPUT" ||
-      target.tagName === "TEXTAREA" ||
-      target.isContentEditable
-    ) {
-      return;
-    }
-
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
       // Select all in any group with current selection.
       const group = GROUP_ORDER.find((g) => selection[g].length > 0) ?? null;

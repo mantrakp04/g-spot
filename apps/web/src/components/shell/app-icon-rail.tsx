@@ -3,7 +3,7 @@ import { useCallback, useState } from "react";
 import { Button } from "@g-spot/ui/components/button";
 import { cn } from "@g-spot/ui/lib/utils";
 import { useUser } from "@stackframe/react";
-import { Link, useRouterState } from "@tanstack/react-router";
+import { CatchBoundary, Link, useRouterState } from "@tanstack/react-router";
 import {
   BotIcon,
   BrainIcon,
@@ -82,9 +82,7 @@ function RailButton({ item, active }: { item: RailItem; active: boolean }) {
   );
 }
 
-export function AppIconRail() {
-  const user = useUser();
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
+function SignInButton() {
   const [signingIn, setSigningIn] = useState(false);
 
   const handleSignIn = useCallback(async () => {
@@ -98,6 +96,29 @@ export function AppIconRail() {
       setSigningIn(false);
     }
   }, []);
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      className="text-muted-foreground hover:text-foreground"
+      disabled={signingIn}
+      onClick={handleSignIn}
+      aria-label={signingIn ? "Waiting for browser" : "Sign in"}
+      title={signingIn ? "Waiting for browser" : "Sign in"}
+    >
+      <LogIn className="size-4" />
+    </Button>
+  );
+}
+
+function UserSlot() {
+  const user = useUser();
+  return user ? <NavUser compact /> : <SignInButton />;
+}
+
+export function AppIconRail() {
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
 
   return (
     <nav className="flex h-full w-12 shrink-0 flex-col items-center gap-1 border-r border-sidebar-border bg-sidebar py-2">
@@ -117,21 +138,12 @@ export function AppIconRail() {
 
       <div className="flex flex-col items-center gap-1">
         <ThemePicker compact side="right" sideOffset={8} />
-        {user ? (
-          <NavUser compact />
-        ) : (
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="text-muted-foreground hover:text-foreground"
-            disabled={signingIn}
-            onClick={handleSignIn}
-            aria-label={signingIn ? "Waiting for browser" : "Sign in"}
-            title={signingIn ? "Waiting for browser" : "Sign in"}
-          >
-            <LogIn className="size-4" />
-          </Button>
-        )}
+        <CatchBoundary
+          getResetKey={() => pathname}
+          errorComponent={SignInButton}
+        >
+          <UserSlot />
+        </CatchBoundary>
       </div>
     </nav>
   );

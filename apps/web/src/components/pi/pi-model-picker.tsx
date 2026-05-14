@@ -27,9 +27,12 @@ import { ModelSelectorLogo } from "@/components/ai-elements/model-selector";
 import { usePiCredentialFlows } from "@/contexts/pi-credential-flows-context";
 import {
   getModelValue,
+  getSupportedThinkingLevelOptions,
+  modelSupportsConfigurableThinking,
   prettyProviderName,
   type PiModelOption,
 } from "@/lib/pi-agent-config";
+import type { PiAgentConfig } from "@g-spot/types";
 
 type PopoverAlign = ComponentProps<typeof PopoverContent>["align"];
 
@@ -37,6 +40,8 @@ type PiModelPickerProps = {
   models: readonly PiModelOption[];
   value: string;
   onValueChange: (value: string) => void;
+  thinkingLevel?: PiAgentConfig["thinkingLevel"];
+  onThinkingLevelChange?: (level: PiAgentConfig["thinkingLevel"]) => void;
   configuredProviders?: ReadonlySet<string>;
   oauthProviders?: ReadonlySet<string>;
   disabled?: boolean;
@@ -64,6 +69,8 @@ export function PiModelPicker({
   models,
   value,
   onValueChange,
+  thinkingLevel,
+  onThinkingLevelChange,
   configuredProviders,
   oauthProviders,
   disabled = false,
@@ -80,6 +87,14 @@ export function PiModelPicker({
 
   const selectedModel =
     models.find((model) => getModelValue(model) === value) ?? null;
+  const supportedThinkingLevels = useMemo(
+    () => getSupportedThinkingLevelOptions(selectedModel),
+    [selectedModel],
+  );
+  const showThinkingPicker =
+    onThinkingLevelChange &&
+    thinkingLevel &&
+    modelSupportsConfigurableThinking(selectedModel);
 
   const groups = useMemo(() => {
     const byProvider = new Map<string, ProviderGroup>();
@@ -177,7 +192,16 @@ export function PiModelPicker({
                 className={cn("shrink-0", compact ? "size-3.5" : "size-4")}
               />
               {compact ? (
-                <span className="min-w-0 truncate">{selectedModel.name}</span>
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span className="min-w-0 truncate">{selectedModel.name}</span>
+                  {showThinkingPicker ? (
+                    <span className="shrink-0 rounded-full border border-border/70 px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground">
+                      {supportedThinkingLevels.find(
+                        (option) => option.value === thinkingLevel,
+                      )?.label ?? thinkingLevel}
+                    </span>
+                  ) : null}
+                </span>
               ) : (
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium">
@@ -185,6 +209,11 @@ export function PiModelPicker({
                   </span>
                   <span className="block truncate text-xs text-muted-foreground">
                     {prettyProviderName(selectedModel.provider)}
+                    {showThinkingPicker ? ` · ${
+                      supportedThinkingLevels.find(
+                        (option) => option.value === thinkingLevel,
+                      )?.label ?? thinkingLevel
+                    }` : ""}
                   </span>
                 </span>
               )}
@@ -334,7 +363,12 @@ export function PiModelPicker({
                           onSelect={() => {
                             if (isDisabled) return;
                             onValueChange(model.value);
-                            setOpen(false);
+                            if (
+                              !onThinkingLevelChange ||
+                              !modelSupportsConfigurableThinking(model)
+                            ) {
+                              setOpen(false);
+                            }
                           }}
                         >
                           <span className="min-w-0 flex-1 truncate text-xs font-medium">
@@ -346,6 +380,39 @@ export function PiModelPicker({
                   </CommandGroup>
                 ) : null}
               </CommandList>
+
+              {showThinkingPicker ? (
+                <div className="border-t border-border px-3 py-2.5">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium text-muted-foreground">
+                      Thinking
+                    </span>
+                    <span className="truncate text-[11px] text-muted-foreground">
+                      {selectedModel?.name}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {supportedThinkingLevels.map((option) => {
+                      const isActive = option.value === thinkingLevel;
+                      return (
+                        <Button
+                          key={option.value}
+                          type="button"
+                          variant={isActive ? "secondary" : "ghost"}
+                          size="xs"
+                          className={cn(
+                            "h-7 rounded-full px-2.5 text-xs",
+                            !isActive && "text-muted-foreground",
+                          )}
+                          onClick={() => onThinkingLevelChange(option.value)}
+                        >
+                          {option.label}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
         </Command>

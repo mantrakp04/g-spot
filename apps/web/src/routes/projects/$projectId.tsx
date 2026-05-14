@@ -60,8 +60,8 @@ function ProjectLayout() {
       event.preventDefault();
       setSearchOpen(true);
     };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    window.addEventListener("keydown", handler, true);
+    return () => window.removeEventListener("keydown", handler, true);
   }, []);
 
   if (projectQuery.isLoading) {

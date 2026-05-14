@@ -6,7 +6,10 @@ import type {
   PiSdkModel,
 } from "@g-spot/types";
 
-export type PiModelOption = Pick<PiSdkModel, "provider" | "id" | "name">;
+export type PiModelOption = Pick<
+  PiSdkModel,
+  "provider" | "id" | "name" | "reasoning" | "thinkingLevelMap"
+>;
 
 /**
  * Permission-mode *presets* exposed to the chat input. Each preset is a
@@ -146,6 +149,33 @@ export const THINKING_LEVEL_OPTIONS = [
   value: PiAgentConfig["thinkingLevel"];
   label: string;
 }>;
+
+const THINKING_LEVEL_ORDER = THINKING_LEVEL_OPTIONS.map(
+  (option) => option.value,
+);
+
+export function getSupportedThinkingLevelOptions(model: PiModelOption | null) {
+  if (!model?.reasoning) {
+    return THINKING_LEVEL_OPTIONS.filter((option) => option.value === "off");
+  }
+
+  return THINKING_LEVEL_OPTIONS.filter((option) => {
+    const mapped = model.thinkingLevelMap?.[option.value];
+    if (mapped === null) return false;
+    if (option.value === "xhigh") return mapped !== undefined;
+    return true;
+  }).sort(
+    (a, b) =>
+      THINKING_LEVEL_ORDER.indexOf(a.value) -
+      THINKING_LEVEL_ORDER.indexOf(b.value),
+  );
+}
+
+export function modelSupportsConfigurableThinking(model: PiModelOption | null) {
+  return getSupportedThinkingLevelOptions(model).some(
+    (option) => option.value !== "off",
+  );
+}
 
 export const QUEUE_MODE_OPTIONS = [
   { value: "one-at-a-time", label: "One at a time" },

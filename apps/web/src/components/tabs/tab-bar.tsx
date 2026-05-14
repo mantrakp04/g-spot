@@ -80,19 +80,19 @@ export function TabBar({ projectId }: TabBarProps) {
     [focus, navigate],
   );
 
-  // ⌘T new chat, ⌘⇧T new terminal.
+  // ⌘T new chat, ⌘⇧T new terminal, ⌘W close active tab.
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey)) return;
-      if (event.key.toLowerCase() !== "t") return;
-      const target = event.target;
-      if (
-        target instanceof HTMLElement &&
-        (target.isContentEditable ||
-          target.matches("input, textarea, select, [role='textbox']"))
-      ) {
+      const key = event.key.toLowerCase();
+      if (key !== "t" && key !== "w") return;
+      if (key === "w") {
+        if (!activeTabId) return;
+        event.preventDefault();
+        close(activeTabId);
         return;
       }
+
       event.preventDefault();
       if (event.shiftKey) {
         handleNewTerminal();
@@ -100,9 +100,9 @@ export function TabBar({ projectId }: TabBarProps) {
         void handleNewChat();
       }
     };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [handleNewChat, handleNewTerminal]);
+    window.addEventListener("keydown", handler, true);
+    return () => window.removeEventListener("keydown", handler, true);
+  }, [activeTabId, close, handleNewChat, handleNewTerminal]);
 
   return (
     <div

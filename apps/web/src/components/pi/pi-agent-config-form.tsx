@@ -130,6 +130,10 @@ export function PiAgentConfigForm({
               models={models}
               configuredProviders={configuredProviders}
               oauthProviders={oauthProviders}
+              thinkingLevel={value.thinkingLevel}
+              onThinkingLevelChange={(thinkingLevel) =>
+                onChange({ ...value, thinkingLevel })
+              }
               onValueChange={(selected) => {
                 onChange(updateAgentConfigModel(value, selected));
               }}

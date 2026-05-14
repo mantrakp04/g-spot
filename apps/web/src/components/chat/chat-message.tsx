@@ -16,7 +16,16 @@ import {
   RefreshCwIcon,
   XIcon,
 } from "lucide-react";
-import { useCallback, useMemo, useRef, useState, memo, type KeyboardEvent } from "react";
+import {
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  memo,
+  type FocusEvent,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 
 import {
   Attachments,
@@ -89,6 +98,36 @@ function joinUserText(parts: UIMessagePart[]) {
   return out;
 }
 
+function HoverMessageActions({
+  children,
+  className,
+  visible,
+}: {
+  children: ReactNode;
+  className?: string;
+  visible: boolean;
+}) {
+  return (
+    <MessageActions
+      className={cn(
+        "mt-1 transition-opacity duration-200",
+        visible ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
+        className,
+      )}
+    >
+      {children}
+    </MessageActions>
+  );
+}
+
+function ForkMessageAction({ onFork }: { onFork: () => void }) {
+  return (
+    <MessageAction tooltip="Fork from here" onClick={onFork}>
+      <GitForkIcon className="size-3.5" />
+    </MessageAction>
+  );
+}
+
 function isReasoningPart(
   part: UIMessagePart,
 ): part is Extract<UIMessagePart, { type: "reasoning" }> {
@@ -107,6 +146,14 @@ export const ChatMessage = memo(function ChatMessage({
   onEdit,
   onFork,
 }: ChatMessageProps) {
+  const [actionsVisible, setActionsVisible] = useState(false);
+
+  const handleBlur = useCallback((event: FocusEvent<HTMLDivElement>) => {
+    if (!event.currentTarget.contains(event.relatedTarget)) {
+      setActionsVisible(false);
+    }
+  }, []);
+
   perfCount("ChatMessage.render", {
     id: message.id,
     role: message.role,
@@ -116,10 +163,11 @@ export const ChatMessage = memo(function ChatMessage({
 
   return (
     <div
-      className={cn(
-        "group/msg relative",
-        message.role === "user" && "flex justify-end",
-      )}
+      className={cn("relative", message.role === "user" && "flex justify-end")}
+      onBlurCapture={handleBlur}
+      onFocusCapture={() => setActionsVisible(true)}
+      onPointerEnter={() => setActionsVisible(true)}
+      onPointerLeave={() => setActionsVisible(false)}
     >
       <Message
         from={message.role}
@@ -132,6 +180,7 @@ export const ChatMessage = memo(function ChatMessage({
           <UserMessageBubble
             message={message}
             text={userText}
+            actionsVisible={actionsVisible}
             onEdit={onEdit}
             onFork={onFork}
           />
@@ -144,6 +193,7 @@ export const ChatMessage = memo(function ChatMessage({
             variant={variant}
             showActions={variant === "final"}
             showThoughts={showThoughts ?? variant === "final"}
+            actionsVisible={actionsVisible}
             onReload={onReload}
             onFork={onFork}
           />
@@ -156,11 +206,13 @@ export const ChatMessage = memo(function ChatMessage({
 function UserMessageBubble({
   message,
   text,
+  actionsVisible,
   onEdit,
   onFork,
 }: {
   message: UIMessage;
   text?: string;
+  actionsVisible: boolean;
   onEdit?: (newText: string) => void;
   onFork?: () => void;
 }) {
@@ -232,18 +284,14 @@ function UserMessageBubble({
       <MessageContent className="rounded-2xl rounded-br-md bg-secondary/80 px-4 py-3 text-sm backdrop-blur-sm">
         <MessageParts messageId={message.id} parts={displayParts} />
       </MessageContent>
-      <MessageActions className="mt-1 justify-end opacity-0 transition-opacity duration-200 group-hover/msg:opacity-100">
+      <HoverMessageActions className="justify-end" visible={actionsVisible}>
         {onEdit && (
           <MessageAction tooltip="Edit" onClick={() => setEditing(true)}>
             <PencilIcon className="size-3.5" />
           </MessageAction>
         )}
-        {onFork && (
-          <MessageAction tooltip="Fork from here" onClick={onFork}>
-            <GitForkIcon className="size-3.5" />
-          </MessageAction>
-        )}
-      </MessageActions>
+        {onFork && <ForkMessageAction onFork={onFork} />}
+      </HoverMessageActions>
     </>
   );
 }
@@ -256,6 +304,7 @@ function AssistantMessageBubble({
   variant,
   showActions,
   showThoughts,
+  actionsVisible,
   onReload,
   onFork,
 }: {
@@ -266,6 +315,7 @@ function AssistantMessageBubble({
   variant: "final" | "streaming";
   showActions: boolean;
   showThoughts: boolean;
+  actionsVisible: boolean;
   onReload?: () => void;
   onFork?: () => void;
 }) {
@@ -321,7 +371,7 @@ function AssistantMessageBubble({
         )}
       </MessageContent>
       {showActions && (
-        <MessageActions className="mt-1 opacity-0 transition-opacity duration-200 group-hover/msg:opacity-100">
+        <HoverMessageActions visible={actionsVisible}>
           <MessageAction tooltip="Copy" onClick={handleCopy}>
             <span className="t-icon-swap" data-state={copied ? "b" : "a"}>
               <CopyIcon className="t-icon size-3.5" data-icon="a" />
@@ -336,12 +386,8 @@ function AssistantMessageBubble({
               <RefreshCwIcon className="size-3.5" />
             </MessageAction>
           )}
-          {onFork && (
-            <MessageAction tooltip="Fork from here" onClick={onFork}>
-              <GitForkIcon className="size-3.5" />
-            </MessageAction>
-          )}
-        </MessageActions>
+          {onFork && <ForkMessageAction onFork={onFork} />}
+        </HoverMessageActions>
       )}
     </>
   );

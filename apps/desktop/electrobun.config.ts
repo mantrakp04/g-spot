@@ -11,6 +11,7 @@ const releaseTag = process.env.DESKTOP_RELEASE_TAG ?? "desktop-stable";
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 const bunModulesDir = path.join(repoRoot, "node_modules", ".bun");
 const enableMacSigning = process.env.ELECTROBUN_CODESIGN === "true";
+const enableMacNotarize = process.env.ELECTROBUN_NOTARIZE === "true";
 
 // Map node platform/arch to the suffix conventions each native dep uses.
 // sharp + onnxruntime use `win32`; sqlite-vec uses `windows`.
@@ -124,7 +125,7 @@ export default {
     watchIgnore: [`${webBuildDir}/**`],
     mac: {
       codesign: enableMacSigning,
-      notarize: enableMacSigning,
+      notarize: enableMacNotarize,
       bundleCEF: false,
       defaultRenderer: "native",
       icons: "icon.iconset",

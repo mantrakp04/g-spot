@@ -120,9 +120,12 @@ jobs:
             runner: windows-latest
     env:
       DESKTOP_RELEASE_TAG: ${{ needs.resolve.outputs.update_release_tag }}
-      ELECTROBUN_CODESIGN: ${{ secrets.ELECTROBUN_DEVELOPER_ID != '' && 'true' || 'false' }}
+      # Always codesign on macOS — fall back to ad-hoc identity "-" when no
+      # Apple Developer ID is configured. Apple Silicon refuses to launch
+      # fully unsigned bundles ("app is damaged"), but accepts ad-hoc.
+      ELECTROBUN_CODESIGN: "true"
       ELECTROBUN_NOTARIZE: ${{ secrets.ELECTROBUN_APPLEID != '' && 'true' || 'false' }}
-      ELECTROBUN_DEVELOPER_ID: ${{ secrets.ELECTROBUN_DEVELOPER_ID }}
+      ELECTROBUN_DEVELOPER_ID: ${{ secrets.ELECTROBUN_DEVELOPER_ID != '' && secrets.ELECTROBUN_DEVELOPER_ID || '-' }}
       ELECTROBUN_TEAMID: ${{ secrets.ELECTROBUN_TEAMID }}
       ELECTROBUN_APPLEID: ${{ secrets.ELECTROBUN_APPLEID }}
       ELECTROBUN_APPLEIDPASS: ${{ secrets.ELECTROBUN_APPLEIDPASS }}

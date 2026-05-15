@@ -24,6 +24,7 @@ import { Button } from "@g-spot/ui/components/button";
 import { Input } from "@g-spot/ui/components/input";
 import { Skeleton } from "@g-spot/ui/components/skeleton";
 import { ToggleGroup, ToggleGroupItem } from "@g-spot/ui/components/toggle-group";
+import { cn } from "@g-spot/ui/lib/utils";
 
 import type { ReviewComment, ReviewTarget } from "@/hooks/use-github-detail";
 import { useGitHubFileContents } from "@/hooks/use-github-detail";
@@ -49,6 +50,7 @@ export type PRFile = {
 };
 
 export type DiffMode = "unified" | "split";
+type AnnotationPlacement = "inline" | "side";
 
 type AnnotationPayload =
   | {
@@ -73,6 +75,47 @@ const DIFF_HOST_STYLE = {
   "--diffs-bg": "var(--card)",
   "--diffs-fg": "var(--foreground)",
 } as CSSProperties;
+
+const SIDE_ANNOTATION_UNSAFE_CSS = `
+  :host {
+    --review-side-annotation-width: 360px;
+    --review-side-annotation-gap: 12px;
+  }
+
+  [data-diff],
+  [data-file] {
+    overflow: visible;
+  }
+
+  [data-code],
+  [data-content],
+  [data-line-annotation] {
+    overflow: visible;
+  }
+
+  [data-line-annotation] {
+    position: relative;
+    min-height: 0;
+    height: 0;
+    overflow: visible;
+    background: transparent;
+    z-index: 5;
+  }
+
+  [data-line-annotation] > [data-annotation-content] {
+    position: absolute;
+    inset-block-start: calc(var(--diffs-line-height, 20px) * -1);
+    inset-inline-start: calc(100% + var(--review-side-annotation-gap));
+    width: var(--review-side-annotation-width);
+    max-width: var(--review-side-annotation-width);
+    white-space: normal;
+  }
+
+  [data-overflow='scroll'] [data-line-annotation] > [data-annotation-content] {
+    position: absolute;
+    left: calc(100% + var(--review-side-annotation-gap));
+  }
+`;
 
 function sideToGithub(side: "deletions" | "additions"): "LEFT" | "RIGHT" {
   return side === "deletions" ? "LEFT" : "RIGHT";
@@ -155,6 +198,7 @@ export const FileDiffCard = forwardRef<
     headSha?: string;
     headRef?: string;
     pendingKey: PendingCommentsKey;
+    annotationPlacement?: AnnotationPlacement;
   }
 >(function FileDiffCard(
   {
@@ -168,6 +212,7 @@ export const FileDiffCard = forwardRef<
     headSha,
     headRef,
     pendingKey,
+    annotationPlacement = "inline",
   },
   ref,
 ) {
@@ -215,6 +260,8 @@ export const FileDiffCard = forwardRef<
     () => buildAnnotations(comments, composeForFile),
     [comments, composeForFile],
   );
+  const useSideAnnotations =
+    annotationPlacement === "side" && lineAnnotations.length > 0;
 
   const baseRepoFull = `${target.owner}/${target.repo}`;
 
@@ -336,15 +383,21 @@ export const FileDiffCard = forwardRef<
     expansionLineCount: 20,
     lineDiffType: customization.lineDiffType,
     disableBackground: !customization.backgrounds,
-    overflow: (customization.wrapping ? "wrap" : "scroll") as "wrap" | "scroll",
+    overflow: (
+      useSideAnnotations || customization.wrapping ? "wrap" : "scroll"
+    ) as "wrap" | "scroll",
     disableLineNumbers: !customization.lineNumbers,
+    unsafeCSS: useSideAnnotations ? SIDE_ANNOTATION_UNSAFE_CSS : undefined,
   };
 
   return (
     <div
       ref={mergeRefs(ref)}
       data-active={isActive ? "true" : "false"}
-      className="overflow-hidden rounded-md border border-border/50 bg-card data-[active=true]:border-primary/50"
+      className={cn(
+        "rounded-md border border-border/50 bg-card data-[active=true]:border-primary/50",
+        useSideAnnotations ? "overflow-visible" : "overflow-hidden",
+      )}
     >
       {canUseMultiFile ? (
         <MultiFileDiff<AnnotationPayload>
@@ -423,6 +476,7 @@ function TreeNode({
   node,
   path,
   activeFile,
+  commentsByFile,
   onSelect,
   depth,
   collapsed,
@@ -431,6 +485,7 @@ function TreeNode({
   node: TreeFolderNode;
   path: string;
   activeFile: string | null;
+  commentsByFile: Record<string, unknown[]>;
   onSelect: (filename: string) => void;
   depth: number;
   collapsed: Set<string>;
@@ -444,14 +499,20 @@ function TreeNode({
         const nextPath = path ? `${path}/${child.name}` : child.name;
         if (child.file) {
           const active = activeFile === child.file.filename;
+          const hasComments =
+            (commentsByFile[child.file.filename]?.length ?? 0) > 0;
           return (
             <li key={nextPath}>
               <button
                 type="button"
                 onClick={() => onSelect(child.file!.filename)}
-                className={`flex w-full items-center gap-1.5 rounded-md py-[3px] pr-1.5 text-left text-[12px] hover:bg-muted ${
-                  active ? "bg-muted text-foreground" : ""
-                }`}
+                className={cn(
+                  "flex w-full items-center gap-1.5 rounded-md py-[3px] pr-1.5 text-left text-[12px] hover:bg-muted",
+                  hasComments &&
+                    "bg-amber-500/10 text-foreground hover:bg-amber-500/15",
+                  active && "bg-muted text-foreground",
+                  active && hasComments && "bg-amber-500/15",
+                )}
                 style={{ paddingLeft: 6 + indent + 14 }}
               >
                 <FileIcon name={child.name} className="size-3.5 shrink-0" />
@@ -497,6 +558,7 @@ function TreeNode({
                 node={child}
                 path={nextPath}
                 activeFile={activeFile}
+                commentsByFile={commentsByFile}
                 onSelect={onSelect}
                 depth={depth + 1}
                 collapsed={collapsed}
@@ -513,10 +575,12 @@ function TreeNode({
 export function FileTreePanel({
   files,
   activeFile,
+  commentsByFile,
   onSelect,
 }: {
   files: PRFile[];
   activeFile: string | null;
+  commentsByFile: Record<string, unknown[]>;
   onSelect: (filename: string) => void;
 }) {
   const [query, setQuery] = useState("");
@@ -579,6 +643,7 @@ export function FileTreePanel({
           node={tree}
           path=""
           activeFile={activeFile}
+          commentsByFile={commentsByFile}
           onSelect={onSelect}
           depth={0}
           collapsed={collapsed}
@@ -632,4 +697,3 @@ export function DiffSkeleton() {
     </div>
   );
 }
-

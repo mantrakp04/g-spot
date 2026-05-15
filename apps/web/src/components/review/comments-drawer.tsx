@@ -63,7 +63,7 @@ export function CommentsDrawer({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   commentsByFile: Record<string, ReviewComment[]>;
-  onJumpTo?: (path: string) => void;
+  onJumpTo?: (target: { path: string; commentId: number }) => void;
 }) {
   const [reviewer, setReviewer] = useState<string>("all");
   const [status, setStatus] = useState<StatusFilter>("open");
@@ -254,7 +254,7 @@ export function CommentsDrawer({
                 >
                   <button
                     type="button"
-                    onClick={() => onJumpTo?.(path)}
+                    onClick={() => onJumpTo?.({ path, commentId: root.id })}
                     className="min-w-0 flex-1 cursor-pointer py-3 pr-2 pl-4 text-left"
                   >
                     <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground/80">

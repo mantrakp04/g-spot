@@ -80,3 +80,18 @@ export function useFileCollapse(filename: string) {
 
   return { collapsed, toggle };
 }
+
+export function useExpandFile() {
+  const setCollapsed = useSetAtom(collapsedFilesAtom);
+  return useCallback(
+    (filename: string) => {
+      setCollapsed((prev) => {
+        if (!prev.has(filename)) return prev;
+        const next = new Set(prev);
+        next.delete(filename);
+        return next;
+      });
+    },
+    [setCollapsed],
+  );
+}

@@ -20,6 +20,8 @@ export function ReviewShell({
   rightSidebar,
   actions,
   isLoading,
+  sidebarOpen,
+  onSidebarOpenChange,
 }: {
   fullHeader: ReactNode;
   condensedHeader: ReactNode;
@@ -27,12 +29,16 @@ export function ReviewShell({
   rightSidebar: ReactNode;
   actions?: ReactNode;
   isLoading?: boolean;
+  sidebarOpen?: boolean;
+  onSidebarOpenChange?: (open: boolean) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const fullHeaderRef = useRef<HTMLDivElement | null>(null);
   const [condensed, setCondensed] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [uncontrolledSidebarOpen, setUncontrolledSidebarOpen] = useState(true);
+  const effectiveSidebarOpen = sidebarOpen ?? uncontrolledSidebarOpen;
+  const setSidebarOpen = onSidebarOpenChange ?? setUncontrolledSidebarOpen;
 
   useHotkey(
     { key: "?" },
@@ -81,12 +87,12 @@ export function ReviewShell({
           type="button"
           variant="ghost"
           size="icon"
-          onClick={() => setSidebarOpen((s) => !s)}
-          aria-label={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
-          aria-expanded={sidebarOpen}
+          onClick={() => setSidebarOpen(!effectiveSidebarOpen)}
+          aria-label={effectiveSidebarOpen ? "Hide sidebar" : "Show sidebar"}
+          aria-expanded={effectiveSidebarOpen}
           className="hidden shrink-0 lg:inline-flex"
         >
-          {sidebarOpen ? <PanelRightClose /> : <PanelRightOpen />}
+          {effectiveSidebarOpen ? <PanelRightClose /> : <PanelRightOpen />}
         </Button>
       </div>
       <div
@@ -98,7 +104,7 @@ export function ReviewShell({
             <div ref={fullHeaderRef}>{fullHeader}</div>
             {main}
           </div>
-          {sidebarOpen ? (
+          {effectiveSidebarOpen ? (
             <aside className="order-last w-full shrink-0 pb-6 lg:sticky lg:top-0 lg:order-none lg:h-fit lg:w-[300px] lg:py-6">
               {rightSidebar}
             </aside>

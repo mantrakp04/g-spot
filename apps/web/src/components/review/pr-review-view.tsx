@@ -38,7 +38,7 @@ import {
   useGitHubPRTimeline,
 } from "@/hooks/use-github-detail";
 import { CommitSelector, type CommitRange } from "./commit-selector";
-import { useSetAllFiles } from "./diff-collapse-state";
+import { useExpandFile, useSetAllFiles } from "./diff-collapse-state";
 import { DiffCustomizerMenu } from "./diff-customizer";
 
 import { usePendingComments } from "@/hooks/use-pending-comments";
@@ -77,6 +77,10 @@ import { Timeline, TimelineSkeleton } from "./timeline";
 
 const FILE_EXPAND_LIMIT = 50;
 const EMPTY_COMMENTS: never[] = [];
+
+function commentAnchorSelector(commentId: number) {
+  return `[data-review-comment-id="${commentId}"]`;
+}
 
 // Rough px guess: header (~36) + per-line (~18) capped so an enormous file
 // doesn't reserve a screen-and-a-half of empty space.
@@ -135,6 +139,7 @@ function FileRailHandle({
           <FileTreePanel
             files={files}
             activeFile={activeFile}
+            commentsByFile={commentsByFile}
             onSelect={onSelect}
           />
         </div>
@@ -206,6 +211,7 @@ export function PRReviewView({
   const [diffMode, setDiffMode] = useReviewDiffMode();
   const [treeOpen, setTreeOpen] = useReviewTreeOpen();
   const [commentsOpen, setCommentsOpen] = useState(false);
+  const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
 
   const pr = detail.data;
 
@@ -224,6 +230,7 @@ export function PRReviewView({
   const [virtualScrollMargin, setVirtualScrollMargin] = useState(0);
 
   const setAllFiles = useSetAllFiles();
+  const expandFile = useExpandFile();
   useEffect(() => {
     setAllFiles(
       fileList.map((f) => f.filename),
@@ -341,6 +348,28 @@ export function PRReviewView({
       });
     },
     [fileList, fileVirtualizer],
+  );
+
+  const scrollToComment = useCallback(
+    ({ path, commentId }: { path: string; commentId: number }) => {
+      expandFile(path);
+      scrollToFile(path);
+
+      let attempts = 0;
+      const selector = commentAnchorSelector(commentId);
+      const tryScroll = () => {
+        const anchor = document.querySelector<HTMLElement>(selector);
+        if (anchor) {
+          anchor.scrollIntoView({ behavior: "smooth", block: "center" });
+          return;
+        }
+        attempts += 1;
+        if (attempts < 12) window.setTimeout(tryScroll, 50);
+      };
+
+      window.requestAnimationFrame(tryScroll);
+    },
+    [expandFile, scrollToFile],
   );
 
   const jumpFile = (direction: -1 | 1) => {
@@ -507,6 +536,7 @@ export function PRReviewView({
                 <FileTreePanel
                   files={fileList}
                   activeFile={activeFile}
+                  commentsByFile={reviewComments.data ?? {}}
                   onSelect={scrollToFile}
                 />
               </div>
@@ -564,6 +594,9 @@ export function PRReviewView({
                         headSha={pr?.head.sha}
                         headRef={pr?.head.ref}
                         pendingKey={pendingKey}
+                        annotationPlacement={
+                          rightSidebarOpen ? "side" : "inline"
+                        }
                       />
                     </div>
                   );
@@ -578,9 +611,9 @@ export function PRReviewView({
         open={commentsOpen}
         onOpenChange={setCommentsOpen}
         commentsByFile={reviewComments.data ?? {}}
-        onJumpTo={(path) => {
+        onJumpTo={(target) => {
           setCommentsOpen(false);
-          scrollToFile(path);
+          scrollToComment(target);
         }}
       />
 
@@ -620,6 +653,8 @@ export function PRReviewView({
       condensedHeader={condensedHeader}
       main={main}
       rightSidebar={sidebar}
+      sidebarOpen={rightSidebarOpen}
+      onSidebarOpenChange={setRightSidebarOpen}
       actions={
         pr ? (
           <PRActionBar

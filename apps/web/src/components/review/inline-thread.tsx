@@ -155,6 +155,7 @@ export function InlineThread({
 
   return (
     <div
+      data-review-comment-id={root.id}
       className="space-y-2 border-y px-3 py-3"
       style={{
         background: "var(--diffs-bg-buffer, var(--muted))",

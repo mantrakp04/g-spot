@@ -135,15 +135,30 @@ export const app = new Elysia()
       maxAge: 86400,
     }),
   )
-  .all("/trpc/*", async (context) => {
-    const res = await fetchRequestHandler({
+  .get("/trpc/*", (context) =>
+    fetchRequestHandler({
       endpoint: "/trpc",
       router: appRouter,
       req: context.request,
       createContext: () => createContext({ context }),
-    });
-    return res;
-  })
+    }),
+  )
+  .post("/trpc/*", (context) =>
+    fetchRequestHandler({
+      endpoint: "/trpc",
+      router: appRouter,
+      req: context.request,
+      createContext: () => createContext({ context }),
+    }),
+  )
+  .options("/trpc/*", (context) =>
+    fetchRequestHandler({
+      endpoint: "/trpc",
+      router: appRouter,
+      req: context.request,
+      createContext: () => createContext({ context }),
+    }),
+  )
   .get("/api/favicon/:domain", async ({ params }) => {
     const buf = await getValidatedFavicon(params.domain);
     if (!buf) {

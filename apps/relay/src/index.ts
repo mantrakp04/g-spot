@@ -35,17 +35,11 @@ type RelaySocketData = {
   gmailAccounts: ConnectedGmailAccount[];
 };
 
-const REQUIRED_GMAIL_SCOPE = "https://mail.google.com/";
 const PENDING_QUEUE_MAX = 1000;
 const PENDING_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 const INFLIGHT_TTL_MS = 10 * 60 * 1000; // 10min
 const DEDUPE_TTL_MS = 5 * 60 * 1000; // 5min
-const GMAIL_PROFILE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const GMAIL_PROFILE_RATE_LIMIT_FALLBACK_MS = 60 * 60 * 1000;
 
-const gmailProfileSchema = z.object({
-  emailAddress: z.string().min(1),
-});
 const relayAckMessageSchema = z.object({
   type: z.literal("ack"),
   id: z.string().min(1),
@@ -83,115 +77,24 @@ function dedupeKey(userId: string, messageId: string): string {
 function emailDedupeKey(email: string, messageId: string): string {
   return `dedupe:email:${normalizeEmail(email)}:${messageId}`;
 }
-function gmailProfileCacheKey(providerAccountId: string): string {
-  return `gmail-profile:${providerAccountId}`;
-}
-function gmailProfileCooldownKey(providerAccountId: string): string {
-  return `gmail-profile-cooldown:${providerAccountId}`;
-}
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
-function parseRetryAfterMs(value: string | null): number | null {
-  if (!value) return null;
-
-  const seconds = Number(value);
-  if (Number.isFinite(seconds) && seconds >= 0) {
-    return Math.max(1_000, seconds * 1000);
-  }
-
-  const retryAt = Date.parse(value);
-  if (!Number.isFinite(retryAt)) return null;
-
-  return Math.max(1_000, retryAt - Date.now());
-}
-
-function parseRetryAfterFromBodyMs(body: string): number | null {
-  const match = body.match(/\bRetry after\s+([^\s.]+(?:\.\d+)?Z?)/i);
-  if (!match?.[1]) return null;
-
-  const retryAt = Date.parse(match[1]);
-  if (!Number.isFinite(retryAt)) return null;
-
-  return Math.max(1_000, retryAt - Date.now());
-}
-
-async function getCachedGmailProfile(
-  providerAccountId: string,
-  token: string,
-): Promise<{ emailAddress: string } | null> {
-  const cached = await state.get<{ emailAddress: string }>(
-    gmailProfileCacheKey(providerAccountId),
-  );
-  if (cached) {
-    return cached;
-  }
-
-  const cooldown = await state.get<boolean>(
-    gmailProfileCooldownKey(providerAccountId),
-  );
-  if (cooldown) {
-    return null;
-  }
-
-  const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/profile", {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-
-  if (!response.ok) {
-    const errorBody = await response.text();
-    if (response.status === 429 || response.status === 403) {
-      const retryAfterMs =
-        parseRetryAfterMs(response.headers.get("Retry-After"))
-        ?? parseRetryAfterFromBodyMs(errorBody)
-        ?? GMAIL_PROFILE_RATE_LIMIT_FALLBACK_MS;
-      await state.set(
-        gmailProfileCooldownKey(providerAccountId),
-        true,
-        retryAfterMs,
-      );
-    }
-    throw new Error(
-      `Gmail profile failed (${response.status} ${response.statusText}): ${errorBody}`,
-    );
-  }
-
-  const profile = gmailProfileSchema.parse(await response.json());
-  await state.set(
-    gmailProfileCacheKey(providerAccountId),
-    profile,
-    GMAIL_PROFILE_CACHE_TTL_MS,
-  );
-  return profile;
-}
-
 async function listConnectedGmailAccounts(user: RelayUser): Promise<ConnectedGmailAccount[]> {
-  const accounts = await user.listConnectedAccounts();
+  const providers = await user.listOAuthProviders();
   const connectedGmailAccounts: ConnectedGmailAccount[] = [];
 
-  for (const account of accounts) {
-    if (account.provider !== "google") continue;
+  for (const provider of providers) {
+    if (provider.type !== "google") continue;
+    if (!provider.allowConnectedAccounts) continue;
+    if (!provider.email || !provider.accountId) continue;
 
-    const tokenResult = await account.getAccessToken({
-      scopes: [REQUIRED_GMAIL_SCOPE],
+    connectedGmailAccounts.push({
+      email: normalizeEmail(provider.email),
+      providerAccountId: provider.accountId,
     });
-    if (tokenResult.status !== "ok") continue;
-
-    try {
-      const profile = await getCachedGmailProfile(
-        account.providerAccountId,
-        tokenResult.data.accessToken,
-      );
-      if (!profile) continue;
-      connectedGmailAccounts.push({
-        email: normalizeEmail(profile.emailAddress),
-        providerAccountId: account.providerAccountId,
-      });
-    } catch {
-      // ignore: account skipped if profile unavailable
-    }
   }
 
   return connectedGmailAccounts.filter(

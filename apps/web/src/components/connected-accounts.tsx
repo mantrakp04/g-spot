@@ -2,6 +2,7 @@ import { Badge } from "@g-spot/ui/components/badge";
 import { Button } from "@g-spot/ui/components/button";
 import { cn } from "@g-spot/ui/lib/utils";
 import { useUser } from "@stackframe/react";
+import { useAtomValue } from "jotai";
 import { Check, Github, KeyRound, LinkIcon, Minus, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -10,7 +11,35 @@ import type { PiCredentialSummary } from "@g-spot/types";
 import { GoogleAccountRow } from "@/components/google-account-row";
 import { usePiCredentialFlows } from "@/contexts/pi-credential-flows-context";
 import { usePiCatalog } from "@/hooks/use-pi";
+import { relayStatusAtom, type RelayStatus } from "@/lib/relay-status";
 import { GITHUB_OAUTH_SCOPES, GOOGLE_OAUTH_SCOPES } from "@/stack/client";
+
+const RELAY_STATUS_DOT: Record<RelayStatus, { color: string; label: string }> = {
+  open: { color: "bg-emerald-400", label: "Relay connected" },
+  connecting: { color: "bg-amber-400", label: "Relay connecting…" },
+  closed: { color: "bg-red-400", label: "Relay disconnected" },
+  unknown: { color: "bg-muted-foreground/40", label: "Relay status unknown" },
+};
+
+function RelayStatusDot() {
+  const status = useAtomValue(relayStatusAtom);
+  const { color, label } = RELAY_STATUS_DOT[status];
+  return (
+    <span
+      className="inline-flex items-center"
+      title={label}
+      aria-label={label}
+    >
+      <span
+        className={cn(
+          "size-2 rounded-full",
+          color,
+          status === "connecting" && "animate-pulse",
+        )}
+      />
+    </span>
+  );
+}
 
 type ProviderId = "google" | "github";
 
@@ -245,6 +274,7 @@ export function ConnectedAccounts() {
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="font-medium text-[13px] tracking-tight">Google</h3>
+                <RelayStatusDot />
                 {googleAccounts.length > 0 ? (
                   <Badge
                     variant="outline"

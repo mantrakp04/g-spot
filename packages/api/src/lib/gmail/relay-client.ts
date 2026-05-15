@@ -235,6 +235,7 @@ export async function triggerPendingGmailNotificationSyncs(
 
 export async function ensureRelayConnection(
   authHeader: string,
+  options?: { forceReconnect?: boolean },
 ): Promise<EnsureRelayConnectionResult> {
   if (!state) {
     state = {
@@ -247,6 +248,14 @@ export async function ensureRelayConnection(
     };
   } else {
     state.authHeader = authHeader;
+  }
+
+  if (options?.forceReconnect) {
+    clearReconnect(state);
+    const existing = state.socket;
+    state.socket = null;
+    existing?.close(1000, "Forced reconnect");
+    state.reconnectAttempt = 0;
   }
 
   const readyState = state.socket?.readyState;

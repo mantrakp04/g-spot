@@ -24,7 +24,6 @@
     },
     "apps/desktop": {
       "name": "desktop",
-      "version": "0.0.5",
       "dependencies": {
         "@g-spot/db": "workspace:*",
         "@g-spot/types": "workspace:*",
@@ -240,6 +239,7 @@
     "packages/chat-state-sqlite": {
       "name": "@g-spot/chat-state-sqlite",
       "dependencies": {
+        "@g-spot/env": "workspace:*",
         "chat": "^4.26.0",
       },
       "devDependencies": {

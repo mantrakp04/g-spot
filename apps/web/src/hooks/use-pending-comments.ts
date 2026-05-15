@@ -1,3 +1,4 @@
+import { env } from "@g-spot/env/web";
 import { atom, useAtom, useAtomValue, useSetAtom } from "jotai";
 import { atomFamily, atomWithStorage } from "jotai/utils";
 import { nanoid } from "nanoid";
@@ -44,7 +45,7 @@ function parsePendingComments(raw: string | null): PendingComment[] {
       );
     });
   } catch (error) {
-    if (import.meta.env.DEV) {
+    if (env.DEV) {
       console.warn("[review] failed to parse pending comments", error);
     }
     return [];

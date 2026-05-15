@@ -2,6 +2,8 @@ import { atom, useAtomValue, useSetAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import { useCallback } from "react";
 
+import { disposeTerminalSession } from "@/components/terminal/terminal-sessions";
+
 /**
  * Tab strip state. Each tab is either a chat (mapped to a persisted chat
  * record) or a terminal (transient). The active tab drives what's painted
@@ -284,6 +286,10 @@ export function useCloseTab() {
       setTabs((prev) => {
         const idx = prev.findIndex((t) => t.id === id);
         if (idx === -1) return prev;
+        const closing = prev[idx]!;
+        if (closing.kind === "terminal") {
+          disposeTerminalSession(closing.id);
+        }
         const next = prev.filter((t) => t.id !== id);
         // Reassign active if the closed tab was active. Prefer the neighbor
         // to the right, else left, else null.

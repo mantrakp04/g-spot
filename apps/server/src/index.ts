@@ -31,7 +31,6 @@ import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { Elysia } from "elysia";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 // ── Favicon proxy (rejects Google default globe) ──
 
@@ -83,9 +82,10 @@ function buildFallbackFavicon(domain: string): string {
 
 // ── Desktop-hosted web callback pages ──
 
-const webDistDir =
-  process.env.G_SPOT_WEB_DIST_DIR ??
-  fileURLToPath(new URL("../../../apps/web/dist", import.meta.url));
+// Only serve the bundled SPA when the desktop shell explicitly points us at
+// its copy. In dev (web served by Vite on :3001) this stays null so stale
+// `apps/web/dist` builds don't shadow the dev server.
+const webDistDir = process.env.G_SPOT_WEB_DIST_DIR ?? null;
 
 const contentTypes: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
@@ -101,6 +101,7 @@ const contentTypes: Record<string, string> = {
 };
 
 async function serveWebAsset(relativePath: string): Promise<Response | null> {
+  if (!webDistDir) return null;
   const normalizedPath = path.normalize(relativePath).replace(/^(\.\.(\/|\\|$))+/, "");
   const filePath = path.join(webDistDir, normalizedPath);
 
@@ -117,6 +118,7 @@ async function serveWebAsset(relativePath: string): Promise<Response | null> {
 }
 
 async function serveWebApp(): Promise<Response> {
+  if (!webDistDir) return new Response("Not found", { status: 404 });
   return (
     (await serveWebAsset("index.html")) ??
     new Response("Web build not found", { status: 404 })
@@ -212,7 +214,26 @@ export const app = new Elysia()
     return file ?? new Response("Not found", { status: 404 });
   })
   .get("/handler/*", () => serveWebApp())
-  .get("/", () => "OK")
+  .get("/healthz", () => "OK")
+  .get("/", () => (webDistDir ? serveWebApp() : new Response("OK")))
+  .get("/*", async ({ params, request }) => {
+    const rest = params["*"];
+    if (rest.startsWith("api/") || rest.startsWith("trpc/")) {
+      return new Response("Not found", { status: 404 });
+    }
+
+    const accept = request.headers.get("accept") ?? "";
+    const hasExtension = /\.[a-z0-9]+$/i.test(rest);
+    if (hasExtension) {
+      const file = await serveWebAsset(rest);
+      if (file) return file;
+      return new Response("Not found", { status: 404 });
+    }
+    if (!accept.includes("text/html")) {
+      return new Response("Not found", { status: 404 });
+    }
+    return serveWebApp();
+  })
   .listen(env.SERVER_PORT, () => {
     startDecayCron();
     void loadGlobalMcps();

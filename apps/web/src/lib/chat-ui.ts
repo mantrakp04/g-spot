@@ -1,3 +1,4 @@
+import { env } from "@g-spot/env/web";
 import type {
   PiSdkMessage,
   PiSdkSessionEvent,
@@ -205,7 +206,7 @@ function base64ImageUrl(data: string, mimeType: string) {
 }
 
 function warnUnsupportedPiContentPart(part: unknown) {
-  if (!import.meta.env.DEV) {
+  if (!env.DEV) {
     return;
   }
 

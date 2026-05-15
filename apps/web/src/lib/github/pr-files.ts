@@ -1,3 +1,5 @@
+import { env } from "@g-spot/env/web";
+
 export type NormalizablePRFile = {
   filename: string;
 };
@@ -19,7 +21,7 @@ export function normalizePullRequestFiles<T extends NormalizablePRFile>(
     byName.set(file.filename, file);
   }
 
-  if (duplicates.size > 0 && import.meta.env.DEV) {
+  if (duplicates.size > 0 && env.DEV) {
     console.warn("[github-pr-files] duplicate PR file entries", {
       ...context,
       duplicates: Array.from(duplicates),

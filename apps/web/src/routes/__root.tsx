@@ -8,6 +8,8 @@ import { useAtom } from "jotai";
 
 import { GlobalCommandPalette } from "@/components/search/global-command-palette";
 import { AppIconRail } from "@/components/shell/app-icon-rail";
+import { reapTerminalSessions } from "@/components/terminal/terminal-sessions";
+import { useTabs } from "@/lib/tabs-store";
 import { useSecondarySidebar } from "@/components/shell/secondary-sidebar";
 import { rightSidebarCollapsedAtom } from "@/lib/sidebars-store";
 import { DraftDock } from "@/components/inbox/draft-dock";
@@ -99,6 +101,15 @@ function ExternalLinkInterceptor() {
   return null;
 }
 
+function TerminalSessionReaper() {
+  const tabs = useTabs();
+  useEffect(() => {
+    const liveIds = new Set(tabs.filter((t) => t.kind === "terminal").map((t) => t.id));
+    reapTerminalSessions(liveIds);
+  }, [tabs]);
+  return null;
+}
+
 function RootShell() {
   return (
     <SectionCountsProvider>
@@ -106,6 +117,7 @@ function RootShell() {
         <PiCredentialFlowsProvider>
           <SidebarHotkeys />
           <ExternalLinkInterceptor />
+          <TerminalSessionReaper />
           <div className="flex h-full min-h-0 min-w-0">
             <AppIconRail />
             <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">

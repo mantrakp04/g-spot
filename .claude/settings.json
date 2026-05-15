@@ -7,48 +7,5 @@
   },
   "env": {
     "CLAUDE_CODE_DISABLE_1M_CONTEXT": "1"
-  },
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Edit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "command -v bunx >/dev/null 2>&1 && bunx @mesadev/agentblame capture --provider claude 2>/dev/null || true"
-          }
-        ]
-      },
-      {
-        "matcher": "Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "command -v bunx >/dev/null 2>&1 && bunx @mesadev/agentblame capture --provider claude 2>/dev/null || true"
-          }
-        ]
-      },
-      {
-        "matcher": "MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "command -v bunx >/dev/null 2>&1 && bunx @mesadev/agentblame capture --provider claude 2>/dev/null || true"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": ".*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "command -v bunx >/dev/null 2>&1 && bunx @mesadev/agentblame capture --provider claude 2>/dev/null || true",
-            "async": true
-          }
-        ]
-      }
-    ]
   }
 }

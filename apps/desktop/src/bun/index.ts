@@ -17,16 +17,17 @@ import Electrobun, {
   Utils,
   type ApplicationMenuItemConfig,
 } from "electrobun/bun";
+import { devPorts } from "@g-spot/env/dev-ports";
 
 const APP_IDENTIFIER = "dev.bettertstack.g-spot.desktop";
 const WINDOW_TABBING_IDENTIFIER = "g-spot-main";
 const INTERNAL_NAVIGATION_RULES = [
   "^*",
   "views://*",
-  `http://localhost:3001/*`,
-  `http://127.0.0.1:3001/*`,
-  `http://localhost:3000/*`,
-  `http://127.0.0.1:3000/*`,
+  `http://localhost:${devPorts.web}/*`,
+  `http://127.0.0.1:${devPorts.web}/*`,
+  `http://localhost:${devPorts.server}/*`,
+  `http://127.0.0.1:${devPorts.server}/*`,
 ] as const;
 const WINDOW_TABBING_MODE_PREFERRED = 1;
 const MAC_TAB_ORDER_ABOVE = 1;
@@ -420,8 +421,8 @@ async function getMainViewUrl(): Promise<string> {
   const channel = await Updater.localInfo.channel();
   if (channel === "dev") {
     try {
-      await fetch("http://localhost:3001", { method: "HEAD" });
-      return "http://localhost:3001";
+      await fetch(`http://localhost:${devPorts.web}`, { method: "HEAD" });
+      return `http://localhost:${devPorts.web}`;
     } catch {
     }
   }

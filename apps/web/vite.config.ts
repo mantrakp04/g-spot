@@ -5,6 +5,8 @@ import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
+import { devPorts, devUrls } from "@g-spot/env/dev-ports";
+
 export default defineConfig({
   plugins: [tailwindcss(), tanstackRouter({}), react()],
   resolve: {
@@ -15,7 +17,12 @@ export default defineConfig({
   optimizeDeps: {
     include: ["react-dom"],
   },
+  define: {
+    "import.meta.env.VITE_SERVER_URL": JSON.stringify(
+      process.env.VITE_SERVER_URL ?? devUrls.server,
+    ),
+  },
   server: {
-    port: 3001,
+    port: devPorts.web,
   },
 });

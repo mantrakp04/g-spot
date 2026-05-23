@@ -26,6 +26,7 @@
       "name": "desktop",
       "dependencies": {
         "@g-spot/db": "workspace:*",
+        "@g-spot/env": "workspace:*",
         "@g-spot/types": "workspace:*",
         "electrobun": "catalog:",
         "server": "workspace:*",
@@ -41,6 +42,7 @@
       "name": "landing",
       "version": "0.0.0",
       "dependencies": {
+        "@g-spot/env": "workspace:*",
         "@g-spot/ui": "workspace:*",
         "lucide-react": "catalog:",
         "react": "catalog:",

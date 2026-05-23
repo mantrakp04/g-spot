@@ -3,12 +3,13 @@ import { fileURLToPath } from "node:url";
 import { config as loadEnv } from "dotenv";
 import { createEnv } from "@t3-oss/env-core";
 import { z } from "zod";
+import { devPortPrefix, devPorts } from "./dev-ports";
 
 loadEnv({ path: fileURLToPath(new URL("../../../.env", import.meta.url)) });
 
 export const relayDatabasePath = resolve(
   fileURLToPath(new URL("../../..", import.meta.url)),
-  "apps/relay/relay.db",
+  `apps/relay/relay-${devPortPrefix}.db`,
 );
 
 export function relayDatabaseFilePath(): string {
@@ -19,7 +20,7 @@ export function relayDatabaseFilePath(): string {
 export const env = createEnv({
   server: {
     RELAY_HOST: z.string().min(1).default("localhost"),
-    RELAY_PORT: z.coerce.number().int().min(1).max(65535).default(8787),
+    RELAY_PORT: z.coerce.number().int().min(1).max(65535).default(devPorts.relay),
     DATABASE_URL: z.string().min(1).default(relayDatabasePath),
     STACK_PROJECT_ID: z.string().min(1),
     STACK_SECRET_SERVER_KEY: z.string().min(1),

@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@g-spot/db": "workspace:*",
+    "@g-spot/env": "workspace:*",
     "@g-spot/types": "workspace:*",
     "electrobun": "catalog:",
     "server": "workspace:*"

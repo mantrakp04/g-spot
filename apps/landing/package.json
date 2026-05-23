@@ -11,6 +11,7 @@
     "check-types": "tsc --noEmit"
   },
   "dependencies": {
+    "@g-spot/env": "workspace:*",
     "@g-spot/ui": "workspace:*",
     "lucide-react": "catalog:",
     "react": "catalog:",

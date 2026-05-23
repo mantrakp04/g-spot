@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 # Build context: monorepo root (see fly.toml "dockerfile = apps/relay/Dockerfile")
 
-FROM oven/bun:1.3.10-alpine AS base
+FROM oven/bun:1.3.11-alpine AS base
 WORKDIR /app
 
 FROM base AS deps

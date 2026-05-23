@@ -109,7 +109,7 @@ export default {
     exitOnLastWindowClosed: true,
   },
   scripts: {
-    postPackage: "scripts/mac-release.sh verify-download",
+    postPackage: "scripts/mac-release.js",
   },
   build: {
     bun: {

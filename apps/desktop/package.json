@@ -14,9 +14,9 @@
     "dev:hmr": "concurrently \"bun run hmr\" \"bun run start\"",
     "hmr": "turbo -F web dev:web",
     "build": "bun run build:native-tabs && turbo -F web build && electrobun build",
-    "build:stable": "bun run build:native-tabs && turbo -F web build && bash scripts/mac-release.sh build --env=stable",
-    "build:nightly": "bun run build:native-tabs && turbo -F web build && bash scripts/mac-release.sh build --env=canary",
-    "build:canary": "bun run build:native-tabs && turbo -F web build && bash scripts/mac-release.sh build --env=canary",
+    "build:stable": "bun run build:native-tabs && turbo -F web build && bun scripts/mac-release.js build --env=stable",
+    "build:nightly": "bun run build:native-tabs && turbo -F web build && bun scripts/mac-release.js build --env=canary",
+    "build:canary": "bun run build:native-tabs && turbo -F web build && bun scripts/mac-release.js build --env=canary",
     "check-types": "tsc --noEmit"
   },
   "dependencies": {

@@ -12,6 +12,7 @@ COPY apps/landing/package.json apps/landing/package.json
 COPY apps/server/package.json apps/server/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY packages/api/package.json packages/api/package.json
+COPY packages/benchmarks/package.json packages/benchmarks/package.json
 COPY packages/chat-adapter-gmail/package.json packages/chat-adapter-gmail/package.json
 COPY packages/chat-state-sqlite/package.json packages/chat-state-sqlite/package.json
 COPY packages/config/package.json packages/config/package.json

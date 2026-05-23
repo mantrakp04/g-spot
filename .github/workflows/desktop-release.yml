@@ -166,24 +166,8 @@ jobs:
           if-no-files-found: error
           retention-days: ${{ needs.resolve.outputs.channel == 'nightly' && 14 || 90 }}
 
-  publish:
-    name: Publish ${{ needs.resolve.outputs.channel }}
-    needs:
-      - resolve
-      - build
-    if: needs.resolve.outputs.should_release == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: desktop-${{ needs.resolve.outputs.channel }}-*
-          path: desktop-release
-          merge-multiple: true
-
-      - name: Publish GitHub release
+      - name: Publish platform release assets
+        if: matrix.name != 'macos-arm64' || env.HAS_MAC_RELEASE_SECRETS == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION_RELEASE_TAG: ${{ needs.resolve.outputs.version_release_tag }}
@@ -193,6 +177,7 @@ jobs:
           VERSION: ${{ needs.resolve.outputs.version }}
           PRERELEASE: ${{ needs.resolve.outputs.prerelease }}
           CHANNEL: ${{ needs.resolve.outputs.channel }}
+          PLATFORM: ${{ matrix.name }}
         shell: bash
         run: |
           set -euo pipefail
@@ -235,18 +220,42 @@ jobs:
                 create_args+=(--prerelease)
               fi
 
-              gh release create "${create_args[@]}"
+              gh release create "${create_args[@]}" || gh release view "$release_tag" >/dev/null
             fi
 
-            gh release upload "$release_tag" desktop-release/* --clobber
+            gh release view "$release_tag" --json assets --jq '.assets[].name | select(test(env.PLATFORM))' \
+              | while IFS= read -r asset_name; do
+                  gh release delete-asset "$release_tag" "$asset_name" --yes
+                done
 
-            if ! compgen -G "desktop-release/*macos-arm64*" >/dev/null; then
-              gh release view "$release_tag" --json assets --jq '.assets[].name | select(test("macos-arm64"))' \
-                | while IFS= read -r asset_name; do
-                    gh release delete-asset "$release_tag" "$asset_name" --yes
-                  done
-            fi
+            gh release upload "$release_tag" apps/desktop/artifacts/* --clobber
           }
 
           publish_release "$VERSION_RELEASE_TAG" "$RELEASE_TITLE"
           publish_release "$UPDATE_RELEASE_TAG" "$UPDATE_RELEASE_TITLE"
+
+      - name: Remove stale Mac release assets
+        if: matrix.name == 'macos-arm64' && env.HAS_MAC_RELEASE_SECRETS != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION_RELEASE_TAG: ${{ needs.resolve.outputs.version_release_tag }}
+          UPDATE_RELEASE_TAG: ${{ needs.resolve.outputs.update_release_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cleanup_macos_assets() {
+            local release_tag="$1"
+
+            if ! gh release view "$release_tag" >/dev/null 2>&1; then
+              return
+            fi
+
+            gh release view "$release_tag" --json assets --jq '.assets[].name | select(test("macos-arm64"))' \
+              | while IFS= read -r asset_name; do
+                  gh release delete-asset "$release_tag" "$asset_name" --yes
+                done
+          }
+
+          cleanup_macos_assets "$VERSION_RELEASE_TAG"
+          cleanup_macos_assets "$UPDATE_RELEASE_TAG"

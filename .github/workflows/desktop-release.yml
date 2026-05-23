@@ -239,6 +239,13 @@ jobs:
             fi
 
             gh release upload "$release_tag" desktop-release/* --clobber
+
+            if ! compgen -G "desktop-release/*macos-arm64*" >/dev/null; then
+              gh release view "$release_tag" --json assets --jq '.assets[].name | select(test("macos-arm64"))' \
+                | while IFS= read -r asset_name; do
+                    gh release delete-asset "$release_tag" "$asset_name" --yes
+                  done
+            fi
           }
 
           publish_release "$VERSION_RELEASE_TAG" "$RELEASE_TITLE"

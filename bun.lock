@@ -239,7 +239,6 @@
     "packages/chat-state-sqlite": {
       "name": "@g-spot/chat-state-sqlite",
       "dependencies": {
-        "@g-spot/env": "workspace:*",
         "chat": "^4.26.0",
       },
       "devDependencies": {

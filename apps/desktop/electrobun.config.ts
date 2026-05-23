@@ -108,6 +108,9 @@ export default {
   runtime: {
     exitOnLastWindowClosed: true,
   },
+  scripts: {
+    postPackage: "scripts/mac-release.sh verify-download",
+  },
   build: {
     bun: {
       entrypoint: "src/bun/index.ts",

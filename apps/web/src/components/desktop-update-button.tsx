@@ -42,7 +42,18 @@ export function DesktopUpdateButton() {
     window.addEventListener("desktop-update-state", handleUpdateState);
 
     void getDesktopRpc()
-      .then((rpc) => rpc?.requestProxy.getUpdateState())
+      .then(async (rpc) => {
+        if (!rpc) return null;
+
+        const currentState = await rpc.requestProxy.getUpdateState();
+        if (!cancelled) setState(currentState);
+
+        if (currentState.updateAvailable || currentState.updateReady) {
+          return currentState;
+        }
+
+        return rpc.requestProxy.checkForUpdate();
+      })
       .then((nextState) => {
         if (!cancelled && nextState) setState(nextState);
       })

@@ -1,7 +1,7 @@
 import type { Adapter } from "chat";
 import { Chat } from "chat";
-import { createGmailAdapter, type GmailThreadRef, type GmailRawMessage } from "@g-spot/chat-adapter-gmail";
-import { createSqliteState } from "@g-spot/chat-state-sqlite";
+import { createGmailAdapter, type GmailThreadRef, type GmailRawMessage } from "@g-spot/adapters/gmail";
+import { createRelayState } from "@g-spot/relay-db";
 import { getGmailAccountById, listGmailAccountsByEmail } from "@g-spot/db/gmail";
 import { env } from "@g-spot/env/server";
 
@@ -35,7 +35,7 @@ export async function getChatInstance(): Promise<ChatInstanceExport> {
 }
 
 async function buildChat(): Promise<ChatInstanceExport> {
-  const state = createSqliteState({ path: STATE_PATH, keyPrefix: "chat" });
+  const state = createRelayState({ path: STATE_PATH, keyPrefix: "chat" });
   await state.connect();
 
   const gmail = createGmailAdapter({

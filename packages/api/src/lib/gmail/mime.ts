@@ -2,7 +2,7 @@
  * Single MIME builder for every outgoing Gmail message.
  *
  * Replaces the three earlier in-tree builders: `gmail-agent-tools.buildRawMessage`,
- * `chat-adapter-gmail.buildReplyMime`, and ad-hoc helpers. Goals:
+ * `@g-spot/adapters/gmail.buildReplyMime`, and ad-hoc helpers. Goals:
  *
  *  - Encoded-word RFC 2047 for headers with non-ASCII.
  *  - Quoted-printable for text bodies (don't claim 7bit unless the body really is).

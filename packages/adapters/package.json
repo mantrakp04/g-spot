@@ -1,9 +1,9 @@
 {
-  "name": "@g-spot/chat-adapter-gmail",
+  "name": "@g-spot/adapters",
   "type": "module",
   "exports": {
-    ".": {
-      "default": "./src/index.ts"
+    "./gmail": {
+      "default": "./src/gmail/index.ts"
     }
   },
   "scripts": {

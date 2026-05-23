@@ -11,6 +11,7 @@ import {
   BrainIcon,
   Github,
   Inbox,
+  LogIn,
   Mail,
   NotebookText,
   Palette,
@@ -21,6 +22,7 @@ import { useOnboarded } from "@/hooks/use-onboarded";
 import { ConnectionsStep } from "@/components/onboarding/connections-step";
 import { PiStep } from "@/components/onboarding/pi-step";
 import { SectionsStep } from "@/components/onboarding/sections-step";
+import { SignInStep } from "@/components/onboarding/signin-step";
 import { ThemeStep } from "@/components/onboarding/theme-step";
 import { TourStep } from "@/components/onboarding/tour-step";
 import {
@@ -31,6 +33,7 @@ import {
 } from "@/components/onboarding/tour-visuals";
 
 const STEPS = [
+  { id: "signin", title: "Sign in", icon: LogIn },
   { id: "theme", title: "Pick your theme", icon: Palette },
   { id: "connections", title: "Connect accounts", icon: Mail },
   { id: "sections", title: "Set up sections", icon: PanelsTopLeft },
@@ -65,7 +68,7 @@ function OnboardingRoute() {
   const navigate = useNavigate();
   const { markOnboarded } = useOnboarded();
 
-  const activeStep: StepId = step ?? "theme";
+  const activeStep: StepId = step ?? "signin";
   const activeIndex = STEPS.findIndex((entry) => entry.id === activeStep);
   const isLast = activeIndex === STEPS.length - 1;
   const isFirst = activeIndex === 0;
@@ -74,7 +77,7 @@ function OnboardingRoute() {
     (id: StepId) => {
       void navigate({
         to: "/onboarding",
-        search: { step: id === "theme" ? undefined : id },
+        search: { step: id === "signin" ? undefined : id },
         replace: true,
       });
     },
@@ -213,6 +216,8 @@ function OnboardingRoute() {
 
 function StepBody({ step }: { step: StepId }) {
   switch (step) {
+    case "signin":
+      return <SignInStep />;
     case "theme":
       return <ThemeStep />;
     case "connections":

@@ -4,6 +4,7 @@ import { env } from "@g-spot/env/web";
 import { getDesktopRpc } from "@/lib/desktop-rpc";
 import { openExternalUrl } from "@/lib/external-url";
 import { stackClientApp } from "@/stack/client";
+import { queryClient } from "@/utils/trpc";
 
 type CliLoginOptions = Parameters<typeof stackClientApp.promptCliLogin>[0] & {
   maxAttempts?: number;
@@ -103,5 +104,6 @@ export async function signInWithExternalBrowser(): Promise<void> {
     throw new Error(stored.error ?? "Failed to store Stack auth token");
   }
 
-  window.location.reload();
+  await signInWithRefreshToken(result.data);
+  await queryClient.invalidateQueries({ queryKey: ["stack-client"] });
 }

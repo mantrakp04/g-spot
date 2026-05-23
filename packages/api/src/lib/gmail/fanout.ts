@@ -11,7 +11,7 @@
  * Failures are logged, not thrown — sync never blocks on handler errors.
  */
 
-import type { GmailRawMessage } from "@g-spot/chat-adapter-gmail";
+import type { GmailRawMessage } from "@g-spot/adapters/gmail";
 
 import { getChatInstance } from "../chat-gmail";
 

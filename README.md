@@ -120,8 +120,8 @@ packages/
   env/          Zod-validated env config
   ui/           shadcn-style React components
   config/       Shared TypeScript config
-  chat-adapter-gmail/    Gmail Pub/Sub payload adapter
-  chat-state-sqlite/     SQLite state adapter for the relay
+  adapters/     External service adapters (Gmail Pub/Sub, ...)
+  relay-db/     SQLite state adapter for the relay
 ```
 
 ## Development

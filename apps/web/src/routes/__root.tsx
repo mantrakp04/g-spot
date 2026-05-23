@@ -3,9 +3,10 @@ import { useEffect } from "react";
 import { Toaster } from "@g-spot/ui/components/sonner";
 import { HotkeysProvider } from "@tanstack/react-hotkeys";
 import type { QueryClient } from "@tanstack/react-query";
-import { HeadContent, Outlet, createRootRouteWithContext } from "@tanstack/react-router";
+import { HeadContent, Outlet, createRootRouteWithContext, useLocation, useNavigate } from "@tanstack/react-router";
 import { useAtom } from "jotai";
 
+import { useOnboarded } from "@/hooks/use-onboarded";
 import { GlobalCommandPalette } from "@/components/search/global-command-palette";
 import { AppIconRail } from "@/components/shell/app-icon-rail";
 import { reapTerminalSessions } from "@/components/terminal/terminal-sessions";
@@ -110,11 +111,27 @@ function TerminalSessionReaper() {
   return null;
 }
 
+function OnboardingGate() {
+  const { onboarded } = useOnboarded();
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (onboarded) return;
+    if (location.pathname.startsWith("/onboarding")) return;
+    if (location.pathname.startsWith("/handler")) return;
+    void navigate({ to: "/onboarding", replace: true });
+  }, [onboarded, location.pathname, navigate]);
+
+  return null;
+}
+
 function RootShell() {
   return (
     <SectionCountsProvider>
       <DraftsProvider>
         <PiCredentialFlowsProvider>
+          <OnboardingGate />
           <SidebarHotkeys />
           <ExternalLinkInterceptor />
           <TerminalSessionReaper />

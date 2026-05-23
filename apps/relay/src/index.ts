@@ -4,9 +4,9 @@ import {
   gmailPubSubEnvelopeSchema,
   type GmailPubSubEnvelope,
   type GmailPushPayload,
-} from "@g-spot/chat-adapter-gmail";
+} from "@g-spot/adapters/gmail";
 import { env, relayDatabaseFilePath } from "@g-spot/env/relay";
-import { createSqliteState } from "@g-spot/chat-state-sqlite";
+import { createRelayState } from "@g-spot/relay-db";
 import { StackServerApp } from "@stackframe/react";
 import type { QueueEntry } from "chat";
 import { z } from "zod";
@@ -54,7 +54,7 @@ const stackServerApp = new StackServerApp({
 });
 type RelayUser = NonNullable<Awaited<ReturnType<typeof stackServerApp.getUser>>>;
 
-const state = createSqliteState({ path: relayDatabaseFilePath(), keyPrefix: "relay" });
+const state = createRelayState({ path: relayDatabaseFilePath(), keyPrefix: "relay" });
 await state.connect();
 
 const activeSockets = new Map<string, ServerWebSocket<RelaySocketData>>();

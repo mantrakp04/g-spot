@@ -62,9 +62,9 @@
     "apps/relay": {
       "name": "relay",
       "dependencies": {
-        "@g-spot/chat-adapter-gmail": "workspace:*",
-        "@g-spot/chat-state-sqlite": "workspace:*",
+        "@g-spot/adapters": "workspace:*",
         "@g-spot/env": "workspace:*",
+        "@g-spot/relay-db": "workspace:*",
         "@stackframe/react": "^2.8.89",
         "chat": "^4.26.0",
         "zod": "catalog:",
@@ -181,13 +181,25 @@
         "vite": "^8.0.3",
       },
     },
+    "packages/adapters": {
+      "name": "@g-spot/adapters",
+      "dependencies": {
+        "chat": "^4.26.0",
+        "zod": "catalog:",
+      },
+      "devDependencies": {
+        "@g-spot/config": "workspace:*",
+        "@types/bun": "catalog:",
+        "typescript": "^6",
+      },
+    },
     "packages/api": {
       "name": "@g-spot/api",
       "dependencies": {
-        "@g-spot/chat-adapter-gmail": "workspace:*",
-        "@g-spot/chat-state-sqlite": "workspace:*",
+        "@g-spot/adapters": "workspace:*",
         "@g-spot/db": "workspace:*",
         "@g-spot/env": "workspace:*",
+        "@g-spot/relay-db": "workspace:*",
         "@g-spot/types": "workspace:*",
         "@huggingface/transformers": "catalog:",
         "@mariozechner/pi-agent-core": "^0.72.0",
@@ -226,29 +238,6 @@
     "packages/benchmarks": {
       "name": "@g-spot/benchmarks",
     },
-    "packages/chat-adapter-gmail": {
-      "name": "@g-spot/chat-adapter-gmail",
-      "dependencies": {
-        "chat": "^4.26.0",
-        "zod": "catalog:",
-      },
-      "devDependencies": {
-        "@g-spot/config": "workspace:*",
-        "@types/bun": "catalog:",
-        "typescript": "^6",
-      },
-    },
-    "packages/chat-state-sqlite": {
-      "name": "@g-spot/chat-state-sqlite",
-      "dependencies": {
-        "chat": "^4.26.0",
-      },
-      "devDependencies": {
-        "@g-spot/config": "workspace:*",
-        "@types/bun": "catalog:",
-        "typescript": "^6",
-      },
-    },
     "packages/config": {
       "name": "@g-spot/config",
       "version": "0.0.0",
@@ -281,6 +270,20 @@
       "devDependencies": {
         "@g-spot/config": "workspace:*",
         "@types/bun": "catalog:",
+        "typescript": "^6",
+      },
+    },
+    "packages/relay-db": {
+      "name": "@g-spot/relay-db",
+      "dependencies": {
+        "@g-spot/env": "workspace:*",
+        "chat": "^4.26.0",
+        "drizzle-orm": "^0.45.2",
+      },
+      "devDependencies": {
+        "@g-spot/config": "workspace:*",
+        "@types/bun": "catalog:",
+        "drizzle-kit": "^0.31.10",
         "typescript": "^6",
       },
     },
@@ -717,19 +720,19 @@
 
     "@floating-ui/utils": ["@floating-ui/utils@0.2.11", "", {}, "sha512-RiB/yIh78pcIxl6lLMG0CgBXAZ2Y0eVHqMPYugu+9U0AeT6YBeiJpf7lbdJNIugFP5SIjwNRgo4DhR1Qxi26Gg=="],
 
+    "@g-spot/adapters": ["@g-spot/adapters@workspace:packages/adapters"],
+
     "@g-spot/api": ["@g-spot/api@workspace:packages/api"],
 
     "@g-spot/benchmarks": ["@g-spot/benchmarks@workspace:packages/benchmarks"],
-
-    "@g-spot/chat-adapter-gmail": ["@g-spot/chat-adapter-gmail@workspace:packages/chat-adapter-gmail"],
-
-    "@g-spot/chat-state-sqlite": ["@g-spot/chat-state-sqlite@workspace:packages/chat-state-sqlite"],
 
     "@g-spot/config": ["@g-spot/config@workspace:packages/config"],
 
     "@g-spot/db": ["@g-spot/db@workspace:packages/db"],
 
     "@g-spot/env": ["@g-spot/env@workspace:packages/env"],
+
+    "@g-spot/relay-db": ["@g-spot/relay-db@workspace:packages/relay-db"],
 
     "@g-spot/types": ["@g-spot/types@workspace:packages/types"],
 

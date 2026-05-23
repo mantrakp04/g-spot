@@ -24,7 +24,7 @@ const busyPhases = new Set<DesktopUpdateState["phase"]>([
   "migrating",
 ]);
 
-export function DesktopUpdateButton() {
+export function DesktopUpdateButton({ compact = false }: { compact?: boolean }) {
   const [isDesktop, setIsDesktop] = useState(false);
   const [state, setState] = useState<DesktopUpdateState>(initialState);
 
@@ -123,13 +123,15 @@ export function DesktopUpdateButton() {
     <Button
       type="button"
       variant="ghost"
-      size="sm"
-      className="w-full justify-start gap-2"
+      size={compact ? "icon-sm" : "sm"}
+      className={compact ? undefined : "w-full justify-start gap-2"}
       disabled={isBusy}
       onClick={handleUpdate}
+      aria-label={label}
+      title={label}
     >
       {isBusy ? <RefreshCw className="size-4" /> : <Download className="size-4" />}
-      <span className="truncate">{label}</span>
+      {compact ? null : <span className="truncate">{label}</span>}
     </Button>
   );
 }

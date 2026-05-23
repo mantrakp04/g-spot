@@ -16,6 +16,7 @@ import { toast } from "sonner";
 
 import { Logo } from "@/components/logo";
 import { NavUser } from "@/components/nav-user";
+import { DesktopUpdateButton } from "@/components/desktop-update-button";
 import { ThemePicker } from "@/components/tweakcn-theme-picker";
 import { signInWithExternalBrowser } from "@/lib/desktop-auth";
 
@@ -137,6 +138,7 @@ export function AppIconRail() {
       </div>
 
       <div className="flex flex-col items-center gap-1">
+        <DesktopUpdateButton compact />
         <ThemePicker compact side="right" sideOffset={8} />
         <CatchBoundary
           getResetKey={() => pathname}

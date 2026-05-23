@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
@@ -25,13 +25,16 @@ const run = (cmd, cmdArgs, options = {}) => {
 
 const scrubMacMetadata = (target) => {
   if (!existsSync(target)) return;
+  const resolvedTarget = realpathSync(target);
 
   for (const [cmd, cmdArgs] of [
-    ["/usr/bin/xattr", ["-d", "com.apple.FinderInfo", target]],
-    ["/usr/bin/xattr", ["-d", "com.apple.fileprovider.fpfs#P", target]],
-    ["/usr/bin/xattr", ["-d", "com.apple.metadata:kMDItemWhereFroms", target]],
-    ["/usr/bin/xattr", ["-d", "com.apple.quarantine", target]],
-    ["/bin/chflags", ["nohidden", target]],
+    ["/bin/chflags", ["nohidden", resolvedTarget]],
+    ["/usr/bin/xattr", ["-c", resolvedTarget]],
+    ["/usr/bin/xattr", ["-d", "com.apple.FinderInfo", resolvedTarget]],
+    ["/usr/bin/xattr", ["-d", "com.apple.fileprovider.fpfs#P", resolvedTarget]],
+    ["/usr/bin/xattr", ["-d", "com.apple.metadata:kMDItemWhereFroms", resolvedTarget]],
+    ["/usr/bin/xattr", ["-d", "com.apple.provenance", resolvedTarget]],
+    ["/usr/bin/xattr", ["-d", "com.apple.quarantine", resolvedTarget]],
   ]) {
     spawnSync(cmd, cmdArgs, { stdio: "ignore" });
   }
@@ -53,6 +56,8 @@ const scrubCodesignTarget = (target) => {
 
   const bundle = findBundle(target);
   if (!bundle) return;
+  spawnSync("/usr/bin/xattr", ["-cr", bundle], { stdio: "ignore" });
+  scrubMacMetadata(bundle);
 
   const result = spawnSync("/usr/bin/find", [bundle, "-print0"], {
     encoding: "buffer",
@@ -93,11 +98,7 @@ const verifyDownload = () => {
   if (process.platform !== "darwin") {
     failDownloadCheck("Mac download checks must run on a Mac runner.");
   }
-  if (process.env.ELECTROBUN_NOTARIZE !== "true") {
-    failDownloadCheck(
-      'Mac downloads will show "Move to Trash" unless the release is approved by Apple. Set the Apple release secrets in GitHub.',
-    );
-  }
+  const notarized = process.env.ELECTROBUN_NOTARIZE === "true";
 
   const artifactDir = process.env.ELECTROBUN_ARTIFACT_DIR;
   if (!artifactDir || !existsSync(artifactDir)) {
@@ -128,8 +129,14 @@ const verifyDownload = () => {
     if (!appPath) failDownloadCheck(`No Mac app was found inside ${dmgPath}.`);
 
     run("codesign", ["--verify", "--deep", "--strict", "--verbose=2", appPath]);
-    run("spctl", ["-a", "-vv", "-t", "exec", appPath]);
-    run("spctl", ["-a", "-vv", "-t", "open", dmgPath]);
+    if (notarized) {
+      run("spctl", ["-a", "-vv", "-t", "exec", appPath]);
+      run("spctl", ["-a", "-vv", "-t", "open", dmgPath]);
+    } else {
+      console.warn(
+        "Mac artifact is ad-hoc signed but not notarized. Users may need to allow it in Privacy & Security.",
+      );
+    }
   } finally {
     spawnSync("hdiutil", ["detach", mountDir], { stdio: "ignore" });
     rmSync(mountDir, { recursive: true, force: true });

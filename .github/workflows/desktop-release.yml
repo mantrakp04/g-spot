@@ -123,13 +123,12 @@ jobs:
       # Mac downloads from GitHub must pass Apple's launch checks, otherwise
       # users see "Move to Trash" when opening the app.
       ELECTROBUN_CODESIGN: "true"
-      ELECTROBUN_NOTARIZE: ${{ secrets.ELECTROBUN_APPLEID != '' && 'true' || 'false' }}
+      ELECTROBUN_NOTARIZE: ${{ secrets.ELECTROBUN_DEVELOPER_ID != '' && secrets.ELECTROBUN_TEAMID != '' && secrets.ELECTROBUN_APPLEID != '' && secrets.ELECTROBUN_APPLEIDPASS != '' && 'true' || 'false' }}
       ELECTROBUN_DEVELOPER_ID: ${{ secrets.ELECTROBUN_DEVELOPER_ID != '' && secrets.ELECTROBUN_DEVELOPER_ID || '-' }}
       ELECTROBUN_TEAMID: ${{ secrets.ELECTROBUN_TEAMID }}
       ELECTROBUN_APPLEID: ${{ secrets.ELECTROBUN_APPLEID }}
       ELECTROBUN_APPLEIDPASS: ${{ secrets.ELECTROBUN_APPLEIDPASS }}
       REQUIRE_MAC_DOWNLOAD_CHECKS: ${{ matrix.name == 'macos-arm64' && 'true' || 'false' }}
-      HAS_MAC_RELEASE_SECRETS: ${{ secrets.ELECTROBUN_DEVELOPER_ID != '' && secrets.ELECTROBUN_TEAMID != '' && secrets.ELECTROBUN_APPLEID != '' && secrets.ELECTROBUN_APPLEIDPASS != '' && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -149,16 +148,14 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ "${HAS_MAC_RELEASE_SECRETS}" != "true" ]]; then
-            echo 'Skipping Mac artifact: GitHub downloads show "Move to Trash" without Apple release secrets.'
+          if [[ "${ELECTROBUN_NOTARIZE}" != "true" ]]; then
+            echo 'Building ad-hoc signed Mac artifact. Users may need to allow it in Privacy & Security.'
           fi
 
       - name: Build desktop
-        if: matrix.name != 'macos-arm64' || env.HAS_MAC_RELEASE_SECRETS == 'true'
         run: bun run --filter desktop ${{ needs.resolve.outputs.build_script }}
 
       - name: Upload build artifact
-        if: matrix.name != 'macos-arm64' || env.HAS_MAC_RELEASE_SECRETS == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ needs.resolve.outputs.channel }}-${{ matrix.name }}
@@ -167,7 +164,6 @@ jobs:
           retention-days: ${{ needs.resolve.outputs.channel == 'nightly' && 14 || 90 }}
 
       - name: Publish platform release assets
-        if: matrix.name != 'macos-arm64' || env.HAS_MAC_RELEASE_SECRETS == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION_RELEASE_TAG: ${{ needs.resolve.outputs.version_release_tag }}
@@ -233,29 +229,3 @@ jobs:
 
           publish_release "$VERSION_RELEASE_TAG" "$RELEASE_TITLE"
           publish_release "$UPDATE_RELEASE_TAG" "$UPDATE_RELEASE_TITLE"
-
-      - name: Remove stale Mac release assets
-        if: matrix.name == 'macos-arm64' && env.HAS_MAC_RELEASE_SECRETS != 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION_RELEASE_TAG: ${{ needs.resolve.outputs.version_release_tag }}
-          UPDATE_RELEASE_TAG: ${{ needs.resolve.outputs.update_release_tag }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          cleanup_macos_assets() {
-            local release_tag="$1"
-
-            if ! gh release view "$release_tag" >/dev/null 2>&1; then
-              return
-            fi
-
-            gh release view "$release_tag" --json assets --jq '.assets[].name | select(test("macos-arm64"))' \
-              | while IFS= read -r asset_name; do
-                  gh release delete-asset "$release_tag" "$asset_name" --yes
-                done
-          }
-
-          cleanup_macos_assets "$VERSION_RELEASE_TAG"
-          cleanup_macos_assets "$UPDATE_RELEASE_TAG"

@@ -7,7 +7,7 @@ import {
   WidgetType,
 } from "@codemirror/view";
 
-import { env } from "@g-spot/env/web";
+import { serverPath } from "@/utils/server-url";
 
 /**
  * Embed widgets for the note editor:
@@ -25,8 +25,8 @@ import { env } from "@g-spot/env/web";
  * practice (every macOS clipboard image is named `image.png`).
  */
 
-const FILE_BY_ID_BASE = `${env.VITE_SERVER_URL}/api/files/`;
-const ATTACHMENT_BY_NAME_BASE = `${env.VITE_SERVER_URL}/api/notes/attachments/`;
+const FILE_BY_ID_BASE = serverPath("/api/files/");
+const ATTACHMENT_BY_NAME_BASE = serverPath("/api/notes/attachments/");
 
 const IMAGE_EXT_RE = /\.(?:png|jpe?g|gif|webp|svg|bmp|ico|avif|heic|heif|tiff?)$/i;
 

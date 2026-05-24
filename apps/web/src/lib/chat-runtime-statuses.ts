@@ -1,6 +1,6 @@
 import { useEffect, useSyncExternalStore } from "react";
 
-import { env } from "@g-spot/env/web";
+import { serverWebSocketPath } from "@/utils/server-url";
 
 import type { ChatRuntimeDotStatus } from "@/components/chat/chat-status-dot";
 
@@ -37,12 +37,7 @@ function setSnapshot(next: RuntimeStatusSnapshot) {
 }
 
 function buildStatusSocketUrl() {
-  const url = new URL(env.VITE_SERVER_URL);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  url.pathname = "/api/chat/status/socket";
-  url.search = "";
-  url.hash = "";
-  return url.toString();
+  return serverWebSocketPath("/api/chat/status/socket");
 }
 
 function clearReconnectTimer() {

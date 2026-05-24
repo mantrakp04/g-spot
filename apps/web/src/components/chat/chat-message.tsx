@@ -7,6 +7,7 @@ import {
   DialogTitle,
 } from "@g-spot/ui/components/dialog";
 import { env } from "@g-spot/env/web";
+import { serverPath } from "@/utils/server-url";
 import { cn } from "@g-spot/ui/lib/utils";
 import {
   CheckIcon,
@@ -916,7 +917,7 @@ function FileAttachment({ id, part }: { id: string; part: FileUIPart }) {
 
     try {
       const response = await fetch(
-        `${env.VITE_SERVER_URL}/api/files/${preview.fileId}/extracted-text`,
+        serverPath(`/api/files/${preview.fileId}/extracted-text`),
       );
       if (!response.ok) {
         throw new Error(await readPreviewError(response));

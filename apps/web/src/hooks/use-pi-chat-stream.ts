@@ -10,6 +10,7 @@ import {
   createChatStreamSocket,
   type ChatStreamSocketHandle,
 } from "@/lib/chat-stream-socket";
+import { serverPath, serverWebSocketPath } from "@/utils/server-url";
 
 type StreamMode = "idle" | "start" | "reconnect";
 
@@ -54,12 +55,7 @@ export function usePiChatStream(args: UsePiChatStreamArgs): PiChatStreamApi {
   }, []);
 
   const buildSocketUrl = useCallback((targetChatId: string) => {
-    const url = new URL(argsRef.current.serverUrl);
-    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-    url.pathname = `/api/chat/${targetChatId}/socket`;
-    url.search = "";
-    url.hash = "";
-    return url.toString();
+    return serverWebSocketPath(`/api/chat/${targetChatId}/socket`);
   }, []);
 
   const connectSocket = useCallback(
@@ -224,13 +220,10 @@ export function usePiChatStream(args: UsePiChatStreamArgs): PiChatStreamApi {
 
     if (targetChatId) {
       try {
-        await fetch(
-          `${argsRef.current.serverUrl}/api/chat/${targetChatId}/stream`,
-          {
-            method: "DELETE",
-            headers: await argsRef.current.getHeaders(),
-          },
-        );
+        await fetch(serverPath(`/api/chat/${targetChatId}/stream`), {
+          method: "DELETE",
+          headers: await argsRef.current.getHeaders(),
+        });
       } catch (error) {
         logChatDebug("stream-stop-delete-failed", { targetChatId, error });
       }

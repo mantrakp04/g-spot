@@ -1,6 +1,6 @@
 import { EditorView } from "@codemirror/view";
 
-import { env } from "@g-spot/env/web";
+import { serverPath } from "@/utils/server-url";
 
 /**
  * Paste + drop file uploads. Uploads to the existing `/api/files/upload`
@@ -28,7 +28,7 @@ interface UploadResponse {
 async function uploadFile(file: File): Promise<UploadResponse> {
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`${env.VITE_SERVER_URL}/api/files/upload`, {
+  const res = await fetch(serverPath("/api/files/upload"), {
     method: "POST",
     body: form,
   });

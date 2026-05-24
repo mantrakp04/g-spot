@@ -1,5 +1,4 @@
 import type { AppRouter } from "@g-spot/api/routers/index";
-import { env } from "@g-spot/env/web";
 import { stackClientApp } from "@/stack/client";
 import { QueryCache, QueryClient } from "@tanstack/react-query";
 import { createTRPCClient, httpBatchLink } from "@trpc/client";
@@ -7,6 +6,7 @@ import { createTRPCOptionsProxy } from "@trpc/tanstack-react-query";
 import { toast } from "sonner";
 
 import { staleWhileRevalidateQueryOptions } from "@/utils/query-defaults";
+import { serverPath } from "@/utils/server-url";
 
 export const queryClient = new QueryClient({
   queryCache: new QueryCache({
@@ -27,7 +27,7 @@ export const queryClient = new QueryClient({
   },
 });
 
-const trpcUrl = `${env.VITE_SERVER_URL}/trpc`;
+const trpcUrl = serverPath("/trpc");
 
 const AUTH_HEADERS_TTL_MS = 30_000;
 let authHeadersCache: { headers: Record<string, string>; expiresAt: number } | null = null;

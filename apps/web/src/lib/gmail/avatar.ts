@@ -1,5 +1,5 @@
-import { env } from "@g-spot/env/web";
 import { getInitials } from "@/lib/initials";
+import { serverPath } from "@/utils/server-url";
 
 const PERSONAL_DOMAINS = new Set([
   "gmail.com", "googlemail.com",
@@ -30,7 +30,7 @@ export function getGmailSenderAvatarUrl(email: string): string | null {
   const root = getRootDomain(domain);
   if (PERSONAL_DOMAINS.has(root)) return null;
 
-  return `${env.VITE_SERVER_URL}/api/favicon/${encodeURIComponent(root)}`;
+  return serverPath(`/api/favicon/${encodeURIComponent(root)}`);
 }
 
 export function getGmailSenderInitials(name: string, email?: string): string {

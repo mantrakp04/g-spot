@@ -1,4 +1,4 @@
-import { env } from "@g-spot/env/web";
+import { serverWebSocketPath } from "@/utils/server-url";
 import { FitAddon } from "@xterm/addon-fit";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { Terminal } from "@xterm/xterm";
@@ -31,9 +31,7 @@ export type TerminalSession = {
 const sessions = new Map<string, TerminalSession>();
 
 function buildSocketUrl(projectId: string, cols: number, rows: number) {
-  const url = new URL(env.VITE_SERVER_URL);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  url.pathname = "/api/terminal/socket";
+  const url = new URL(serverWebSocketPath("/api/terminal/socket"));
   url.searchParams.set("projectId", projectId);
   url.searchParams.set("cols", String(cols));
   url.searchParams.set("rows", String(rows));

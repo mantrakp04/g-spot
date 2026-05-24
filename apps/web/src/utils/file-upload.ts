@@ -1,4 +1,4 @@
-import { env } from "@g-spot/env/web";
+import { serverPath } from "@/utils/server-url";
 import { stackClientApp } from "@/stack/client";
 
 export interface UploadedFile {
@@ -18,7 +18,7 @@ export async function uploadFile(file: File): Promise<UploadedFile> {
   const formData = new FormData();
   formData.append("file", file);
 
-  const res = await fetch(`${env.VITE_SERVER_URL}/api/files/upload`, {
+  const res = await fetch(serverPath("/api/files/upload"), {
     method: "POST",
     headers: authHeaders,
     body: formData,
@@ -31,6 +31,6 @@ export async function uploadFile(file: File): Promise<UploadedFile> {
 
   const data = (await res.json()) as UploadedFile;
   // Convert relative path to absolute URL
-  data.url = `${env.VITE_SERVER_URL}${data.url}`;
+  data.url = serverPath(data.url as `/${string}`);
   return data;
 }

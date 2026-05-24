@@ -59,9 +59,6 @@ jobs:
       - name: Type check
         run: bun check-types
 
-      - name: Build demo image
-        run: docker build -f apps/demo/Dockerfile -t g-spot-demo .
-
   deploy:
     name: Deploy demo
     runs-on: ubuntu-latest

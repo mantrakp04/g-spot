@@ -11,7 +11,7 @@ process.env.DATABASE_URL = process.env.DATABASE_URL ?? `file:${defaultDemoDataba
 
 mkdirSync(dirname(defaultDemoDatabasePath), { recursive: true });
 
-const { db } = await import("./index");
+const { client, db } = await import("./index");
 const schema = await import("./schema");
 
 const now = new Date().toISOString();
@@ -708,6 +708,8 @@ await db.transaction(async (tx) => {
     },
   ]);
 });
+
+client.exec("PRAGMA wal_checkpoint(TRUNCATE);");
 
 console.log(
   `Seeded demo database at ${process.env.DATABASE_URL}. Set DEMO_MODE=true to serve it read-only.`,

@@ -1,13 +1,22 @@
 import { Button } from "@g-spot/ui/components/button";
 import { Card } from "@g-spot/ui/components/card";
 import { Separator } from "@g-spot/ui/components/separator";
-import { AlertTriangle, ArrowUpRight, Download, Github, Star } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowUpRight,
+  Download,
+  Github,
+  MonitorPlay,
+  Star,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 
 const REPO = "mantrakp04/g-spot";
 const REPO_URL = `https://github.com/${REPO}`;
 const RELEASES_URL = `${REPO_URL}/releases/latest`;
 const NIGHTLY_URL = `${REPO_URL}/releases/tag/desktop-nightly`;
+const DEMO_URL =
+  import.meta.env.VITE_DEMO_URL ?? "https://demo.g-spot.dev";
 
 const TITLE_TEXT = `
   ██████╗       ███████╗██████╗  ██████╗ ████████╗
@@ -36,7 +45,7 @@ const FEATURES: { title: string; body: string }[] = [
     body: "CodeMirror markdown editor with wikilinks, tags, KaTeX math, Mermaid diagrams, daily notes, embeds, and full-text search. Stored locally, linked everywhere.",
   },
   {
-    title: "An agent you actually approve",
+    title: "An agent you actually own",
     body: "Tool calls surface as approval cards before they run. Per-chat sandbox, network toggle, and tool whitelist. Bring your own MCP servers. The agent asks; you decide.",
   },
   {
@@ -84,7 +93,7 @@ export default function App() {
   return (
     <div className="min-h-svh bg-background text-foreground">
       <Header />
-      <main className="container mx-auto max-w-3xl px-4 py-10">{page}</main>
+      <main className="container mx-auto max-w-3xl px-4 py-7 sm:py-10">{page}</main>
       <Footer />
     </div>
   );
@@ -94,7 +103,8 @@ function Home() {
   return (
     <>
       <Hero />
-      <section className="mt-14 grid gap-6">
+      <section className="mt-10 grid gap-5 sm:mt-14 sm:gap-6">
+        <DemoBlock />
         <FeaturesBlock />
         <DownloadBlock />
         <StackBlock />
@@ -310,10 +320,16 @@ function Privacy() {
 function Header() {
   return (
     <header>
-      <div className="container mx-auto flex max-w-3xl items-center justify-between px-4 py-3">
-        <nav className="flex items-center gap-4 text-sm">
+      <div className="container mx-auto flex max-w-3xl flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <nav className="flex w-full items-center gap-3 overflow-x-auto whitespace-nowrap text-sm [-ms-overflow-style:none] [scrollbar-width:none] sm:w-auto sm:gap-4 [&::-webkit-scrollbar]:hidden">
           <a href="#top" className="font-medium">
             g-spot
+          </a>
+          <a
+            href="#demo"
+            className="text-muted-foreground hover:text-foreground"
+          >
+            demo
           </a>
           <a
             href="#features"
@@ -334,9 +350,13 @@ function Header() {
             stack
           </a>
         </nav>
-        <div className="flex items-center gap-2">
+        <div className="flex w-full items-center gap-2 sm:w-auto">
           <StarCount />
-          <Button variant="outline" size="sm" nativeButton={false}
+          <Button
+            variant="outline"
+            size="sm"
+            className="min-w-0 flex-1 sm:flex-none"
+            nativeButton={false}
             render={<a href={REPO_URL} target="_blank" rel="noreferrer" />}>
             <Github />
             GitHub
@@ -351,26 +371,29 @@ function Header() {
 function Hero() {
   return (
     <section id="top" className="pt-4">
-      <pre className="overflow-x-auto font-mono text-xs/5 text-muted-foreground">
+      <pre className="hidden overflow-x-auto font-mono text-xs/5 text-muted-foreground sm:block">
         {TITLE_TEXT}
       </pre>
-      <div className="mt-6 space-y-4">
+      <div className="font-mono text-4xl font-semibold tracking-normal sm:hidden">
+        g-spot
+      </div>
+      <div className="mt-5 space-y-4 sm:mt-6">
         <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">
           <AlertTriangle className="size-3" />
           alpha · expect bugs &amp; breaking changes
         </span>
-        <h1 className="text-2xl font-medium tracking-tight">
+        <h1 className="text-[1.7rem] font-medium leading-tight tracking-tight sm:text-2xl">
           A local-first command center for your mail, code, notes, and memory.
         </h1>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm/6 text-muted-foreground">
           g-spot is an open-source desktop app that bundles a Gmail/GitHub
-          inbox, a PR review surface, an Obsidian-style notes workspace, an
-          approval-gated AI agent, and a memory graph into one quiet window.
+          inbox, a PR review surface, an Obsidian-style notes workspace, a GUI pi coding agent, and a memory graph into one quiet window.
           It runs on your machine. It ships as a single install.
         </p>
-        <div className="flex flex-wrap items-center gap-2 pt-1">
+        <div className="grid gap-2 pt-1 sm:flex sm:flex-wrap sm:items-center">
           <Button
             size="sm"
+            className="w-full justify-center sm:w-auto"
             nativeButton={false}
             render={<a href={RELEASES_URL} target="_blank" rel="noreferrer" />}
           >
@@ -380,6 +403,18 @@ function Hero() {
           <Button
             variant="outline"
             size="sm"
+            className="w-full justify-center sm:w-auto"
+            nativeButton={false}
+            render={<a href={DEMO_URL} target="_blank" rel="noreferrer" />}
+          >
+            <MonitorPlay />
+            Live demo
+            <ArrowUpRight />
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full justify-center sm:w-auto"
             nativeButton={false}
             render={<a href={REPO_URL} target="_blank" rel="noreferrer" />}
           >
@@ -399,8 +434,8 @@ function FeaturesBlock() {
       <h2 className="text-sm font-medium text-muted-foreground">Features</h2>
       <div className="grid gap-3 sm:grid-cols-2">
         {FEATURES.map((f) => (
-          <Card key={f.title} className="p-4">
-            <div className="space-y-1.5 px-4">
+          <Card key={f.title} className="p-4 sm:p-5">
+            <div className="space-y-1.5">
               <h3 className="text-sm font-medium">{f.title}</h3>
               <p className="text-xs/relaxed text-muted-foreground">{f.body}</p>
             </div>
@@ -415,8 +450,8 @@ function DownloadBlock() {
   return (
     <section id="download" className="space-y-3">
       <h2 className="text-sm font-medium text-muted-foreground">Download</h2>
-      <Card className="p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3 px-4">
+      <Card className="p-4 sm:p-5">
+        <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
           <div className="space-y-1">
             <div className="text-sm font-medium">
               macOS · Linux · Windows
@@ -428,6 +463,7 @@ function DownloadBlock() {
           </div>
           <Button
             size="sm"
+            className="w-full justify-center sm:w-auto"
             nativeButton={false}
             render={<a href={RELEASES_URL} target="_blank" rel="noreferrer" />}
           >
@@ -452,16 +488,57 @@ function DownloadBlock() {
   );
 }
 
+function DemoBlock() {
+  return (
+    <section id="demo" className="space-y-3">
+      <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-sm font-medium text-muted-foreground">Demo</h2>
+          <p className="mt-1 text-sm font-medium">Try the hosted read-only app.</p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full justify-center sm:w-auto"
+          nativeButton={false}
+          render={<a href={DEMO_URL} target="_blank" rel="noreferrer" />}
+        >
+          <MonitorPlay />
+          Open demo
+          <ArrowUpRight />
+        </Button>
+      </div>
+      <Card className="overflow-hidden p-0">
+        <div className="border-b px-4 py-3">
+          <div className="text-sm font-medium">Read-only hosted app</div>
+          <p className="mt-1 text-xs/relaxed text-muted-foreground">
+            Seeded mail, PR sections, notes, chat, and memory. Mutations,
+            sockets, terminal, uploads, MCP, some Github fields, some fields in Github-related sections, and agent side effects are disabled.
+          </p>
+        </div>
+        <div className="aspect-[4/5] min-h-[420px] bg-muted sm:aspect-[16/10] sm:min-h-[360px]">
+          <iframe
+            title="g-spot live demo"
+            src={DEMO_URL}
+            className="size-full border-0"
+            loading="lazy"
+          />
+        </div>
+      </Card>
+    </section>
+  );
+}
+
 function StackBlock() {
   return (
     <section id="stack" className="space-y-3">
       <h2 className="text-sm font-medium text-muted-foreground">Stack</h2>
-      <Card className="p-4">
-        <dl className="grid gap-2 px-4 text-xs sm:grid-cols-[8rem_1fr]">
+      <Card className="p-4 sm:p-5">
+        <dl className="grid gap-2 text-xs sm:grid-cols-[8rem_1fr]">
           {STACK.map(([k, v], i) => (
             <div
               key={k}
-              className="grid grid-cols-subgrid gap-2 py-1.5 sm:col-span-2"
+              className="grid gap-1 py-1.5 sm:col-span-2 sm:grid-cols-subgrid sm:gap-2"
               style={{
                 borderTop: i === 0 ? undefined : "1px solid var(--border)",
               }}
@@ -478,17 +555,18 @@ function StackBlock() {
 
 function CTA() {
   return (
-    <Card className="p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3 px-4">
+    <Card className="p-4 sm:p-5">
+      <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
         <div>
           <div className="text-sm font-medium">Ready to try it?</div>
           <p className="text-xs text-muted-foreground">
             One installer. It'll feel like home in five minutes.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="grid gap-2 sm:flex sm:items-center">
           <Button
             size="sm"
+            className="w-full justify-center sm:w-auto"
             nativeButton={false}
             render={<a href={RELEASES_URL} target="_blank" rel="noreferrer" />}
           >
@@ -498,6 +576,7 @@ function CTA() {
           <Button
             variant="outline"
             size="sm"
+            className="w-full justify-center sm:w-auto"
             nativeButton={false}
             render={<a href={REPO_URL} target="_blank" rel="noreferrer" />}
           >
@@ -533,7 +612,7 @@ function StarCount() {
     <Button
       variant="outline"
       size="sm"
-      className="gap-1.5 text-muted-foreground"
+      className="shrink-0 gap-1.5 text-muted-foreground"
       nativeButton={false}
       render={
         <a
@@ -561,7 +640,7 @@ function Footer() {
   return (
     <footer>
       <Separator />
-      <div className="container mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-2 px-4 py-4 text-xs text-muted-foreground">
+      <div className="container mx-auto grid max-w-3xl gap-3 px-4 py-4 text-xs text-muted-foreground sm:flex sm:flex-wrap sm:items-center sm:justify-between sm:gap-2">
         <span>
           MIT © {new Date().getFullYear()} ·{" "}
           <a

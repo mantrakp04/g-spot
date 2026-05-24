@@ -30,7 +30,9 @@ export function useGitHubItems(
       sortAsc: sortAsc ?? false,
     }),
     queryFn: async ({ pageParam }): Promise<GitHubItemPage> => {
-      const accessToken = await getConnectedAccountAccessToken(account!);
+      const accessToken = account
+        ? await getConnectedAccountAccessToken(account)
+        : null;
       return searchGitHubItems(
         itemType,
         accessToken,
@@ -42,7 +44,6 @@ export function useGitHubItems(
     },
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor,
-    enabled: account != null,
     ...persistedStaleWhileRevalidateQueryOptions,
   });
 }

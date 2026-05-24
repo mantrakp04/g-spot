@@ -15,7 +15,7 @@
  * Usage: `bun run db:migrate`
  */
 
-import { env } from "@g-spot/env/server";
+import { resolveDatabaseUrl } from "@g-spot/env/server";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -39,7 +39,7 @@ const migrationsFolder = path.resolve(import.meta.dirname, "./migrations");
 type MigrationLogger = Pick<typeof console, "log">;
 
 export function runMigrations(logger: MigrationLogger = console): void {
-  const rawDb = openNativeDb(resolveDbFilePath(env.DATABASE_URL));
+  const rawDb = openNativeDb(resolveDbFilePath(resolveDatabaseUrl()));
 
   try {
     bootstrapJournalIfNeeded(rawDb, logger);

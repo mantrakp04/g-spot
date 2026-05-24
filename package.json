@@ -46,8 +46,9 @@
   "type": "module",
   "scripts": {
     "dev": "turbo dev",
+    "dev:demo": "turbo run dev:demo",
     "build": "turbo build",
-    "check-types": "turbo check-types",
+    "check-types": "turbo run check-types",
     "dev:web": "turbo -F web dev",
     "dev:desktop": "turbo -F desktop dev:hmr",
     "build:desktop": "turbo -F desktop build:stable",
@@ -58,6 +59,7 @@
     "db:studio": "turbo -F @g-spot/db db:studio",
     "db:generate": "turbo -F @g-spot/db db:generate",
     "db:migrate": "turbo -F @g-spot/db db:migrate",
+    "db:seed-demo": "turbo -F @g-spot/db db:seed-demo",
     "db:local": "turbo -F @g-spot/db db:local",
     "test": "turbo test"
   },

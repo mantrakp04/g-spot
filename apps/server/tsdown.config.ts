@@ -5,5 +5,7 @@ export default defineConfig({
   format: "esm",
   outDir: "./dist",
   clean: true,
-  noExternal: [/@g-spot\/.*/],
+  deps: {
+    onlyBundle: [/@g-spot\/.*/],
+  },
 });

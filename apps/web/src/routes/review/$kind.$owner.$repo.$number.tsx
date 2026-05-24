@@ -5,6 +5,7 @@ import { useUser } from "@stackframe/react";
 import { PRReviewView } from "@/components/review/pr-review-view";
 import { IssueReviewView } from "@/components/review/issue-review-view";
 import type { ReviewTarget } from "@/hooks/use-github-detail";
+import { env } from "@g-spot/env/web";
 
 export const Route = createFileRoute("/review/$kind/$owner/$repo/$number")({
   component: ReviewDetail,
@@ -31,6 +32,10 @@ function ReviewDetail() {
     number: Number(number),
   };
 
+  if (!user && env.VITE_DEMO_MODE && target.kind === "pr") {
+    return <PRReviewView target={target} account={null} />;
+  }
+
   if (!user) {
     return <MissingGitHubAccount />;
   }
@@ -47,6 +52,10 @@ function SignedInReviewDetail({
 }) {
   const accounts = user.useConnectedAccounts();
   const account = accounts?.find((a) => a.provider === "github") ?? null;
+
+  if (!account && env.VITE_DEMO_MODE && target.kind === "pr") {
+    return <PRReviewView target={target} account={null} />;
+  }
 
   if (!account) {
     return <MissingGitHubAccount />;

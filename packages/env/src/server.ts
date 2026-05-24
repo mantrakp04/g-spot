@@ -7,19 +7,20 @@ import { devPortPrefix, devPorts, devUrls } from "./dev-ports";
 
 loadEnv({ path: fileURLToPath(new URL("../../../.env", import.meta.url)) });
 
-const databasePath = resolve(
-  fileURLToPath(new URL("../../..", import.meta.url)),
-  `apps/server/local-${devPortPrefix}.db`,
-);
-
 const serverConfig = createEnv({
   server: {
     SERVER_HOST: z.string().min(1).default("localhost"),
     SERVER_PORT: z.coerce.number().int().min(1).max(65535).default(devPorts.server),
+    DEMO_MODE: z.stringbool().default(false),
   },
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,
 });
+
+const databasePath = resolve(
+  fileURLToPath(new URL("../../..", import.meta.url)),
+  `apps/server/local-${devPortPrefix}.db`,
+);
 
 export const env = createEnv({
   extends: [serverConfig],
@@ -63,3 +64,10 @@ export const env = createEnv({
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,
 });
+export function resolveDatabaseUrl(): string {
+  if (!env.DEMO_MODE) return env.DATABASE_URL;
+  return `file:${resolve(
+    fileURLToPath(new URL("../../..", import.meta.url)),
+    "apps/server/demo.db",
+  )}`;
+}

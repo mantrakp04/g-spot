@@ -65,10 +65,10 @@ declare module "@tanstack/react-table" {
 
 const BREAKPOINT_CLASS: Record<InboxBreakpoint, string> = {
   always: "",
-  sm: "hidden sm:table-cell",
-  md: "hidden md:table-cell",
-  lg: "hidden lg:table-cell",
-  xl: "hidden xl:table-cell",
+  sm: "hidden",
+  md: "hidden",
+  lg: "hidden",
+  xl: "hidden",
 };
 
 const ALIGN_TEXT: Record<InboxAlign, string> = {
@@ -382,6 +382,7 @@ export function InboxDataTable<TData>({
     <TooltipProvider>
       <div
         ref={setScrollContainer}
+        data-inbox-table-container
         className={cn(
           "max-h-[28rem] overflow-x-auto overflow-y-auto [&_[data-slot=table-container]]:overflow-visible",
           scrollContainerClassName,
@@ -402,6 +403,7 @@ export function InboxDataTable<TData>({
                     <TableHead
                       key={header.id}
                       data-col={header.column.id}
+                      data-breakpoint={meta.breakpoint}
                       style={getColumnWidthStyle(header.column.id)}
                       className={cn(
                         "relative",
@@ -479,6 +481,7 @@ export function InboxDataTable<TData>({
                         <TableCell
                           key={column.id}
                           data-col={column.id}
+                          data-breakpoint={meta.breakpoint}
                           style={getColumnWidthStyle(column.id)}
                           className={cn(
                             "overflow-hidden",
@@ -528,6 +531,7 @@ export function InboxDataTable<TData>({
                             <TableCell
                               key={cell.id}
                               data-col={cell.column.id}
+                              data-breakpoint={meta.breakpoint}
                               style={getColumnWidthStyle(cell.column.id)}
                               className={cn(
                                 "overflow-hidden",

@@ -199,7 +199,8 @@ async function configureDesktopDataEnv(): Promise<void> {
   mkdirSync(dataDir, { recursive: true });
   desktopDataDir = dataDir;
 
-  process.env.DATABASE_URL ??= `file:${path.join(dataDir, "local.db")}`;
+  process.env.DEMO_MODE = "false";
+  process.env.DATABASE_URL = `file:${path.join(dataDir, "local.db")}`;
   process.env.CHAT_STATE_SQLITE_PATH ??= path.join(dataDir, "chat-state.db");
 }
 

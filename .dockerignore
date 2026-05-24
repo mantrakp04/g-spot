@@ -6,12 +6,8 @@
 .git
 .github
 tmp
-apps/web
-!apps/web/package.json
 apps/desktop
 !apps/desktop/package.json
-apps/server
-!apps/server/package.json
 apps/relay/relay.db
 apps/relay/relay.db-*
 **/*.log

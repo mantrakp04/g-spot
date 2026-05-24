@@ -1,0 +1,10 @@
+{
+  "name": "demo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "docker:build": "docker build -f apps/demo/Dockerfile -t g-spot-demo .",
+    "docker:run": "docker run --rm -p 3000:3000 g-spot-demo",
+    "fly:deploy": "fly deploy -c apps/demo/fly.toml"
+  }
+}

@@ -186,6 +186,10 @@ type PullRequestSearchResponse = { search: { nodes: PullRequestNode[] } & Search
 type IssueSearchResponse = { search: { nodes: IssueNode[] } & SearchPageInfo };
 type SearchVariables = { searchQuery: string; cursor: string | null; first: number };
 
+type RestSearchIssue = Awaited<
+  ReturnType<Octokit["rest"]["search"]["issuesAndPullRequests"]>
+>["data"]["items"][number];
+
 const SIMPLE_QUALIFIERS: Record<string, string> = {
   author: "author",
   assignee: "assignee",
@@ -562,12 +566,16 @@ function mapIssueNode(node: IssueNode): GitHubIssue {
 
 export async function searchGitHubItems(
   itemType: GitHubItemType,
-  accessToken: string,
+  accessToken: string | null,
   filters: FilterRule,
   cursor?: string | null,
   repos?: string[],
   sortAsc?: boolean,
 ): Promise<GitHubItemPage> {
+  if (!accessToken) {
+    return searchPublicGitHubItems(itemType, filters, cursor, repos, sortAsc);
+  }
+
   const octokit = new Octokit({ auth: accessToken });
   const searchQueries = buildGitHubSearchQueries(itemType, filters, repos, sortAsc);
   const cursors = searchQueries.length > 1
@@ -684,4 +692,223 @@ async function searchPullRequests(
     }
     throw error;
   }
+}
+
+async function searchPublicGitHubItems(
+  itemType: GitHubItemType,
+  filters: FilterRule,
+  cursor?: string | null,
+  repos?: string[],
+  sortAsc?: boolean,
+): Promise<GitHubItemPage> {
+  const octokit = new Octokit();
+  const searchQuery = buildGitHubSearchQuery(itemType, filters, repos, sortAsc);
+  const page = parseRestPageCursor(cursor);
+  const response = await octokit.rest.search.issuesAndPullRequests({
+    q: searchQuery,
+    per_page: SEARCH_PAGE_SIZE,
+    page,
+  });
+
+  const items = itemType === "pr"
+    ? await Promise.all(
+        response.data.items.map((item) => mapPublicPullRequestItem(octokit, item)),
+      )
+    : response.data.items.map(mapPublicIssueItem);
+
+  const hasNextPage = page * SEARCH_PAGE_SIZE < response.data.total_count;
+  return {
+    items,
+    nextCursor: hasNextPage ? `page:${page + 1}` : null,
+    totalCount: response.data.total_count,
+  };
+}
+
+function parseRestPageCursor(cursor: string | null | undefined): number {
+  if (!cursor?.startsWith("page:")) return 1;
+  const page = Number(cursor.slice("page:".length));
+  return Number.isInteger(page) && page > 0 ? page : 1;
+}
+
+function parseRepositoryFromRestItem(item: RestSearchIssue) {
+  const repositoryUrl =
+    "repository_url" in item && typeof item.repository_url === "string"
+      ? item.repository_url
+      : "";
+  const [owner = "unknown", name = "unknown"] = repositoryUrl.split("/").slice(-2);
+  return { nameWithOwner: `${owner}/${name}`, owner, name };
+}
+
+function mapRestLabels(labels: RestSearchIssue["labels"]): GitHubIssue["labels"] {
+  return labels
+    .map((label) =>
+      typeof label === "string"
+        ? { name: label, color: "6b7280" }
+        : { name: label.name ?? "", color: label.color ?? "6b7280" },
+    )
+    .filter((label) => label.name.length > 0);
+}
+
+function mapRestActor(user: RestSearchIssue["user"]) {
+  return {
+    login: user?.login ?? "ghost",
+    avatarUrl: user?.avatar_url ?? "",
+  };
+}
+
+function mapRestReviewDecision(
+  reviewers: GitHubPullRequest["reviewers"],
+): GitHubPullRequest["reviewDecision"] {
+  if (reviewers.some((reviewer) => reviewer.state === "CHANGES_REQUESTED")) {
+    return "CHANGES_REQUESTED";
+  }
+  if (reviewers.some((reviewer) => reviewer.state === "APPROVED")) {
+    return "APPROVED";
+  }
+  if (reviewers.some((reviewer) => reviewer.state === "REQUESTED")) {
+    return "REVIEW_REQUIRED";
+  }
+  return null;
+}
+
+function mapRestStatusRollup(
+  checks: GitHubPullRequest["statusChecks"],
+): GitHubPullRequest["statusCheckRollup"] {
+  if (checks.length === 0) return null;
+  if (checks.some((check) => check.conclusion === "FAILURE" || check.conclusion === "TIMED_OUT" || check.conclusion === "CANCELLED")) {
+    return "FAILURE";
+  }
+  if (checks.some((check) => check.conclusion === "ACTION_REQUIRED" || check.conclusion === "STALE")) {
+    return "ERROR";
+  }
+  if (checks.some((check) => check.status !== "COMPLETED")) {
+    return "PENDING";
+  }
+  return "SUCCESS";
+}
+
+function mapBasePublicPullRequestItem(item: RestSearchIssue): GitHubPullRequest {
+  return {
+    id: item.node_id ?? String(item.id),
+    number: item.number,
+    title: item.title,
+    url: item.html_url,
+    itemType: "pull_request",
+    isDraft: item.draft ?? false,
+    author: mapRestActor(item.user),
+    repository: parseRepositoryFromRestItem(item),
+    reviewDecision: null,
+    reviewers: [],
+    statusCheckRollup: null,
+    statusChecks: [],
+    additions: 0,
+    deletions: 0,
+    labels: mapRestLabels(item.labels),
+    updatedAt: item.updated_at ?? item.created_at ?? new Date().toISOString(),
+  };
+}
+
+async function mapPublicPullRequestItem(
+  octokit: Octokit,
+  item: RestSearchIssue,
+): Promise<GitHubPullRequest> {
+  const base = mapBasePublicPullRequestItem(item);
+  const { owner, name: repo } = base.repository;
+
+  try {
+    const detail = await octokit.rest.pulls.get({
+      owner,
+      repo,
+      pull_number: item.number,
+    });
+
+    const [reviews, checks] = await Promise.all([
+      octokit.rest.pulls.listReviews({
+        owner,
+        repo,
+        pull_number: item.number,
+        per_page: 100,
+      }).catch(() => ({ data: [] })),
+      octokit.rest.checks.listForRef({
+        owner,
+        repo,
+        ref: detail.data.head.sha,
+        per_page: 25,
+      }).catch(() => ({ data: { check_runs: [] } })),
+    ]);
+
+    const latestReviewByLogin = new Map<string, GitHubPullRequest["reviewers"][number]>();
+    for (const review of reviews.data) {
+      if (!review.user) continue;
+      latestReviewByLogin.set(review.user.login, {
+        login: review.user.login,
+        avatarUrl: review.user.avatar_url,
+        state: review.state.toUpperCase(),
+      });
+    }
+
+    const requestedReviewers =
+      detail.data.requested_reviewers?.map((reviewer) => ({
+        login: reviewer.login,
+        avatarUrl: reviewer.avatar_url,
+        state: "REQUESTED",
+      })) ?? [];
+    const requestedTeams =
+      detail.data.requested_teams?.map((team) => ({
+        login: team.name,
+        avatarUrl: "",
+        state: "REQUESTED",
+      })) ?? [];
+
+    const reviewed = [...latestReviewByLogin.values()];
+    const reviewedLogins = new Set(reviewed.map((reviewer) => reviewer.login));
+    const reviewers = [
+      ...reviewed,
+      ...requestedReviewers.filter((reviewer) => !reviewedLogins.has(reviewer.login)),
+      ...requestedTeams.filter((reviewer) => !reviewedLogins.has(reviewer.login)),
+    ];
+
+    const statusChecks = checks.data.check_runs.map((check) => ({
+      name: check.name,
+      conclusion: mapCheckConclusion(check.conclusion),
+      status: mapCheckStatus(check.status),
+      detailsUrl: check.details_url,
+    }));
+
+    return {
+      ...base,
+      isDraft: detail.data.draft ?? base.isDraft,
+      reviewers,
+      reviewDecision: mapRestReviewDecision(reviewers),
+      statusCheckRollup: mapRestStatusRollup(statusChecks),
+      statusChecks,
+      additions: detail.data.additions ?? base.additions,
+      deletions: detail.data.deletions ?? base.deletions,
+      labels: mapRestLabels(detail.data.labels),
+      updatedAt: detail.data.updated_at ?? base.updatedAt,
+    };
+  } catch {
+    return base;
+  }
+}
+
+function mapPublicIssueItem(item: RestSearchIssue): GitHubIssue {
+  return {
+    id: item.node_id ?? String(item.id),
+    number: item.number,
+    title: item.title,
+    url: item.html_url,
+    itemType: "issue",
+    state: item.state === "closed" ? "CLOSED" : "OPEN",
+    stateReason: null,
+    author: mapRestActor(item.user),
+    repository: parseRepositoryFromRestItem(item),
+    labels: mapRestLabels(item.labels),
+    assignees: item.assignees?.map(mapRestActor) ?? [],
+    reactions: item.reactions?.total_count ?? 0,
+    milestone: item.milestone?.title ?? null,
+    comments: item.comments,
+    createdAt: item.created_at,
+    updatedAt: item.updated_at ?? item.created_at,
+  };
 }

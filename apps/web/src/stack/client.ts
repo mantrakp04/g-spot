@@ -34,6 +34,7 @@ function navigateOrOpenExternal(to: string): void {
 
 export const stackClientApp = new StackClientApp({
   projectId: env.VITE_STACK_PROJECT_ID,
+  noAutomaticPrefetch: env.VITE_DEMO_MODE,
   tokenStore: isDesktopRenderer() ? "memory" : "cookie",
   redirectMethod: {
     useNavigate: () => navigateOrOpenExternal,

@@ -4,6 +4,7 @@ import type { OAuthConnection } from "@stackframe/react";
 
 import {
   getGitHubOctokit,
+  getReadOnlyGitHubOctokit,
   requireGitHubAccount,
 } from "@/lib/github/client";
 import { normalizePullRequestFiles } from "@/lib/github/pr-files";
@@ -178,9 +179,9 @@ export function useGitHubPRDetail(
   const queryKey = githubDetailKeys.pr(target, accountId);
   return useQuery({
     queryKey,
-    enabled: !!account && target.kind === "pr",
+    enabled: target.kind === "pr",
     queryFn: async () => {
-      const kit = await getGitHubOctokit(requireGitHubAccount(account));
+      const kit = await getReadOnlyGitHubOctokit(account);
       const { data } = await kit.rest.pulls.get({
         owner: target.owner,
         repo: target.repo,
@@ -205,9 +206,9 @@ export function useGitHubPRFiles(
       ...githubDetailKeys.prFiles(target, account?.providerAccountId),
       rangeKey,
     ],
-    enabled: !!account && target.kind === "pr",
+    enabled: target.kind === "pr",
     queryFn: async () => {
-      const kit = await getGitHubOctokit(requireGitHubAccount(account));
+      const kit = await getReadOnlyGitHubOctokit(account);
       if (range) {
         const { data } = await kit.rest.repos.compareCommits({
           owner: target.owner,
@@ -246,9 +247,9 @@ export function useGitHubPRCommits(
 ) {
   return useQuery({
     queryKey: githubDetailKeys.prCommits(target, account?.providerAccountId),
-    enabled: !!account && target.kind === "pr",
+    enabled: target.kind === "pr",
     queryFn: async () => {
-      const kit = await getGitHubOctokit(requireGitHubAccount(account));
+      const kit = await getReadOnlyGitHubOctokit(account);
       const { data } = await kit.rest.pulls.listCommits({
         owner: target.owner,
         repo: target.repo,
@@ -279,9 +280,9 @@ export function useGitHubFileContents(
       path,
       ref ?? "",
     ),
-    enabled: !!account && !!ref && enabled,
+    enabled: !!ref && enabled,
     queryFn: async (): Promise<string | null> => {
-      const kit = await getGitHubOctokit(requireGitHubAccount(account));
+      const kit = await getReadOnlyGitHubOctokit(account);
       try {
         const { data } = await kit.rest.repos.getContent({
           owner: target.owner,
@@ -371,9 +372,9 @@ export function useGitHubPRTimeline(
 ) {
   return useQuery({
     queryKey: githubDetailKeys.prTimeline(target, account?.providerAccountId),
-    enabled: !!account && target.kind === "pr",
+    enabled: target.kind === "pr",
     queryFn: async (): Promise<TimelineEvent[]> => {
-      const kit = await getGitHubOctokit(requireGitHubAccount(account));
+      const kit = await getReadOnlyGitHubOctokit(account);
       const [comments, reviews] = await Promise.all([
         kit.rest.issues.listComments({
           owner: target.owner,
@@ -550,9 +551,9 @@ export function useGitHubPRChecks(
   const accountId = account?.providerAccountId;
   return useQuery({
     queryKey: prChecksQueryKey(target, accountId, headSha),
-    enabled: !!account && !!headSha && target.kind === "pr",
+    enabled: !!headSha && target.kind === "pr",
     queryFn: async (): Promise<CheckItem[]> => {
-      const kit = await getGitHubOctokit(requireGitHubAccount(account));
+      const kit = await getReadOnlyGitHubOctokit(account);
       const { data } = await kit.rest.checks.listForRef({
         owner: target.owner,
         repo: target.repo,
@@ -620,10 +621,10 @@ export function useGitHubPRStack(
       pr?.head.ref ?? null,
       pr?.base.ref ?? null,
     ],
-    enabled: !!account && !!pr && target.kind === "pr",
+    enabled: !!pr && target.kind === "pr",
     queryFn: async (): Promise<StackNode[]> => {
       if (!pr) return [];
-      const kit = await getGitHubOctokit(requireGitHubAccount(account));
+      const kit = await getReadOnlyGitHubOctokit(account);
       const [parents, children] = await Promise.all([
         kit.rest.pulls.list({
           owner: target.owner,
@@ -761,18 +762,18 @@ export function useGitHubPRReviewComments(
   const queryKey = githubDetailKeys.prReviewComments(target, accountId);
   return useQuery({
     queryKey,
-    enabled: !!account && target.kind === "pr",
+    enabled: target.kind === "pr",
     queryFn: async (): Promise<Record<string, ReviewComment[]>> => {
-      const kit = await getGitHubOctokit(requireGitHubAccount(account));
-      const [data, threadMap] = await Promise.all([
-        kit.paginate(kit.rest.pulls.listReviewComments, {
-          owner: target.owner,
-          repo: target.repo,
-          pull_number: target.number,
-          per_page: 100,
-        }),
-        fetchAllReviewThreads(kit, target),
-      ]);
+      const kit = await getReadOnlyGitHubOctokit(account);
+      const data = await kit.paginate(kit.rest.pulls.listReviewComments, {
+        owner: target.owner,
+        repo: target.repo,
+        pull_number: target.number,
+        per_page: 100,
+      });
+      const threadMap = account
+        ? await fetchAllReviewThreads(kit, target)
+        : new Map<number, { threadId: string; isResolved: boolean }>();
       const normalized: ReviewComment[] = data.map((c) => {
         const thread = threadMap.get(c.id);
         return {

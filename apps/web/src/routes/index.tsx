@@ -3,6 +3,7 @@ import { useState, useCallback, useEffect, useRef, useMemo, useTransition, start
 import type { FilterRule, SectionSource, ColumnConfig } from "@g-spot/types/filters";
 import { normalizeFilterRule } from "@g-spot/types/filters";
 import { Button, buttonVariants } from "@g-spot/ui/components/button";
+import { env } from "@g-spot/env/web";
 import { Skeleton } from "@g-spot/ui/components/skeleton";
 import type { OAuthConnection } from "@stackframe/react";
 import { useUser } from "@stackframe/react";
@@ -225,6 +226,14 @@ const SectionRow = memo(function SectionRow({
 
 function InboxPage() {
   const routeSearch = Route.useSearch();
+  if (env.VITE_DEMO_MODE) {
+    return (
+      <AppLayout sidebar={<SectionsSidebar />}>
+        <InboxPageContent accounts={undefined} routeSearch={routeSearch} />
+      </AppLayout>
+    );
+  }
+
   const user = useUser();
 
   return (

@@ -1,6 +1,7 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "ui": "tui",
+  "globalEnv": ["DEV_PORT_PREFIX", "VITE_*", "DEMO_*"],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
@@ -32,6 +33,10 @@
       "cache": false,
       "persistent": true
     },
+    "dev:demo": {
+      "cache": false,
+      "persistent": true
+    },
     "dev:hmr": {
       "cache": false,
       "persistent": true
@@ -49,6 +54,9 @@
     "db:migrate": {
       "cache": false,
       "persistent": true
+    },
+    "db:seed-demo": {
+      "cache": false
     },
     "db:studio": {
       "cache": false,

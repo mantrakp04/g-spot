@@ -57,7 +57,7 @@ export function AppLayout({
       defaultSize="18"
       minSize="10"
       maxSize="40"
-      className="min-w-[200px]"
+      className="min-w-0"
     >
       {sidebar}
     </ResizablePanel>

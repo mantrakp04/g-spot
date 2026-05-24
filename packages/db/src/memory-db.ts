@@ -1,4 +1,4 @@
-import { env } from "@g-spot/env/server";
+import { resolveDatabaseUrl } from "@g-spot/env/server";
 import type { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -12,11 +12,12 @@ const EMBEDDING_DIM = 768;
 let nativeDb: MemoryNativeDb | null = null;
 
 function resolveMainDbPath(): string {
-  if (!env.DATABASE_URL.startsWith("file:")) {
+  const databaseUrl = resolveDatabaseUrl();
+  if (!databaseUrl.startsWith("file:")) {
     throw new Error("Memory DB requires DATABASE_URL to point to a local file");
   }
 
-  const rawPath = env.DATABASE_URL.slice("file:".length);
+  const rawPath = databaseUrl.slice("file:".length);
   if (path.isAbsolute(rawPath)) {
     return rawPath;
   }

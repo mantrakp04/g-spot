@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 
 import { Badge } from "@g-spot/ui/components/badge";
 import { Button } from "@g-spot/ui/components/button";
+import { env } from "@g-spot/env/web";
 import { ScrollArea } from "@g-spot/ui/components/scroll-area";
 import { Separator } from "@g-spot/ui/components/separator";
 import { Skeleton } from "@g-spot/ui/components/skeleton";
@@ -83,7 +84,7 @@ function SortableSectionItem({
 }
 
 export function SectionsSidebar() {
-  const user = useUser();
+  const user = env.VITE_DEMO_MODE ? null : useUser();
   const accounts = user?.useConnectedAccounts();
   const { data: sections, isLoading } = useSections();
   const reorderMutation = useReorderSectionsMutation();
@@ -139,11 +140,11 @@ export function SectionsSidebar() {
           className="flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-sidebar-accent"
         >
           <Pencil className="size-3 shrink-0 text-muted-foreground" />
-          <span>Compose</span>
+          <span className="min-w-0 truncate">Compose</span>
           {drafts.length > 0 && (
             <Badge
               variant="secondary"
-              className="ml-auto h-4 min-w-[1.25rem] px-1 text-[10px] tabular-nums"
+              className="ml-auto h-4 min-w-[1.25rem] shrink-0 px-1 text-[10px] tabular-nums"
             >
               {drafts.length}
             </Badge>
@@ -184,7 +185,7 @@ export function SectionsSidebar() {
                 className="flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground"
               >
                 <Plus className="size-3 shrink-0" />
-                <span>Add section</span>
+                <span className="min-w-0 truncate">Add section</span>
               </button>
             </>
           )}

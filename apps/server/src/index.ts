@@ -1,4 +1,5 @@
 import { cors } from "@elysiajs/cors";
+import { env } from "@g-spot/env/server";
 import {
   handleChatStreamAbort,
   handleChatSocketClose,
@@ -21,7 +22,6 @@ import {
 } from "@g-spot/api/file-handler";
 import { createContext } from "@g-spot/api/context";
 import { appRouter } from "@g-spot/api/routers/index";
-import { env } from "@g-spot/env/server";
 import { startDecayCron } from "@g-spot/api/lib/memory-cron";
 import {
   loadGlobalMcps,
@@ -78,6 +78,19 @@ function buildFallbackFavicon(domain: string): string {
   <rect x="4" y="4" width="56" height="56" rx="10" fill="#e5e7eb" stroke="#d1d5db"/>
   <text x="32" y="41" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="28" font-weight="700" fill="#111827">${letter}</text>
 </svg>`;
+}
+
+function demoModeResponse(action: string): Response | null {
+  if (!env.DEMO_MODE) return null;
+  return new Response(`${action} is disabled in the read-only demo.`, {
+    status: 403,
+  });
+}
+
+function closeDemoSocket(ws: { close: (code?: number, reason?: string) => void }): boolean {
+  if (!env.DEMO_MODE) return false;
+  ws.close(1008, "Disabled in read-only demo");
+  return true;
 }
 
 // ── Desktop-hosted web callback pages ──
@@ -178,6 +191,7 @@ export const app = new Elysia()
   })
   .ws("/api/chat/status/socket", {
     open(ws) {
+      if (closeDemoSocket(ws)) return;
       handleChatStatusSocketOpen(ws);
     },
     message(ws, message) {
@@ -189,6 +203,7 @@ export const app = new Elysia()
   })
   .ws("/api/chat/:chatId/socket", {
     open(ws) {
+      if (closeDemoSocket(ws)) return;
       handleChatSocketOpen(ws);
     },
     message(ws, message) {
@@ -200,6 +215,7 @@ export const app = new Elysia()
   })
   .ws("/api/terminal/socket", {
     open(ws) {
+      if (closeDemoSocket(ws)) return;
       void handleTerminalSocketOpen(ws);
     },
     message(ws, message) {
@@ -210,9 +226,12 @@ export const app = new Elysia()
     },
   })
   .delete("/api/chat/:chatId/stream", ({ params, request }) =>
+    demoModeResponse("Chat stream abort") ??
     handleChatStreamAbort(request, params.chatId),
   )
-  .post("/api/files/upload", ({ request }) => handleFileUpload(request))
+  .post("/api/files/upload", ({ request }) =>
+    demoModeResponse("File upload") ?? handleFileUpload(request)
+  )
   .get("/api/files/:fileId/extracted-text", ({ params }) =>
     handleFileExtractedText(params.fileId),
   )
@@ -249,9 +268,11 @@ export const app = new Elysia()
     }
     return serveWebApp();
   })
-  .listen(env.SERVER_PORT, () => {
-    startDecayCron();
-    void loadGlobalMcps();
+  .listen({ hostname: env.SERVER_HOST, port: env.SERVER_PORT }, () => {
+    if (!env.DEMO_MODE) {
+      startDecayCron();
+      void loadGlobalMcps();
+    }
   });
 
 let mcpShutdownPromise: Promise<void> | null = null;

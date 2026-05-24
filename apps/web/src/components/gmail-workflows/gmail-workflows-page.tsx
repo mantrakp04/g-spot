@@ -37,6 +37,7 @@ import { useConfirmDialog } from "@/contexts/confirm-dialog-context";
 import { useGoogleProfile } from "@/hooks/use-gmail-options";
 import { gmailKeys } from "@/lib/query-keys";
 import { queryClient, trpcClient } from "@/utils/trpc";
+import { env } from "@g-spot/env/web";
 
 export type GmailWorkflow = Awaited<
   ReturnType<typeof trpcClient.gmailSync.listAgentWorkflows.query>
@@ -60,6 +61,9 @@ const TOOL_DESCRIPTIONS: Record<GmailAgentToolName, string> = {
 };
 
 function AccountLabel({ account }: { account: OAuthConnection }) {
+  if (env.VITE_DEMO_MODE) {
+    return <span className="truncate">demo@g-spot.dev</span>;
+  }
   const profile = useGoogleProfile(account);
   const label =
     profile.data?.email ?? profile.data?.name ?? account.providerAccountId;
@@ -67,6 +71,14 @@ function AccountLabel({ account }: { account: OAuthConnection }) {
 }
 
 function useGoogleAccounts() {
+  if (env.VITE_DEMO_MODE) {
+    return [
+      {
+        provider: "google",
+        providerAccountId: "demo-google-account",
+      } as OAuthConnection,
+    ];
+  }
   const user = useUser({ or: "redirect" });
   return user.useConnectedAccounts().filter((account) => account.provider === "google");
 }
@@ -94,6 +106,7 @@ function useSelectedGoogleAccount(accounts: OAuthConnection[]) {
 
 export function GmailWorkflowsPage() {
   const accounts = useGoogleAccounts();
+  const isDemo = env.VITE_DEMO_MODE;
   const { account, providerAccountId, setProviderAccountId } =
     useSelectedGoogleAccount(accounts);
   const confirm = useConfirmDialog();
@@ -245,7 +258,7 @@ export function GmailWorkflowsPage() {
             <Button
               onClick={openCreate}
               className="gap-2"
-              disabled={!account || toolkitQuery.isLoading}
+              disabled={isDemo || !account || toolkitQuery.isLoading}
             >
               <Plus className="size-4" />
               New workflow
@@ -325,7 +338,7 @@ export function GmailWorkflowsPage() {
                         onCheckedChange={(enabled) =>
                           void toggleWorkflow(workflow, enabled)
                         }
-                        disabled={isBusy}
+                        disabled={isDemo || isBusy}
                         aria-label="Toggle workflow"
                       />
                       <Button
@@ -333,6 +346,7 @@ export function GmailWorkflowsPage() {
                         size="icon-sm"
                         onClick={() => openEdit(workflow)}
                         aria-label="Edit workflow"
+                        disabled={isDemo}
                       >
                         <Pencil className="size-3.5" />
                       </Button>
@@ -342,6 +356,7 @@ export function GmailWorkflowsPage() {
                         onClick={() => void removeWorkflow(workflow)}
                         aria-label="Delete workflow"
                         className="text-muted-foreground hover:text-destructive"
+                        disabled={isDemo}
                       >
                         <Trash2 className="size-3.5" />
                       </Button>

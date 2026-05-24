@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 
+import { env } from "@g-spot/env/web";
 import { Toaster } from "@g-spot/ui/components/sonner";
 import { HotkeysProvider } from "@tanstack/react-hotkeys";
 import type { QueryClient } from "@tanstack/react-query";
@@ -117,6 +118,7 @@ function OnboardingGate() {
   const navigate = useNavigate();
 
   useEffect(() => {
+    if (env.VITE_DEMO_MODE) return;
     if (onboarded) return;
     if (location.pathname.startsWith("/onboarding")) return;
     if (location.pathname.startsWith("/handler")) return;
@@ -142,8 +144,12 @@ function RootShell() {
             </div>
           </div>
           <GlobalCommandPalette />
-          <DraftDock />
-          <RelayHeartbeat />
+          {!env.VITE_DEMO_MODE && (
+            <>
+              <DraftDock />
+              <RelayHeartbeat />
+            </>
+          )}
         </PiCredentialFlowsProvider>
       </DraftsProvider>
     </SectionCountsProvider>

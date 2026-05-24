@@ -43,7 +43,7 @@ export function SecondarySidebar({
   return (
     <aside
       className={cn(
-        "flex h-full min-h-0 w-full flex-col border-sidebar-border bg-sidebar text-sidebar-foreground",
+        "flex h-full min-h-0 w-full flex-col overflow-hidden border-sidebar-border bg-sidebar text-sidebar-foreground",
         className,
       )}
     >

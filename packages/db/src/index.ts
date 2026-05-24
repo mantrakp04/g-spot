@@ -1,4 +1,4 @@
-import { env } from "@g-spot/env/server";
+import { resolveDatabaseUrl } from "@g-spot/env/server";
 import type { Database } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
@@ -8,7 +8,7 @@ import * as schema from "./schema";
 
 runMigrations();
 
-const client: Database = openNativeDb(resolveDbFilePath(env.DATABASE_URL));
+const client: Database = openNativeDb(resolveDbFilePath(resolveDatabaseUrl()));
 
 export function createDb() {
   return drizzle(client, { schema });

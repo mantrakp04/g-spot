@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import type { OAuthConnection } from "@stackframe/react";
+import { env } from "@g-spot/env/web";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
@@ -50,11 +51,18 @@ type SendMessageInput = {
   threadId?: string | null;
 };
 
+function assertDemoCanMutateGmail(): void {
+  if (env.VITE_DEMO_MODE) {
+    throw new Error("Gmail actions are disabled in demo mode");
+  }
+}
+
 export function useMarkGmailThreadReadMutation() { 
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async ({ account, threadId }: ThreadMutationInput) => {
+      assertDemoCanMutateGmail();
       await modifyGmailThreadLabels({
         account,
         threadId,
@@ -124,6 +132,7 @@ export function useGmailThreadActions(
 
   const archiveMutation = useMutation({
     mutationFn: async ({ account, threadId, markRead }: ThreadMutationInput) => {
+      assertDemoCanMutateGmail();
       await modifyGmailThreadLabels({
         account,
         threadId,
@@ -153,6 +162,7 @@ export function useGmailThreadActions(
 
   const trashMutation = useMutation({
     mutationFn: async ({ account, threadId }: ThreadMutationInput) => {
+      assertDemoCanMutateGmail();
       await trashGmailThread(account, threadId);
     },
     onMutate: async ({ threadId }) => {
@@ -178,6 +188,7 @@ export function useGmailThreadActions(
 
   const unreadMutation = useMutation({
     mutationFn: async ({ account, threadId, isUnread }: SetUnreadInput) => {
+      assertDemoCanMutateGmail();
       if (isUnread) {
         await modifyGmailThreadLabels({
           account,
@@ -261,6 +272,7 @@ export function useSaveGmailDraftMutation(
 
   return useMutation({
     mutationFn: async ({ draftId, raw, threadId }: SaveDraftInput) => {
+      assertDemoCanMutateGmail();
       if (!googleAccount) {
         throw new Error("No Google account connected");
       }
@@ -306,6 +318,7 @@ export function useDeleteGmailDraftMutation(
 
   return useMutation({
     mutationFn: async (input: { draftId: string; threadId?: string | null }) => {
+      assertDemoCanMutateGmail();
       if (!googleAccount) {
         throw new Error("No Google account connected");
       }
@@ -348,6 +361,7 @@ export function useSendGmailMessageMutation(
 
   return useMutation({
     mutationFn: async ({ draftId, raw, threadId }: SendMessageInput) => {
+      assertDemoCanMutateGmail();
       if (!googleAccount) {
         throw new Error("No Google account connected");
       }

@@ -23,7 +23,9 @@ const router = createRouter({
     return (
       <StackProvider app={stackClientApp}>
         <StackTheme>
-          <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+          <QueryClientProvider client={queryClient}>
+            {children}
+          </QueryClientProvider>
         </StackTheme>
       </StackProvider>
     );

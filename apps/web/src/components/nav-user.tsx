@@ -4,6 +4,7 @@ import {
   AvatarImage,
 } from "@g-spot/ui/components/avatar";
 import { Button } from "@g-spot/ui/components/button";
+import { env } from "@g-spot/env/web";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,6 +22,8 @@ import { UserIdentity, userIdentityInitials } from "@/components/user-identity";
 import { clearDesktopAuthSession } from "@/lib/desktop-auth";
 
 export function NavUser({ compact = false }: { compact?: boolean } = {}) {
+  if (env.VITE_DEMO_MODE) return null;
+
   const user = useUser();
   const app = useStackApp();
 

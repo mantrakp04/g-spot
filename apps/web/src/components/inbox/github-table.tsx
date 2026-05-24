@@ -2,6 +2,7 @@ import { useEffect, useMemo, type HTMLAttributes, type ReactElement } from "reac
 
 import type { ColumnConfig, FilterRule } from "@g-spot/types/filters";
 import { getDefaultColumns, normalizeColumns } from "@g-spot/types/filters";
+import { env } from "@g-spot/env/web";
 import type { OAuthConnection } from "@stackframe/react";
 import { useNavigate } from "@tanstack/react-router";
 
@@ -105,11 +106,13 @@ export function GitHubTable({
 
   const label = source === "github_pr" ? "pull requests" : "issues";
 
-  if (!accounts) return <SectionEmpty source={source} message={`Sign in to view ${label}`} />;
-  if (!githubAccount)
-    return (
-      <SectionEmpty source={source} message={`Connect your GitHub account to view ${label}`} />
-    );
+  if (!env.VITE_DEMO_MODE) {
+    if (!accounts) return <SectionEmpty source={source} message={`Sign in to view ${label}`} />;
+    if (!githubAccount)
+      return (
+        <SectionEmpty source={source} message={`Connect your GitHub account to view ${label}`} />
+      );
+  }
 
   const sharedProps = {
     columnConfig,

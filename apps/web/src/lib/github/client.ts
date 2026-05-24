@@ -14,3 +14,8 @@ export async function getGitHubOctokit(account: OAuthConnection) {
   const accessToken = await getConnectedAccountAccessToken(account);
   return new Octokit({ auth: accessToken });
 }
+
+export async function getReadOnlyGitHubOctokit(account: OAuthConnection | null) {
+  if (!account) return new Octokit();
+  return getGitHubOctokit(account);
+}

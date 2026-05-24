@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { arch, platform } from "node:process";
+import { arch, cwd, platform } from "node:process";
 import { getLoadablePath as getSqliteVecPath } from "sqlite-vec";
 
 /**
@@ -14,6 +14,7 @@ const SQLITE_CANDIDATES: readonly string[] = [
   "/usr/local/opt/sqlite/lib/libsqlite3.dylib", // macOS (Intel)
   "/usr/lib/x86_64-linux-gnu/libsqlite3.so.0", // Debian/Ubuntu x86_64
   "/usr/lib/aarch64-linux-gnu/libsqlite3.so.0", // Debian/Ubuntu arm64
+  "/usr/lib/libsqlite3.so.0", // Alpine
   "/usr/lib64/libsqlite3.so.0", // Fedora/RHEL
 ];
 
@@ -91,6 +92,24 @@ function resolveSqliteVecPath(): string {
     sqliteVecExtensionName(),
   );
   if (existsSync(platformPackagePath)) return platformPackagePath;
+
+  const bunLinkedPlatformPackagePath = path.resolve(
+    cwd(),
+    "node_modules/.bun/node_modules",
+    `sqlite-vec-${platform === "win32" ? "windows" : platform}-${arch}`,
+    sqliteVecExtensionName(),
+  );
+  if (existsSync(bunLinkedPlatformPackagePath)) return bunLinkedPlatformPackagePath;
+
+  const repoRootBunLinkedPlatformPackagePath = path.resolve(
+    import.meta.dirname,
+    "../../../node_modules/.bun/node_modules",
+    `sqlite-vec-${platform === "win32" ? "windows" : platform}-${arch}`,
+    sqliteVecExtensionName(),
+  );
+  if (existsSync(repoRootBunLinkedPlatformPackagePath)) {
+    return repoRootBunLinkedPlatformPackagePath;
+  }
 
   return getSqliteVecPath();
 }

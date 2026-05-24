@@ -3,7 +3,8 @@ import { useCallback, useMemo } from "react";
 import { Button } from "@g-spot/ui/components/button";
 import { Progress } from "@g-spot/ui/components/progress";
 import { cn } from "@g-spot/ui/lib/utils";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
+import { env } from "@g-spot/env/web";
 import {
   ArrowLeft,
   ArrowRight,
@@ -57,6 +58,11 @@ type OnboardingSearch = {
 };
 
 export const Route = createFileRoute("/onboarding")({
+  beforeLoad: () => {
+    if (env.VITE_DEMO_MODE) {
+      throw redirect({ to: "/" });
+    }
+  },
   component: OnboardingRoute,
   validateSearch: (search: Record<string, unknown>): OnboardingSearch => ({
     step: isStepId(search.step) ? search.step : undefined,
@@ -148,30 +154,7 @@ function OnboardingRoute() {
         </nav>
 
         <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div className="flex-1 overflow-y-auto px-6 py-8">
-            {(() => {
-              const isTour =
-                activeStep === "memory" ||
-                activeStep === "reviews" ||
-                activeStep === "workflows" ||
-                activeStep === "notes";
-              return (
-                <div
-                  className={cn(
-                    "mx-auto",
-                    activeStep === "agent" ? "max-w-5xl" : "max-w-3xl",
-                    isTour && "flex min-h-full items-center",
-                  )}
-                >
-                  <div className="w-full">
-                    <StepBody step={activeStep} />
-                  </div>
-                </div>
-              );
-            })()}
-          </div>
-
-          <footer className="flex items-center justify-between gap-3 border-t border-border/60 px-6 py-4">
+          <header className="flex items-center justify-between gap-3 border-b border-border/60 px-6 py-4">
             <div className="flex min-w-0 items-center gap-3">
               <Button
                 variant="ghost"
@@ -207,7 +190,30 @@ function OnboardingRoute() {
                 {!isLast && <ArrowRight className="size-3.5" />}
               </Button>
             </div>
-          </footer>
+          </header>
+
+          <div className="flex-1 overflow-y-auto px-6 py-8">
+            {(() => {
+              const isTour =
+                activeStep === "memory" ||
+                activeStep === "reviews" ||
+                activeStep === "workflows" ||
+                activeStep === "notes";
+              return (
+                <div
+                  className={cn(
+                    "mx-auto",
+                    activeStep === "agent" ? "max-w-5xl" : "max-w-3xl",
+                    isTour && "flex min-h-full items-center",
+                  )}
+                >
+                  <div className="w-full">
+                    <StepBody step={activeStep} />
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
         </main>
       </div>
     </div>

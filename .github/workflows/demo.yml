@@ -1,0 +1,78 @@
+name: Demo
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/demo.yml"
+      - ".dockerignore"
+      - "apps/demo/**"
+      - "apps/server/**"
+      - "apps/web/**"
+      - "packages/api/**"
+      - "packages/config/**"
+      - "packages/db/**"
+      - "packages/env/**"
+      - "packages/types/**"
+      - "packages/ui/**"
+      - "package.json"
+      - "bun.lock"
+      - "bunfig.toml"
+      - "turbo.json"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/demo.yml"
+      - ".dockerignore"
+      - "apps/demo/**"
+      - "apps/server/**"
+      - "apps/web/**"
+      - "packages/api/**"
+      - "packages/config/**"
+      - "packages/db/**"
+      - "packages/env/**"
+      - "packages/types/**"
+      - "packages/ui/**"
+      - "package.json"
+      - "bun.lock"
+      - "bunfig.toml"
+      - "turbo.json"
+  workflow_dispatch:
+
+concurrency:
+  group: demo-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify demo
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.11
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Type check
+        run: bun check-types
+
+      - name: Build demo image
+        run: docker build -f apps/demo/Dockerfile -t g-spot-demo .
+
+  deploy:
+    name: Deploy demo
+    runs-on: ubuntu-latest
+    needs: verify
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy to Fly
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: flyctl deploy --config apps/demo/fly.toml --remote-only

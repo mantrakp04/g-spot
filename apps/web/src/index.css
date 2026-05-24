@@ -63,3 +63,35 @@
   border-radius: 0;
   padding: 0.75rem 1rem;
 }
+
+[data-inbox-table-container] {
+  container-type: inline-size;
+}
+
+[data-inbox-table-container] [data-breakpoint="always"] {
+  display: table-cell;
+}
+
+@container (min-width: 360px) {
+  [data-inbox-table-container] [data-breakpoint="sm"] {
+    display: table-cell;
+  }
+}
+
+@container (min-width: 520px) {
+  [data-inbox-table-container] [data-breakpoint="md"] {
+    display: table-cell;
+  }
+}
+
+@container (min-width: 720px) {
+  [data-inbox-table-container] [data-breakpoint="lg"] {
+    display: table-cell;
+  }
+}
+
+@container (min-width: 900px) {
+  [data-inbox-table-container] [data-breakpoint="xl"] {
+    display: table-cell;
+  }
+}

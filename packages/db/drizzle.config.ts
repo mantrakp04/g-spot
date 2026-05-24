@@ -1,4 +1,4 @@
-import { env } from "@g-spot/env/server";
+import { resolveDatabaseUrl } from "@g-spot/env/server";
 import { defineConfig } from "drizzle-kit";
 
 export default defineConfig({
@@ -6,6 +6,6 @@ export default defineConfig({
   out: "./src/migrations",
   dialect: "sqlite",
   dbCredentials: {
-    url: env.DATABASE_URL,
+    url: resolveDatabaseUrl(),
   },
 });

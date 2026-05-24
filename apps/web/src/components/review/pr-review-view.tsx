@@ -191,7 +191,7 @@ export function PRReviewView({
   account,
 }: {
   target: ReviewTarget;
-  account: OAuthConnection;
+  account: OAuthConnection | null;
 }) {
   const detail = useGitHubPRDetail(target, account);
   const [commitRange, setCommitRange] = useState<CommitRange>(null);

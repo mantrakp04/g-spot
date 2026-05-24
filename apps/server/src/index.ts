@@ -269,6 +269,7 @@ export const app = new Elysia()
     return serveWebApp();
   })
   .listen({ hostname: env.SERVER_HOST, port: env.SERVER_PORT }, () => {
+    console.log(`server listening on ${env.SERVER_HOST}:${env.SERVER_PORT}`);
     if (!env.DEMO_MODE) {
       startDecayCron();
       void loadGlobalMcps();

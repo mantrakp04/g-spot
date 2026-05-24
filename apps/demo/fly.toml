@@ -26,3 +26,8 @@ primary_region = "sjc"
     grace_period = "10s"
     method = "GET"
     path = "/healthz"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory = "1024mb"

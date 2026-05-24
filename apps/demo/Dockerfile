@@ -1,6 +1,8 @@
-FROM oven/bun:1.3.10-alpine AS base
+FROM oven/bun:1.3.10 AS base
 WORKDIR /app
-RUN apk add --no-cache sqlite-libs
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates sqlite3 libsqlite3-0 \
+  && rm -rf /var/lib/apt/lists/*
 
 FROM base AS install
 COPY package.json bun.lock turbo.json tsconfig.json bunfig.toml ./

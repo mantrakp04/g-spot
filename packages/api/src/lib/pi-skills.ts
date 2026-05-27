@@ -5,7 +5,7 @@ import {
   DefaultResourceLoader,
   getAgentDir,
   type Skill as PiSkill,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import type { Skill } from "@g-spot/types";
 
 import { getProject } from "@g-spot/db/projects";

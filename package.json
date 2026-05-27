@@ -38,13 +38,18 @@
   },
   "overrides": {
     "d3-shape": "^3.2.0",
-    "@mariozechner/pi-agent-core": "^0.72.0",
-    "@mariozechner/pi-ai": "^0.72.0",
-    "@mariozechner/pi-coding-agent": "^0.72.0",
-    "@mariozechner/pi-tui": "^0.72.0",
+    "@earendil-works/pi-agent-core": "^0.75.3",
+    "@earendil-works/pi-ai": "^0.75.3",
+    "@earendil-works/pi-coding-agent": "^0.75.3",
+    "@earendil-works/pi-tui": "^0.75.3",
     "fast-uri": "^3.1.2",
     "js-cookie": "^3.0.6",
-    "hono": "^4.12.18"
+    "hono": "^4.12.18",
+    "basic-ftp": "^5.3.1",
+    "brace-expansion": "^5.0.1",
+    "ip-address": "^10.1.1",
+    "uuid": "^14.0.0",
+    "protobufjs": "^7.5.6"
   },
   "type": "module",
   "scripts": {
@@ -70,10 +75,10 @@
   },
   "dependencies": {
     "@g-spot/env": "workspace:*",
-    "@mariozechner/pi-agent-core": "^0.72.0",
-    "@mariozechner/pi-ai": "^0.72.0",
-    "@mariozechner/pi-coding-agent": "^0.72.0",
-    "@mariozechner/pi-tui": "^0.72.0",
+    "@earendil-works/pi-agent-core": "^0.75.3",
+    "@earendil-works/pi-ai": "^0.75.3",
+    "@earendil-works/pi-coding-agent": "^0.75.3",
+    "@earendil-works/pi-tui": "^0.75.3",
     "@stackframe/react": "^2.8.89",
     "dotenv": "catalog:",
     "jose": "^6.2.2",

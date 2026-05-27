@@ -13,13 +13,13 @@ import {
   createReadToolDefinition,
   createWriteToolDefinition,
   getAgentDir,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import type {
   AuthCredential,
   ToolDefinition,
-} from "@mariozechner/pi-coding-agent";
-import type { Message } from "@mariozechner/pi-ai";
-import { getOAuthProviders } from "@mariozechner/pi-ai/oauth";
+} from "@earendil-works/pi-coding-agent";
+import type { Message } from "@earendil-works/pi-ai";
+import { getOAuthProviders } from "@earendil-works/pi-ai/oauth";
 import {
   getPiState,
   upsertPiState,

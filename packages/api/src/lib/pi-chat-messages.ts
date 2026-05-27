@@ -1,6 +1,6 @@
 import { env } from "@g-spot/env/server";
 import { getFileById } from "@g-spot/db/files";
-import type { Message, UserMessage } from "@mariozechner/pi-ai";
+import type { Message, UserMessage } from "@earendil-works/pi-ai";
 
 import { detectDocumentKind, extractDocumentText } from "./extract-document";
 import { getOrCreateFileExtraction } from "./file-extraction-cache";

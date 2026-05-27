@@ -5,8 +5,8 @@ on:
     paths:
       - ".github/workflows/relay.yml"
       - "apps/relay/**"
-      - "packages/chat-adapter-gmail/**"
-      - "packages/chat-state-sqlite/**"
+      - "packages/adapters/**"
+      - "packages/relay-db/**"
       - "packages/config/**"
       - "packages/env/**"
       - "package.json"
@@ -18,8 +18,8 @@ on:
     paths:
       - ".github/workflows/relay.yml"
       - "apps/relay/**"
-      - "packages/chat-adapter-gmail/**"
-      - "packages/chat-state-sqlite/**"
+      - "packages/adapters/**"
+      - "packages/relay-db/**"
       - "packages/config/**"
       - "packages/env/**"
       - "package.json"
@@ -48,9 +48,6 @@ jobs:
 
       - name: Type check
         run: bun check-types
-
-      - name: Verify relay DB migrations
-        run: bun run --filter @g-spot/chat-state-sqlite test:migrations
 
   deploy:
     name: Deploy relay

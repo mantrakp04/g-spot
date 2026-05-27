@@ -10,8 +10,8 @@ import {
   SessionManager,
   type AgentSessionEvent,
   type SessionEntry,
-} from "@mariozechner/pi-coding-agent";
-import type { Message } from "@mariozechner/pi-ai";
+} from "@earendil-works/pi-coding-agent";
+import type { Message } from "@earendil-works/pi-ai";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

@@ -1,4 +1,4 @@
-import type { OAuthAuthInfo, OAuthPrompt } from "@mariozechner/pi-ai";
+import type { OAuthAuthInfo, OAuthPrompt } from "@earendil-works/pi-ai";
 import { nanoid } from "nanoid";
 
 import type { PiOAuthProviderSummary } from "@g-spot/types";

@@ -3,6 +3,19 @@ name: CLI npm publish
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
+    paths:
+      - "apps/cli/package.json"
+      - "apps/cli/src/**"
+      - "apps/cli/scripts/**"
+      - "apps/cli/README.md"
+      - "apps/web/**"
+      - "apps/server/**"
+      - "packages/**"
+      - "bun.lock"
+      - "package.json"
+      - ".github/workflows/cli-npm-publish.yml"
     tags:
       - "cli-v*"
 
@@ -39,8 +52,22 @@ jobs:
       - name: Build CLI package
         run: bun run build:cli
 
-      - name: Publish to npm
+      - name: Read CLI package version
+        id: package
         working-directory: apps/cli
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public --provenance
+        run: |
+          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Check npm version
+        id: npm
+        run: |
+          if npm view "g-spot-cli@${{ steps.package.outputs.version }}" version >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish to npm
+        if: steps.npm.outputs.exists == 'false'
+        working-directory: apps/cli
+        run: npm publish --access public

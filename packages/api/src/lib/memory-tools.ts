@@ -6,7 +6,7 @@
  * and embeddings.ts rather than reimplementing it.
  */
 
-import { defineTool, type ToolDefinition } from "@mariozechner/pi-coding-agent";
+import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { getMemoryNativeDb } from "@g-spot/db/memory-db";
 import { nanoid } from "nanoid";

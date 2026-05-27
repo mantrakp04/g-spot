@@ -1,6 +1,6 @@
-import type { AgentSessionEvent, ToolInfo } from "@mariozechner/pi-coding-agent";
-import type { ThinkingLevel } from "@mariozechner/pi-agent-core";
-import type { Message, Model, Transport } from "@mariozechner/pi-ai";
+import type { AgentSessionEvent, ToolInfo } from "@earendil-works/pi-coding-agent";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { Message, Model, Transport } from "@earendil-works/pi-ai";
 import { z } from "zod";
 
 export const PI_QUEUE_MODE_VALUES = ["one-at-a-time", "all"] as const;

@@ -5,7 +5,7 @@
  * with `void` so it doesn't block the chat stream response.
  */
 
-import type { Message } from "@mariozechner/pi-ai";
+import type { Message } from "@earendil-works/pi-ai";
 
 import { extractAssistantText } from "./pi";
 import { extractAndIngestThread } from "./memory-extractor";

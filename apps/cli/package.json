@@ -2,6 +2,15 @@
   "name": "g-spot-cli",
   "version": "0.0.2",
   "description": "CLI launcher for the g-spot local-first web and server app.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mantrakp04/g-spot.git",
+    "directory": "apps/cli"
+  },
+  "homepage": "https://github.com/mantrakp04/g-spot#readme",
+  "bugs": {
+    "url": "https://github.com/mantrakp04/g-spot/issues"
+  },
   "type": "module",
   "bin": {
     "g-spot": "dist/index.js",

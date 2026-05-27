@@ -40,6 +40,8 @@ bunx g-spot-cli --host 127.0.0.1 --port 3999
 bunx g-spot-cli --port 3999 --kill
 ```
 
+The package exposes both `g-spot` and `g-spot-cli` executables.
+
 Options:
 
 - `-p, --port <port>`: server port, default `3000`

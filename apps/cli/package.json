@@ -1,10 +1,11 @@
 {
   "name": "g-spot-cli",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "CLI launcher for the g-spot local-first web and server app.",
   "type": "module",
   "bin": {
-    "g-spot": "dist/index.js"
+    "g-spot": "dist/index.js",
+    "g-spot-cli": "dist/index.js"
   },
   "files": [
     "dist"

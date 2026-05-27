@@ -117,5 +117,9 @@ await copyExisting(
 
 await Bun.write(
   path.join(distDir, "package.json"),
-  `${JSON.stringify({ type: "module", bin: { "g-spot": "./index.js" } }, null, 2)}\n`,
+  `${JSON.stringify(
+    { type: "module", bin: { "g-spot": "./index.js", "g-spot-cli": "./index.js" } },
+    null,
+    2,
+  )}\n`,
 );

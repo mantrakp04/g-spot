@@ -16,3 +16,5 @@ bunx g-spot-cli --port 3999 --kill
 ```
 
 Requires Bun `>=1.3.10`.
+
+The package exposes both `g-spot` and `g-spot-cli` executables.

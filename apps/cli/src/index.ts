@@ -29,7 +29,7 @@ const optionDefinitions: Record<string, CliOptionDefinition> = {
     description: "Kill the process listening on the selected port.",
   },
   help: {
-    aliases: ["--help", "-h"],
+    aliases: ["--help"],
     description: "Show this help.",
   },
 };

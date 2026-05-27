@@ -222,6 +222,9 @@ async function main(): Promise<void> {
   process.env.SERVER_HOST = options.host;
   process.env.SERVER_PORT = String(options.port);
   process.env.G_SPOT_WEB_DIST_DIR = webDir;
+  process.env.SQLITE_VEC_PATH ??= bundledPath(
+    `native/sqlite-vec/vec0.${process.platform === "darwin" ? "dylib" : process.platform === "win32" ? "dll" : "so"}`,
+  ) ?? undefined;
   process.env.DATABASE_URL ??= `file:${path.join(dataDir, "local.db")}`;
   process.env.CHAT_STATE_SQLITE_PATH ??= path.join(dataDir, "chat-state.db");
 

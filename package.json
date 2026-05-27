@@ -41,7 +41,10 @@
     "@mariozechner/pi-agent-core": "^0.72.0",
     "@mariozechner/pi-ai": "^0.72.0",
     "@mariozechner/pi-coding-agent": "^0.72.0",
-    "@mariozechner/pi-tui": "^0.72.0"
+    "@mariozechner/pi-tui": "^0.72.0",
+    "fast-uri": "^3.1.2",
+    "js-cookie": "^3.0.6",
+    "hono": "^4.12.18"
   },
   "type": "module",
   "scripts": {

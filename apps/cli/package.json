@@ -1,0 +1,35 @@
+{
+  "name": "g-spot-cli",
+  "version": "0.0.1",
+  "description": "CLI launcher for the g-spot local-first web and server app.",
+  "type": "module",
+  "bin": {
+    "g-spot": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "bun": ">=1.3.10"
+  },
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "scripts": {
+    "build": "bun scripts/build-package.ts",
+    "start": "bun run dist/index.js",
+    "dev": "bun run src/index.ts",
+    "check-types": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@g-spot/db": "workspace:*",
+    "@g-spot/config": "workspace:*",
+    "@types/bun": "catalog:",
+    "server": "workspace:*",
+    "typescript": "^6",
+    "zod": "catalog:"
+  }
+}

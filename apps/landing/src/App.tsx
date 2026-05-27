@@ -8,6 +8,7 @@ import {
   Github,
   MonitorPlay,
   Star,
+  Terminal,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -17,6 +18,7 @@ const RELEASES_URL = `${REPO_URL}/releases/latest`;
 const NIGHTLY_URL = `${REPO_URL}/releases/tag/desktop-nightly`;
 const DEMO_URL =
   import.meta.env.VITE_DEMO_URL ?? "https://demo.g-spot.dev";
+const CLI_PACKAGE_URL = "https://www.npmjs.com/package/g-spot-cli";
 
 const TITLE_TEXT = `
   ██████╗       ███████╗██████╗  ██████╗ ████████╗
@@ -60,6 +62,10 @@ const FEATURES: { title: string; body: string }[] = [
     title: "Local-first by default",
     body: "Ships as an Electrobun desktop app with auto-updates. Your data lives in a SQLite file you can cp. Only the relay phones home — and only for push.",
   },
+  {
+    title: "A CLI when you want a tab",
+    body: "bunx g-spot-cli starts the bundled local server, serves the built web app, runs migrations, and opens your browser. Same app, no desktop shell.",
+  },
 ];
 
 const STACK: [string, string][] = [
@@ -70,6 +76,7 @@ const STACK: [string, string][] = [
   ["agent", "pi sdk · approval-gated tool calls · mcp"],
   ["notes", "codemirror 6 · katex · mermaid · wikilinks"],
   ["desktop", "electrobun · auto-update"],
+  ["cli", "npm package · bundled web + server · bunx g-spot-cli"],
   ["license", "MIT"],
 ];
 
@@ -107,6 +114,7 @@ function Home() {
         <DemoBlock />
         <FeaturesBlock />
         <DownloadBlock />
+        <CliBlock />
         <StackBlock />
         <CTA />
       </section>
@@ -344,6 +352,12 @@ function Header() {
             download
           </a>
           <a
+            href="#cli"
+            className="text-muted-foreground hover:text-foreground"
+          >
+            cli
+          </a>
+          <a
             href="#stack"
             className="text-muted-foreground hover:text-foreground"
           >
@@ -409,6 +423,17 @@ function Hero() {
           >
             <MonitorPlay />
             Live demo
+            <ArrowUpRight />
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full justify-center sm:w-auto"
+            nativeButton={false}
+            render={<a href={CLI_PACKAGE_URL} target="_blank" rel="noreferrer" />}
+          >
+            <Terminal />
+            CLI
             <ArrowUpRight />
           </Button>
           <Button
@@ -523,6 +548,42 @@ function DemoBlock() {
             className="size-full border-0"
             loading="lazy"
           />
+        </div>
+      </Card>
+    </section>
+  );
+}
+
+function CliBlock() {
+  return (
+    <section id="cli" className="space-y-3">
+      <h2 className="text-sm font-medium text-muted-foreground">CLI</h2>
+      <Card className="overflow-hidden p-0">
+        <div className="grid gap-3 border-b p-4 sm:grid-cols-[1fr_auto] sm:items-center sm:p-5">
+          <div className="space-y-1">
+            <div className="text-sm font-medium">Run the app from npm</div>
+            <p className="text-xs/relaxed text-muted-foreground">
+              The macOS Apple Silicon package includes the built React app,
+              bundled local server, migrations, and native runtime files. It
+              starts one local HTTP server and opens your browser.
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full justify-center sm:w-auto"
+            nativeButton={false}
+            render={<a href={CLI_PACKAGE_URL} target="_blank" rel="noreferrer" />}
+          >
+            <Terminal />
+            npm
+            <ArrowUpRight />
+          </Button>
+        </div>
+        <div className="space-y-2 bg-muted/50 p-4 font-mono text-xs sm:p-5">
+          <div>bunx g-spot-cli</div>
+          <div>bunx g-spot-cli --port 3999</div>
+          <div>bunx g-spot-cli --port 3999 --kill</div>
         </div>
       </Card>
     </section>

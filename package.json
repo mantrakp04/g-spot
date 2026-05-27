@@ -49,6 +49,8 @@
     "dev:demo": "turbo run dev:demo",
     "build": "turbo build",
     "check-types": "turbo run check-types",
+    "build:cli": "turbo -F g-spot-cli build",
+    "cli": "turbo -F g-spot-cli start",
     "dev:web": "turbo -F web dev",
     "dev:desktop": "turbo -F desktop dev:hmr",
     "build:desktop": "turbo -F desktop build:stable",

@@ -22,6 +22,21 @@
         "typescript": "^6.0.2",
       },
     },
+    "apps/cli": {
+      "name": "g-spot-cli",
+      "version": "0.0.1",
+      "bin": {
+        "g-spot": "./dist/index.js",
+      },
+      "devDependencies": {
+        "@g-spot/config": "workspace:*",
+        "@g-spot/db": "workspace:*",
+        "@types/bun": "catalog:",
+        "server": "workspace:*",
+        "typescript": "^6",
+        "zod": "catalog:",
+      },
+    },
     "apps/demo": {
       "name": "demo",
     },
@@ -2158,6 +2173,8 @@
     "function-bind": ["function-bind@1.1.2", "", {}, "sha512-7XHNxH7qX9xG5mIwxkhumTox/MIRNcOgDrxWsMt2pAr23WHp6MrRlN7FBSFpCpr+oVO0F744iUgR82nJMfG2SA=="],
 
     "fuzzysort": ["fuzzysort@3.1.0", "", {}, "sha512-sR9BNCjBg6LNgwvxlBd0sBABvQitkLzoVY9MYYROQVX/FvfJ4Mai9LsGhDgd8qYdds0bY77VzYd5iuB+v5rwQQ=="],
+
+    "g-spot-cli": ["g-spot-cli@workspace:apps/cli"],
 
     "gaxios": ["gaxios@7.1.4", "", { "dependencies": { "extend": "^3.0.2", "https-proxy-agent": "^7.0.1", "node-fetch": "^3.3.2" } }, "sha512-bTIgTsM2bWn3XklZISBTQX7ZSddGW+IO3bMdGaemHZ3tbqExMENHLx6kKZ/KlejgrMtj8q7wBItt51yegqalrA=="],
 

@@ -29,6 +29,11 @@
     "check-types": {
       "dependsOn": ["^check-types"]
     },
+    "build:cli": {
+      "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$", ".env*"],
+      "outputs": ["dist/**", "build/**"]
+    },
     "dev": {
       "cache": false,
       "persistent": true

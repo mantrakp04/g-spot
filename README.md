@@ -22,6 +22,30 @@ the channel it was installed on.
 - Stable: [`desktop-stable`](https://github.com/mantrakp04/g-spot/releases/tag/desktop-stable)
 - Nightly: [`desktop-nightly`](https://github.com/mantrakp04/g-spot/releases/tag/desktop-nightly)
 
+## CLI
+
+Prefer a browser tab over the desktop shell on macOS Apple Silicon:
+
+```sh
+bunx g-spot-cli
+```
+
+The CLI package bundles the built web app and local server into one npm
+package. Running it starts the local Elysia/tRPC API, serves the bundled React
+app from the same port, runs SQLite migrations, and opens your browser.
+
+```sh
+bunx g-spot-cli --port 3999
+bunx g-spot-cli --host 127.0.0.1 --port 3999
+bunx g-spot-cli --port 3999 --kill
+```
+
+Options:
+
+- `-p, --port <port>`: server port, default `3000`
+- `-h, --host <host>`: server host, default `localhost`
+- `--kill`: stop the process listening on the selected port
+
 ## Screenshots
 
 <p align="center">
@@ -108,6 +132,7 @@ external-browser-paste flow. Drizzle migrations run on startup.
 
 ```text
 apps/
+  cli/          npm CLI that bundles web + server and opens the local app
   desktop/      Electrobun desktop shell + auto-updater
   web/          React UI (inbox, chat, review, projects, settings)
   server/       Local Elysia/tRPC API (bundled into desktop)

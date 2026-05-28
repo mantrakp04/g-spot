@@ -161,17 +161,31 @@ async function runMigrations(): Promise<void> {
 }
 
 async function pidsForPort(port: number): Promise<number[]> {
-  const proc = Bun.spawn(["lsof", "-ti", `tcp:${port}`], {
+  const command =
+    process.platform === "win32"
+      ? [
+          "powershell",
+          "-NoProfile",
+          "-Command",
+          `Get-NetTCPConnection -LocalPort ${port} -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess`,
+        ]
+      : ["lsof", "-ti", `tcp:${port}`];
+
+  const proc = Bun.spawn(command, {
     stdout: "pipe",
     stderr: "ignore",
   });
   const output = await new Response(proc.stdout).text();
   await proc.exited;
-  return output
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((value) => Number(value))
-    .filter((value) => Number.isInteger(value) && value > 0);
+  return Array.from(
+    new Set(
+      output
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((value) => Number(value))
+        .filter((value) => Number.isInteger(value) && value > 0),
+    ),
+  );
 }
 
 async function killPort(port: number): Promise<void> {

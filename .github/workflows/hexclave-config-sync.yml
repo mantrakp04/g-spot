@@ -1,4 +1,4 @@
-name: Stack Auth Config Sync
+name: Hexclave Config Sync
 
 on:
   workflow_dispatch:
@@ -7,19 +7,20 @@ on:
       - "main"
     paths:
       - "./stack.config.ts"
-      - ".github/workflows/stack-auth-config-sync.yml"
+      - ".github/workflows/hexclave-config-sync.yml"
 
 jobs:
-  push-stack-config:
+  push-hexclave-config:
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      - name: Push Stack Auth config
+      - name: Push Hexclave config
         env:
+          # The Hexclave CLI still reads the STACK_* env var names for auth.
           STACK_PROJECT_ID: ${{ secrets.STACK_AUTH_PROJECT_ID }}
           STACK_SECRET_SERVER_KEY: ${{ secrets.STACK_AUTH_SECRET_SERVER_KEY }}
-          STACK_AUTH_CONFIG_PATH: "./stack.config.ts"
-        run: npx -y @stackframe/stack-cli@latest config push --config-file "$STACK_AUTH_CONFIG_PATH"
+          HEXCLAVE_CONFIG_PATH: "./stack.config.ts"
+        run: npx -y -p @hexclave/cli@latest hexclave config push --config-file "$HEXCLAVE_CONFIG_PATH"

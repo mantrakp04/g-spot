@@ -1,4 +1,4 @@
-import { stackAppInternalsSymbol } from "@stackframe/react";
+import { stackAppInternalsSymbol } from "@hexclave/react";
 import { env } from "@g-spot/env/web";
 
 import { getDesktopRpc } from "@/lib/desktop-rpc";
@@ -28,7 +28,7 @@ async function getAccessTokenFromRefreshToken(refreshToken: string): Promise<str
     client_secret: "__stack_public_client__",
   });
 
-  const response = await fetch("https://api.stack-auth.com/api/v1/auth/oauth/token", {
+  const response = await fetch("https://api.hexclave.com/api/v1/auth/oauth/token", {
     method: "POST",
     headers: {
       "content-type": "application/x-www-form-urlencoded",

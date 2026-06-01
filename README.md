@@ -126,7 +126,7 @@ external-browser-paste flow. Drizzle migrations run on startup.
 - **Data**: Drizzle, SQLite, sqlite-vec
 - **Desktop**: Electrobun
 - **Agent**: [Pi SDK](https://github.com/badlogic/pi) (`pi-agent-core`, `pi-ai`, `pi-coding-agent`)
-- **Auth**: Stack Auth (Gmail + GitHub OAuth)
+- **Auth**: Hexclave (Gmail + GitHub OAuth)
 - **Integrations**: Gmail API, Google Pub/Sub, GitHub via Octokit
 - **Hosting**: Fly.io for the relay only
 

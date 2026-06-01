@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useSetAtom } from "jotai";
-import { useUser } from "@stackframe/react";
+import { useUser } from "@hexclave/react";
 
 import { relayStatusAtom } from "@/lib/relay-status";
 import { trpcClient } from "@/utils/trpc";

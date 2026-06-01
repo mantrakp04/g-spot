@@ -1,4 +1,4 @@
-import type { OAuthConnection } from "@stackframe/react";
+import type { OAuthConnection } from "@hexclave/react";
 import type { ComposeFormState, GmailDraft } from "@g-spot/types/gmail";
 
 const GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me";

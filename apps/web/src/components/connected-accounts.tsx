@@ -1,7 +1,7 @@
 import { Badge } from "@g-spot/ui/components/badge";
 import { Button } from "@g-spot/ui/components/button";
 import { cn } from "@g-spot/ui/lib/utils";
-import { useUser } from "@stackframe/react";
+import { useUser } from "@hexclave/react";
 import { useAtomValue } from "jotai";
 import { Check, Github, KeyRound, LinkIcon, Minus, Plus } from "lucide-react";
 import { useMemo, useState } from "react";

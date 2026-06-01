@@ -66,8 +66,8 @@ import {
   TooltipTrigger,
 } from "@g-spot/ui/components/tooltip";
 import { cn } from "@g-spot/ui/lib/utils";
-import type { OAuthConnection } from "@stackframe/react";
-import { useUser } from "@stackframe/react";
+import type { OAuthConnection } from "@hexclave/react";
+import { useUser } from "@hexclave/react";
 
 import type {
   ColumnAlignment,

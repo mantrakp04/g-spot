@@ -1,4 +1,4 @@
-import type { OAuthConnection } from "@stackframe/react";
+import type { OAuthConnection } from "@hexclave/react";
 import { Octokit } from "octokit";
 
 import { getConnectedAccountAccessToken } from "@/lib/connected-account";

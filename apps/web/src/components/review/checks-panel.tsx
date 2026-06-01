@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { RotateCw } from "lucide-react";
-import type { OAuthConnection } from "@stackframe/react";
+import type { OAuthConnection } from "@hexclave/react";
 import { toast } from "sonner";
 
 import { Button } from "@g-spot/ui/components/button";

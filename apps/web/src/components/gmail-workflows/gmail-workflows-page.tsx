@@ -17,8 +17,8 @@ import {
 import { Skeleton } from "@g-spot/ui/components/skeleton";
 import { Switch } from "@g-spot/ui/components/switch";
 import { cn } from "@g-spot/ui/lib/utils";
-import type { OAuthConnection } from "@stackframe/react";
-import { useUser } from "@stackframe/react";
+import type { OAuthConnection } from "@hexclave/react";
+import { useUser } from "@hexclave/react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import {

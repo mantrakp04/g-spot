@@ -1,4 +1,4 @@
-import type { OAuthConnection } from "@stackframe/react";
+import type { OAuthConnection } from "@hexclave/react";
 import { Skeleton } from "@g-spot/ui/components/skeleton";
 
 import type { ReviewTarget } from "@/hooks/use-github-detail";

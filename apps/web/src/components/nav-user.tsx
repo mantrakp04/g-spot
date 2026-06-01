@@ -14,7 +14,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@g-spot/ui/components/dropdown-menu";
-import { useStackApp, useUser } from "@stackframe/react";
+import { useHexclaveApp, useUser } from "@hexclave/react";
 import { BadgeCheck, ChevronsUpDown, Link2, LogOut } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 
@@ -25,7 +25,7 @@ export function NavUser({ compact = false }: { compact?: boolean } = {}) {
   if (env.VITE_DEMO_MODE) return null;
 
   const user = useUser();
-  const app = useStackApp();
+  const app = useHexclaveApp();
 
   if (!user) {
     return null;

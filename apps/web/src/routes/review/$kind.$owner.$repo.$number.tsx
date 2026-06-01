@@ -1,6 +1,6 @@
 import { createFileRoute, useParams } from "@tanstack/react-router";
-import type { OAuthConnection } from "@stackframe/react";
-import { useUser } from "@stackframe/react";
+import type { OAuthConnection } from "@hexclave/react";
+import { useUser } from "@hexclave/react";
 
 import { PRReviewView } from "@/components/review/pr-review-view";
 import { IssueReviewView } from "@/components/review/issue-review-view";

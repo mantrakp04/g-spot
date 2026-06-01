@@ -1,5 +1,5 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
-import type { OAuthConnection } from "@stackframe/react";
+import type { OAuthConnection } from "@hexclave/react";
 import type { FilterRule } from "@g-spot/types/filters";
 import type { GitHubItemPage } from "@/lib/github/types";
 import { searchGitHubItems } from "@/lib/github/api";

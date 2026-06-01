@@ -12,7 +12,7 @@ import {
   SelectTrigger,
 } from "@g-spot/ui/components/select";
 import { cn } from "@g-spot/ui/lib/utils";
-import type { OAuthConnection } from "@stackframe/react";
+import type { OAuthConnection } from "@hexclave/react";
 import { useQueries } from "@tanstack/react-query";
 
 import {

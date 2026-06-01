@@ -9,7 +9,7 @@ import {
 import { Streamdown } from "streamdown";
 import { mermaid } from "@streamdown/mermaid";
 import { Check, Loader2 } from "lucide-react";
-import type { OAuthConnection } from "@stackframe/react";
+import type { OAuthConnection } from "@hexclave/react";
 
 import { Button } from "@g-spot/ui/components/button";
 import { cn } from "@g-spot/ui/lib/utils";

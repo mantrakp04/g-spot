@@ -34,7 +34,7 @@
     "@pierre/diffs": "catalog:",
     "@pierre/trees": "catalog:",
     "@radix-ui/react-use-controllable-state": "^1.2.2",
-    "@stackframe/react": "^2.8.89",
+    "@hexclave/react": "catalog:",
     "@streamdown/cjk": "^1.0.3",
     "@streamdown/code": "^1.1.1",
     "@streamdown/math": "^1.0.2",

@@ -5,7 +5,7 @@ import {
   useRef,
   useState,
 } from "react";
-import type { OAuthConnection } from "@stackframe/react";
+import type { OAuthConnection } from "@hexclave/react";
 import { Button } from "@g-spot/ui/components/button";
 import { Kbd } from "@g-spot/ui/components/kbd";
 import { Skeleton } from "@g-spot/ui/components/skeleton";

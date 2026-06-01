@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { ArrowLeft, Check, ChevronsUpDown, Copy, ExternalLink, GitPullRequest } from "lucide-react";
 import { Link } from "@tanstack/react-router";
-import type { OAuthConnection } from "@stackframe/react";
+import type { OAuthConnection } from "@hexclave/react";
 import { toast } from "sonner";
 
 import {

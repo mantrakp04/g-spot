@@ -1323,7 +1323,7 @@ function ChatViewInner({
   );
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col bg-background">
+    <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-background">
       {/* Ambient glow: pinned to bottom of chat pane so blur is not clipped by Conversation overflow */}
       {messages.length === 0 && (
         <div

@@ -22,7 +22,7 @@ import { Button } from "@g-spot/ui/components/button";
 import { Checkbox } from "@g-spot/ui/components/checkbox";
 import { Separator } from "@g-spot/ui/components/separator";
 import { Skeleton } from "@g-spot/ui/components/skeleton";
-import type { OAuthConnection } from "@stackframe/react";
+import type { OAuthConnection } from "@hexclave/react";
 import {
   Archive,
   ChevronDown,

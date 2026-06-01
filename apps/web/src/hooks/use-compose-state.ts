@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 
-import type { OAuthConnection } from "@stackframe/react";
+import type { OAuthConnection } from "@hexclave/react";
 import { toast } from "sonner";
 
 import type {

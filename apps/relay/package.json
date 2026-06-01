@@ -13,7 +13,7 @@
     "@g-spot/adapters": "workspace:*",
     "@g-spot/relay-db": "workspace:*",
     "@g-spot/env": "workspace:*",
-    "@stackframe/react": "^2.8.89",
+    "@hexclave/react": "catalog:",
     "chat": "^4.26.0",
     "zod": "catalog:"
   },

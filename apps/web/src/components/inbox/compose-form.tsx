@@ -4,7 +4,7 @@ import { Button } from "@g-spot/ui/components/button";
 import { Input } from "@g-spot/ui/components/input";
 import { Separator } from "@g-spot/ui/components/separator";
 import { Textarea } from "@g-spot/ui/components/textarea";
-import type { OAuthConnection } from "@stackframe/react";
+import type { OAuthConnection } from "@hexclave/react";
 import { Loader2, Send, Trash2, ChevronDown, Paperclip, X as XIcon } from "lucide-react";
 
 import type { ComposeAttachment } from "@/contexts/drafts-context";

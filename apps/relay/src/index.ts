@@ -7,7 +7,7 @@ import {
 } from "@g-spot/adapters/gmail";
 import { env, relayDatabaseFilePath } from "@g-spot/env/relay";
 import { createRelayState } from "@g-spot/relay-db";
-import { StackServerApp } from "@stackframe/react";
+import { HexclaveServerApp } from "@hexclave/react";
 import type { QueueEntry } from "chat";
 import { z } from "zod";
 
@@ -47,7 +47,7 @@ const relayAckMessageSchema = z.object({
 
 type RelayAckMessage = z.infer<typeof relayAckMessageSchema>;
 
-const stackServerApp = new StackServerApp({
+const stackServerApp = new HexclaveServerApp({
   projectId: env.STACK_PROJECT_ID,
   secretServerKey: env.STACK_SECRET_SERVER_KEY,
   tokenStore: "memory",

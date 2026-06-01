@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import type { OAuthConnection } from "@stackframe/react";
+import type { OAuthConnection } from "@hexclave/react";
 import { env } from "@g-spot/env/web";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 

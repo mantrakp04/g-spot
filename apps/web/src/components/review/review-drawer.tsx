@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import type { OAuthConnection } from "@stackframe/react";
+import type { OAuthConnection } from "@hexclave/react";
 import { AlertCircle, MessageSquare, CheckCircle2, XCircle } from "lucide-react";
 
 import { Button } from "@g-spot/ui/components/button";

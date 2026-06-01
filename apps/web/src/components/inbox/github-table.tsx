@@ -3,7 +3,7 @@ import { useEffect, useMemo, type HTMLAttributes, type ReactElement } from "reac
 import type { ColumnConfig, FilterRule } from "@g-spot/types/filters";
 import { getDefaultColumns, normalizeColumns } from "@g-spot/types/filters";
 import { env } from "@g-spot/env/web";
-import type { OAuthConnection } from "@stackframe/react";
+import type { OAuthConnection } from "@hexclave/react";
 import { useNavigate } from "@tanstack/react-router";
 
 import type { GitHubIssue, GitHubPullRequest } from "@/lib/github/types";

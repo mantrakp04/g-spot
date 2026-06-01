@@ -137,7 +137,7 @@ export function TabBar({ projectId }: TabBarProps) {
           <ArrowLeftRight className="size-3.5" />
         </button>
       </div>
-      <div className="flex min-w-0 flex-1 items-stretch overflow-x-auto">
+      <div className="no-scrollbar flex min-w-0 flex-1 items-stretch overflow-x-auto">
         {tabs.map((tab) => (
           <TabItem
             key={tab.id}

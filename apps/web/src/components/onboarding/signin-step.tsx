@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 
 import { Button } from "@g-spot/ui/components/button";
-import { useUser } from "@stackframe/react";
+import { useUser } from "@hexclave/react";
 import { Check, LogIn } from "lucide-react";
 import { toast } from "sonner";
 

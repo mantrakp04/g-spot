@@ -1,6 +1,6 @@
 {
   "name": "g-spot-cli",
-  "version": "0.0.2.1",
+  "version": "0.0.3",
   "description": "CLI launcher for the g-spot local-first web and server app.",
   "repository": {
     "type": "git",
@@ -25,7 +25,6 @@
   "scripts": {
     "build": "bun scripts/build-package.ts",
     "start": "bun run dist/index.js",
-    "dev": "bun run src/index.ts",
     "check-types": "tsc --noEmit"
   },
   "devDependencies": {

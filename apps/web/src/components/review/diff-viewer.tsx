@@ -15,7 +15,7 @@ import {
   FolderIcon,
   OpenFolderIcon,
 } from "react-files-icons";
-import type { OAuthConnection } from "@stackframe/react";
+import type { OAuthConnection } from "@hexclave/react";
 
 import { MultiFileDiff, PatchDiff } from "@pierre/diffs/react";
 import type { DiffLineAnnotation, FileContents } from "@pierre/diffs";

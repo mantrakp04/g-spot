@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { AlertTriangle, ChevronDown, ChevronRight, GitMerge, Plus } from "lucide-react";
-import type { OAuthConnection } from "@stackframe/react";
+import type { OAuthConnection } from "@hexclave/react";
 
 import { Button } from "@g-spot/ui/components/button";
 

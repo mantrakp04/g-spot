@@ -7,7 +7,7 @@ import { Button } from "@g-spot/ui/components/button";
 import { Skeleton } from "@g-spot/ui/components/skeleton";
 import { cn } from "@g-spot/ui/lib/utils";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import type { OAuthConnection } from "@stackframe/react";
+import type { OAuthConnection } from "@hexclave/react";
 import { Download, Loader2, RefreshCw, RotateCcw, X } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";

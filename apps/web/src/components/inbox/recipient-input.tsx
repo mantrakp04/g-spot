@@ -19,7 +19,7 @@ import {
 } from "@g-spot/ui/components/tooltip";
 import { cn } from "@g-spot/ui/lib/utils";
 import { X as XIcon } from "lucide-react";
-import type { OAuthConnection } from "@stackframe/react";
+import type { OAuthConnection } from "@hexclave/react";
 
 import { useKnownContacts } from "@/hooks/use-known-contacts";
 import {

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import type { OAuthConnection } from "@stackframe/react";
+import type { OAuthConnection } from "@hexclave/react";
 
 import { getConnectedAccountAccessToken } from "@/lib/connected-account";
 import { fetchKnownContacts } from "@/lib/gmail/contacts";

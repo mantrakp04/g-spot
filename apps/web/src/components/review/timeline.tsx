@@ -1,5 +1,5 @@
 import { CheckCircle2, MessageSquare, SmilePlus, XCircle } from "lucide-react";
-import type { OAuthConnection } from "@stackframe/react";
+import type { OAuthConnection } from "@hexclave/react";
 
 import type {
   ReactionContent,

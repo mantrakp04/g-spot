@@ -1,8 +1,8 @@
 import { useCallback, useMemo } from "react";
 
 import { Badge } from "@g-spot/ui/components/badge";
-import type { OAuthConnection } from "@stackframe/react";
-import { useUser } from "@stackframe/react";
+import type { OAuthConnection } from "@hexclave/react";
+import { useUser } from "@hexclave/react";
 import { FileEdit } from "lucide-react";
 
 import { useDrafts } from "@/contexts/drafts-context";

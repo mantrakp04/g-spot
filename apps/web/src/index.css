@@ -5,6 +5,16 @@
   overflow: hidden;
 }
 
+#app .no-scrollbar {
+  scrollbar-width: none;
+}
+
+#app .no-scrollbar::-webkit-scrollbar {
+  display: none;
+  height: 0;
+  width: 0;
+}
+
 /*
  * Streamdown code block — collapse the default double-frame (outer rounded
  * card + inner rounded body with mismatched bg) into a single clean surface.

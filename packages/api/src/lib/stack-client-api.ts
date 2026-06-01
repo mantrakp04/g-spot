@@ -1,7 +1,7 @@
 import { env } from "@g-spot/env/server";
 import { z } from "zod";
 
-const STACK_API_URL = "https://api.stack-auth.com/api/v1";
+const STACK_API_URL = "https://api.hexclave.com/api/v1";
 
 const stackAuthJsonSchema = z.object({
   accessToken: z.string().min(1),

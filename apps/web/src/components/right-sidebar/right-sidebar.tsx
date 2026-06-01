@@ -71,7 +71,7 @@ export function RightSidebar({ projectId, onOpenSearch }: RightSidebarProps) {
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col border-l border-border bg-background">
       <div className="flex h-10 shrink-0 items-stretch border-b border-border bg-muted/30">
-        <div className="flex flex-1 items-stretch overflow-x-auto">
+        <div className="no-scrollbar flex flex-1 items-stretch overflow-x-auto">
           {TAB_DEFS.map((tab) => {
             const Icon = tab.icon;
             const active = activeTab === tab.id;

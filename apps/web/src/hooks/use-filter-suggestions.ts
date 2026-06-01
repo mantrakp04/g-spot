@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 
-import type { OAuthConnection } from "@stackframe/react";
+import type { OAuthConnection } from "@hexclave/react";
 import { useQueries } from "@tanstack/react-query";
 
 import type { FilterCondition, SectionSource } from "@g-spot/types/filters";

@@ -131,7 +131,7 @@ Long-term maintainability matters. When adding functionality, look for shared lo
 ## Package roles
 
 - **`apps/server`**: Bun + **Elysia** + **tRPC** HTTP API; uses `@g-spot/api` routers and `@g-spot/db` for persistence. Treat as client-facing for data exposure and secret-handling decisions.
-- **`apps/web`**: **React / Vite** SPA; **TanStack Router** (`src/routes/`); **tRPC** + TanStack Query client; shared UI from `@g-spot/ui` (Stack Auth and other app wiring live here). Client-facing.
+- **`apps/web`**: **React / Vite** SPA; **TanStack Router** (`src/routes/`); **tRPC** + TanStack Query client; shared UI from `@g-spot/ui` (Hexclave auth and other app wiring live here). Client-facing.
 - **`apps/desktop`**: **Electrobun** wraps the web build for a native shell (`dev:hmr` runs web dev + electrobun). Client-facing.
 - **`apps/relay`**: Relay service for non-client-facing push/webhook and secret-bearing relay work.
 - **`packages/api`**: Shared **tRPC** router definitions and types consumed by server and web (`workspace:*`).

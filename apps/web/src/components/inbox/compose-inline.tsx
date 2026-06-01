@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 
 import { Separator } from "@g-spot/ui/components/separator";
-import type { OAuthConnection } from "@stackframe/react";
+import type { OAuthConnection } from "@hexclave/react";
 import { toast } from "sonner";
 
 import type { DraftEntry } from "@/contexts/drafts-context";

@@ -3,7 +3,7 @@ import { useCallback, useState } from "react";
 import { Button } from "@g-spot/ui/components/button";
 import { env } from "@g-spot/env/web";
 import { cn } from "@g-spot/ui/lib/utils";
-import { useUser } from "@stackframe/react";
+import { useUser } from "@hexclave/react";
 import { CatchBoundary, Link, useRouterState } from "@tanstack/react-router";
 import {
   BotIcon,

@@ -1,5 +1,5 @@
 import { env } from "@g-spot/env/web";
-import { StackClientApp, stackAppInternalsSymbol } from "@stackframe/react";
+import { HexclaveClientApp, stackAppInternalsSymbol } from "@hexclave/react";
 
 import { getExternalHttpUrl, openExternalUrl } from "@/lib/external-url";
 
@@ -32,7 +32,7 @@ function navigateOrOpenExternal(to: string): void {
   window.location.assign(to);
 }
 
-export const stackClientApp = new StackClientApp({
+export const stackClientApp = new HexclaveClientApp({
   projectId: env.VITE_STACK_PROJECT_ID,
   noAutomaticPrefetch: env.VITE_DEMO_MODE,
   tokenStore: isDesktopRenderer() ? "memory" : "cookie",

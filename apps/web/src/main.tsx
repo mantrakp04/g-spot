@@ -1,4 +1,4 @@
-import { StackProvider, StackTheme } from "@stackframe/react";
+import { HexclaveProvider, HexclaveTheme } from "@hexclave/react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createRouter } from "@tanstack/react-router";
 import ReactDOM from "react-dom/client";
@@ -21,13 +21,13 @@ const router = createRouter({
   context: { trpc, queryClient },
   Wrap: function WrapComponent({ children }: { children: React.ReactNode }) {
     return (
-      <StackProvider app={stackClientApp}>
-        <StackTheme>
+      <HexclaveProvider app={stackClientApp}>
+        <HexclaveTheme>
           <QueryClientProvider client={queryClient}>
             {children}
           </QueryClientProvider>
-        </StackTheme>
-      </StackProvider>
+        </HexclaveTheme>
+      </HexclaveProvider>
     );
   },
 });

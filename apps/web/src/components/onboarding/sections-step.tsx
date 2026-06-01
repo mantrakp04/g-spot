@@ -4,7 +4,7 @@ import { Badge } from "@g-spot/ui/components/badge";
 import { Button } from "@g-spot/ui/components/button";
 import { Label } from "@g-spot/ui/components/label";
 import { cn } from "@g-spot/ui/lib/utils";
-import { useUser } from "@stackframe/react";
+import { useUser } from "@hexclave/react";
 import { Check, Github, Loader2, Mail, PanelsTopLeft, X } from "lucide-react";
 import { toast } from "sonner";
 

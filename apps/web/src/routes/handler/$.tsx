@@ -1,4 +1,4 @@
-import { StackHandler } from "@stackframe/react";
+import { HexclaveHandler } from "@hexclave/react";
 import { createFileRoute } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/handler/$")({
@@ -6,5 +6,5 @@ export const Route = createFileRoute("/handler/$")({
 });
 
 function HandlerComponent() {
-  return <StackHandler fullPage />;
+  return <HexclaveHandler fullPage />;
 }

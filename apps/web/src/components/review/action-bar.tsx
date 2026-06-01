@@ -10,7 +10,7 @@ import {
   Users,
   XCircle,
 } from "lucide-react";
-import type { OAuthConnection } from "@stackframe/react";
+import type { OAuthConnection } from "@hexclave/react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@g-spot/ui/components/avatar";
 import { Button } from "@g-spot/ui/components/button";

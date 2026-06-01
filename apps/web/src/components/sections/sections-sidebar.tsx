@@ -7,7 +7,7 @@ import { ScrollArea } from "@g-spot/ui/components/scroll-area";
 import { Separator } from "@g-spot/ui/components/separator";
 import { Skeleton } from "@g-spot/ui/components/skeleton";
 import { cn } from "@g-spot/ui/lib/utils";
-import { useUser } from "@stackframe/react";
+import { useUser } from "@hexclave/react";
 import { Link } from "@tanstack/react-router";
 import {
   DndContext,

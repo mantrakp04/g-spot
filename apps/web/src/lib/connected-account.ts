@@ -1,4 +1,4 @@
-import type { OAuthConnection } from "@stackframe/react";
+import type { OAuthConnection } from "@hexclave/react";
 
 const ACCESS_TOKEN_CACHE_TTL_MS = 50 * 60 * 1000;
 

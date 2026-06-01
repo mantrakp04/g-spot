@@ -56,10 +56,7 @@ export async function createNote(input: {
     await rebuildLinks(id, content);
   }
   if (kind === "note") {
-    await db
-      .update(noteLinks)
-      .set({ targetId: id })
-      .where(and(eq(noteLinks.targetTitle, input.title), isNull(noteLinks.targetId)));
+    await resolveDanglingLinks(id, input.title);
   }
   const row = await getNote(id);
   if (!row) throw new Error("createNote: row not found after insert");
@@ -90,12 +87,7 @@ export async function updateNote(input: {
 
   // If title changed, resolve any dangling links pointing at the new title.
   if (input.title !== undefined) {
-    await db
-      .update(noteLinks)
-      .set({ targetId: input.id })
-      .where(
-        and(eq(noteLinks.targetTitle, input.title), isNull(noteLinks.targetId)),
-      );
+    await resolveDanglingLinks(input.id, input.title);
   }
 
   const row = await getNote(input.id);
@@ -156,6 +148,16 @@ async function rebuildLinks(sourceId: string, content: string): Promise<void> {
       targetTitle: title,
     })),
   );
+}
+
+async function resolveDanglingLinks(
+  noteId: string,
+  title: string,
+): Promise<void> {
+  await db
+    .update(noteLinks)
+    .set({ targetId: noteId })
+    .where(and(eq(noteLinks.targetTitle, title), isNull(noteLinks.targetId)));
 }
 
 /**

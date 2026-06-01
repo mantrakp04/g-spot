@@ -123,7 +123,8 @@ export function RecipientInput({
   placeholder,
   googleAccount,
 }: RecipientInputProps) {
-  const { data: contacts = [] } = useKnownContacts(googleAccount);
+  const { data } = useKnownContacts(googleAccount);
+  const contacts = (data ?? []) as KnownContact[];
   const [isOpen, setIsOpen] = useState(false);
   const [highlightIndex, setHighlightIndex] = useState(0);
   const [inputValue, setInputValue] = useState("");

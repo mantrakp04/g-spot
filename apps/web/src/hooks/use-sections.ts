@@ -74,10 +74,9 @@ async function refetchSectionList(
 }
 
 export function useSections() {
-  return useQuery({
-    ...trpc.sections.list.queryOptions(),
-    ...persistedStaleWhileRevalidateQueryOptions,
-  });
+  return useQuery(
+    trpc.sections.list.queryOptions(undefined, persistedStaleWhileRevalidateQueryOptions),
+  );
 }
 
 export function useReorderSectionsMutation() {

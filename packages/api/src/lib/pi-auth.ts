@@ -62,6 +62,41 @@ function touch(record: PiOAuthSessionRecord) {
   record.updatedAt = Date.now();
 }
 
+type PiOAuthInputChannel = "pendingPrompt" | "pendingManualCode";
+
+async function awaitInput(
+  record: PiOAuthSessionRecord,
+  channel: PiOAuthInputChannel,
+) {
+  const deferred = createDeferred<string>();
+  record[channel] = deferred;
+  touch(record);
+
+  const value = await deferred.promise;
+  record[channel] = undefined;
+  if (channel === "pendingPrompt") {
+    record.prompt = undefined;
+  }
+  record.status = "running";
+  touch(record);
+
+  return value;
+}
+
+function resolveInput(
+  record: PiOAuthSessionRecord,
+  channel: PiOAuthInputChannel,
+  value: string,
+) {
+  record[channel]?.resolve(value);
+  record[channel] = undefined;
+  if (channel === "pendingPrompt") {
+    record.prompt = undefined;
+  }
+  record.status = "running";
+  touch(record);
+}
+
 function cleanupOauthSessions() {
   const cutoff = Date.now() - OAUTH_SESSION_TTL_MS;
 
@@ -103,19 +138,7 @@ async function runOauthSession(record: PiOAuthSessionRecord) {
       onPrompt: async (prompt: OAuthPrompt) => {
         record.prompt = prompt;
         record.status = "waiting_for_prompt";
-        record.pendingPrompt = createDeferred<string>();
-        touch(record);
-
-        try {
-          const value = await record.pendingPrompt.promise;
-          record.pendingPrompt = undefined;
-          record.prompt = undefined;
-          record.status = "running";
-          touch(record);
-          return value;
-        } catch (error) {
-          throw error;
-        }
+        return awaitInput(record, "pendingPrompt");
       },
       onProgress: (message: string) => {
         record.progress.push(message);
@@ -123,18 +146,7 @@ async function runOauthSession(record: PiOAuthSessionRecord) {
       },
       onManualCodeInput: async () => {
         record.status = "waiting_for_manual_code";
-        record.pendingManualCode = createDeferred<string>();
-        touch(record);
-
-        try {
-          const value = await record.pendingManualCode.promise;
-          record.pendingManualCode = undefined;
-          record.status = "running";
-          touch(record);
-          return value;
-        } catch (error) {
-          throw error;
-        }
+        return awaitInput(record, "pendingManualCode");
       },
       signal: record.abortController.signal,
     });
@@ -209,11 +221,7 @@ export function submitPiOAuthPrompt(sessionId: string, value: string) {
     throw new Error("This Pi auth session is not waiting for a prompt response.");
   }
 
-  record.pendingPrompt.resolve(value);
-  record.pendingPrompt = undefined;
-  record.prompt = undefined;
-  record.status = "running";
-  touch(record);
+  resolveInput(record, "pendingPrompt", value);
 
   return toPublicSession(record);
 }
@@ -224,10 +232,7 @@ export function submitPiOAuthManualCode(sessionId: string, value: string) {
     throw new Error("This Pi auth session is not waiting for manual code input.");
   }
 
-  record.pendingManualCode.resolve(value);
-  record.pendingManualCode = undefined;
-  record.status = "running";
-  touch(record);
+  resolveInput(record, "pendingManualCode", value);
 
   return toPublicSession(record);
 }

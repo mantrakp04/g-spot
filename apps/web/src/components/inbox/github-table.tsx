@@ -6,7 +6,7 @@ import { env } from "@g-spot/env/web";
 import type { OAuthConnection } from "@hexclave/react";
 import { useNavigate } from "@tanstack/react-router";
 
-import type { GitHubIssue, GitHubPullRequest } from "@/lib/github/types";
+import type { GitHubIssue, GitHubItemPage, GitHubPullRequest } from "@/lib/github/types";
 import { useGitHubItems } from "@/hooks/use-github-items";
 import { useReadState } from "@/hooks/use-read-state";
 import { useUpdateSectionMutation } from "@/hooks/use-sections";
@@ -51,7 +51,8 @@ export function GitHubTable({
   const { data, isLoading, isError, error, hasNextPage, fetchNextPage, isFetchingNextPage } =
     useGitHubItems(source, sectionId, filters, githubAccount, repos, sortAsc);
 
-  const totalCount = data?.pages[0]?.totalCount ?? 0;
+  const pages = data?.pages as GitHubItemPage[] | undefined;
+  const totalCount = pages?.[0]?.totalCount ?? 0;
   useEffect(() => {
     onCountChange?.(totalCount);
   }, [totalCount, onCountChange]);
@@ -75,14 +76,7 @@ export function GitHubTable({
     [columnsPropKey, source],
   );
 
-  const items = useMemo(
-    () =>
-      data?.pages.flatMap((page) => {
-        const p = page as Record<string, unknown>;
-        return (page.items ?? p.pullRequests ?? p.issues ?? []) as unknown[];
-      }) ?? [],
-    [data],
-  );
+  const items = useMemo(() => pages?.flatMap((page) => page.items) ?? [], [pages]);
 
   const configForColumns = useMemo(
     () =>

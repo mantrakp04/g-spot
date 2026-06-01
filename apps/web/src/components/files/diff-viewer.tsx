@@ -9,7 +9,7 @@ import { Spinner } from "@g-spot/ui/components/spinner";
 import { DiffEditor } from "@monaco-editor/react";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAtomValue } from "jotai";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { type RefObject, useCallback, useEffect, useMemo, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { toast } from "sonner";
 import type * as monaco from "monaco-editor";
@@ -53,41 +53,23 @@ type WidgetEntry = {
   hunk: monaco.editor.ILineChange;
 };
 
-export function DiffViewer({ tabId, projectId, path, mode, active }: DiffViewerProps) {
-  const { resolvedTheme } = useTheme();
-  const monacoTheme = useMonacoTheme(resolvedTheme, active);
-  const setMode = useUpdateDiffMode();
-  const editorRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
+function useHunkActionWidgets(
+  editorRef: RefObject<monaco.editor.IStandaloneDiffEditor | null>,
+  {
+    projectId,
+    path,
+    mode,
+    diffData,
+  }: {
+    projectId: string;
+    path: string;
+    mode: DiffMode;
+    diffData: unknown;
+  },
+) {
   const widgetsRef = useRef<Map<string, WidgetEntry>>(new Map());
   const queryClient = useQueryClient();
-  const settings = useAtomValue(monacoSettingsAtom);
-  const diffEditorOptions = useMemo(
-    () =>
-      ({
-        ...buildEditorOptions(settings),
-        renderSideBySide: true,
-        readOnly: true,
-        originalEditable: false,
-        ignoreTrimWhitespace: false,
-      }) satisfies monaco.editor.IStandaloneDiffEditorConstructionOptions,
-    [settings],
-  );
 
-  const handleMount = useCallback((editor: monaco.editor.IStandaloneDiffEditor) => {
-    editorRef.current = editor;
-  }, []);
-
-  const diffQuery = useQuery({
-    queryKey: gitKeys.fileDiff(projectId, path, mode),
-    queryFn: () => trpcClient.git.fileDiff.query({ projectId, path, mode }),
-    staleTime: 2_000,
-    placeholderData: keepPreviousData,
-  });
-
-  // -------------------------------------------------------------------------
-  // Per-hunk action lens — content widgets on the modified editor.
-  // Re-attaches on hunk changes (via onDidUpdateDiff) and on selection changes.
-  // -------------------------------------------------------------------------
   const refRef = useRef({ projectId, path, mode });
   refRef.current = { projectId, path, mode };
 
@@ -277,11 +259,48 @@ export function DiffViewer({ tabId, projectId, path, mode, active }: DiffViewerP
       if (selRaf) cancelAnimationFrame(selRaf);
       for (const d of disposables) d.dispose();
     };
-  }, [rebuildWidgets, diffQuery.data]);
+  }, [rebuildWidgets, diffData]);
 
   useEffect(() => {
     return () => cleanupWidgets();
   }, [cleanupWidgets]);
+}
+
+export function DiffViewer({ tabId, projectId, path, mode, active }: DiffViewerProps) {
+  const { resolvedTheme } = useTheme();
+  const monacoTheme = useMonacoTheme(resolvedTheme, active);
+  const setMode = useUpdateDiffMode();
+  const editorRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
+  const settings = useAtomValue(monacoSettingsAtom);
+  const diffEditorOptions = useMemo(
+    () =>
+      ({
+        ...buildEditorOptions(settings),
+        renderSideBySide: true,
+        readOnly: true,
+        originalEditable: false,
+        ignoreTrimWhitespace: false,
+      }) satisfies monaco.editor.IStandaloneDiffEditorConstructionOptions,
+    [settings],
+  );
+
+  const handleMount = useCallback((editor: monaco.editor.IStandaloneDiffEditor) => {
+    editorRef.current = editor;
+  }, []);
+
+  const diffQuery = useQuery({
+    queryKey: gitKeys.fileDiff(projectId, path, mode),
+    queryFn: () => trpcClient.git.fileDiff.query({ projectId, path, mode }),
+    staleTime: 2_000,
+    placeholderData: keepPreviousData,
+  });
+
+  useHunkActionWidgets(editorRef, {
+    projectId,
+    path,
+    mode,
+    diffData: diffQuery.data,
+  });
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">

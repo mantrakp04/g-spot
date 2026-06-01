@@ -1,4 +1,4 @@
-import { pipeline } from "@huggingface/transformers";
+import { pipeline, type FeatureExtractionPipeline, type Tensor } from "@huggingface/transformers";
 import { env } from "@g-spot/env/server";
 
 const EMBEDDING_MODEL = env.EMBEDDING_MODEL;
@@ -9,12 +9,7 @@ const DOCUMENT_PREFIX = "title: none | text: ";
 
 type EmbeddingPurpose = "document" | "query";
 
-interface EmbeddingTensor {
-  data: ArrayLike<number>;
-  dims: number[];
-}
-
-let extractorPromise: Promise<any> | undefined;
+let extractorPromise: Promise<FeatureExtractionPipeline> | undefined;
 
 export { EMBEDDING_DIM };
 
@@ -29,7 +24,7 @@ function withPrefix(text: string, purpose: EmbeddingPurpose): string {
   return `${purpose === "query" ? QUERY_PREFIX : DOCUMENT_PREFIX}${text}`;
 }
 
-function tensorToEmbeddings(tensor: EmbeddingTensor, expectedRows: number): number[][] {
+function tensorToEmbeddings(tensor: Tensor, expectedRows: number): number[][] {
   if (tensor.dims.length !== 2) {
     throw new Error(
       `Unexpected embedding tensor rank ${tensor.dims.length}; expected 2D pooled embeddings`,
@@ -67,10 +62,10 @@ export async function embed(
 
   const extractor = await getExtractor();
   const prepared = texts.map((text) => withPrefix(text, purpose));
-  const tensor = (await extractor(prepared, {
+  const tensor = await extractor(prepared, {
     pooling: "mean",
     normalize: true,
-  })) as EmbeddingTensor;
+  });
 
   return tensorToEmbeddings(tensor, texts.length);
 }

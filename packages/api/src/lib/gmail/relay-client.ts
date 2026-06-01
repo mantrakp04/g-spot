@@ -19,7 +19,7 @@ import { z } from "zod";
 import { processGmailPushNotification } from "./push";
 import type { GmailPushAccount } from "./push";
 import { getActiveSync, startSync } from "./sync";
-import { getStackGmailAccessTokenForProviderAccountId } from "../stack-client-api";
+import { getStackGmailAccessToken } from "../stack-client-api";
 
 const STACK_AUTH_HEADER = "x-stack-auth";
 const RECONNECT_BASE_MS = 1_000;
@@ -145,7 +145,7 @@ async function triggerSyncForAccount(
 
   let accessToken: string | null;
   try {
-    accessToken = await getStackGmailAccessTokenForProviderAccountId(
+    accessToken = await getStackGmailAccessToken(
       authHeader,
       account.providerAccountId,
     );

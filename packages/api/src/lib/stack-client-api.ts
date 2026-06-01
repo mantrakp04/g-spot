@@ -55,7 +55,7 @@ async function stackClientFetch(
   return response.json();
 }
 
-async function getGmailAccessToken(
+export async function getStackGmailAccessToken(
   authHeader: string,
   providerAccountId: string,
 ): Promise<string | null> {
@@ -83,7 +83,7 @@ export async function listStackGmailAccounts(
   const gmailAccounts: StackGmailAccount[] = [];
   for (const account of accounts) {
     if (account.provider !== "google") continue;
-    const accessToken = await getGmailAccessToken(authHeader, account.provider_account_id);
+    const accessToken = await getStackGmailAccessToken(authHeader, account.provider_account_id);
     if (!accessToken) continue;
     gmailAccounts.push({
       providerAccountId: account.provider_account_id,
@@ -91,11 +91,4 @@ export async function listStackGmailAccounts(
     });
   }
   return gmailAccounts;
-}
-
-export async function getStackGmailAccessTokenForProviderAccountId(
-  authHeader: string,
-  providerAccountId: string,
-): Promise<string | null> {
-  return getGmailAccessToken(authHeader, providerAccountId);
 }

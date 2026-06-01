@@ -29,56 +29,8 @@ import {
 } from "@g-spot/api/lib/mcp/manager";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { Elysia } from "elysia";
-import { existsSync } from "node:fs";
-import path from "node:path";
-
-// ── Favicon proxy (rejects Google default globe) ──
-
-let defaultGlobeHash: string | null = null;
-
-async function hashBytes(buf: ArrayBuffer): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", buf);
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-async function getDefaultGlobeHash(): Promise<string> {
-  if (defaultGlobeHash) return defaultGlobeHash;
-  const res = await fetch(
-    "https://www.google.com/s2/favicons?domain=this-does-not-exist-99999.invalid&sz=128",
-  );
-  defaultGlobeHash = await hashBytes(await res.arrayBuffer());
-  return defaultGlobeHash;
-}
-
-const faviconCache = new Map<string, { buf: ArrayBuffer | null; ts: number }>();
-const FAVICON_TTL = 24 * 60 * 60 * 1000;
-
-async function getValidatedFavicon(domain: string): Promise<ArrayBuffer | null> {
-  const cached = faviconCache.get(domain);
-  if (cached && Date.now() - cached.ts < FAVICON_TTL) return cached.buf;
-
-  const [globe, res] = await Promise.all([
-    getDefaultGlobeHash(),
-    fetch(`https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=128`),
-  ]);
-
-  const buf = await res.arrayBuffer();
-  const hash = await hashBytes(buf);
-  const result = hash === globe ? null : buf;
-  faviconCache.set(domain, { buf: result, ts: Date.now() });
-  return result;
-}
-
-function buildFallbackFavicon(domain: string): string {
-  const letter = (domain.match(/[a-z0-9]/i)?.[0] ?? "?").toUpperCase();
-
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="${domain}">
-  <rect width="64" height="64" rx="12" fill="#f3f4f6"/>
-  <rect x="4" y="4" width="56" height="56" rx="10" fill="#e5e7eb" stroke="#d1d5db"/>
-  <text x="32" y="41" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="28" font-weight="700" fill="#111827">${letter}</text>
-</svg>`;
-}
+import { buildFallbackFavicon, getValidatedFavicon } from "./favicon-proxy";
+import { serveWebApp, serveWebAsset, webDistDir } from "./web-assets";
 
 function demoModeResponse(action: string): Response | null {
   if (!env.DEMO_MODE) return null;
@@ -91,51 +43,6 @@ function closeDemoSocket(ws: { close: (code?: number, reason?: string) => void }
   if (!env.DEMO_MODE) return false;
   ws.close(1008, "Disabled in read-only demo");
   return true;
-}
-
-// ── Desktop-hosted web callback pages ──
-
-// Only serve the bundled SPA when the desktop shell explicitly points us at
-// its copy. In dev (web served by Vite on :3001) this stays null so stale
-// `apps/web/dist` builds don't shadow the dev server.
-const webDistDir = process.env.G_SPOT_WEB_DIST_DIR ?? null;
-
-const contentTypes: Record<string, string> = {
-  ".css": "text/css; charset=utf-8",
-  ".html": "text/html; charset=utf-8",
-  ".ico": "image/x-icon",
-  ".js": "text/javascript; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".png": "image/png",
-  ".svg": "image/svg+xml; charset=utf-8",
-  ".wasm": "application/wasm",
-  ".woff": "font/woff",
-  ".woff2": "font/woff2",
-};
-
-async function serveWebAsset(relativePath: string): Promise<Response | null> {
-  if (!webDistDir) return null;
-  const normalizedPath = path.normalize(relativePath).replace(/^(\.\.(\/|\\|$))+/, "");
-  const filePath = path.join(webDistDir, normalizedPath);
-
-  if (!filePath.startsWith(webDistDir) || !existsSync(filePath)) {
-    return null;
-  }
-
-  const extension = path.extname(filePath);
-  return new Response(Bun.file(filePath), {
-    headers: {
-      "content-type": contentTypes[extension] ?? "application/octet-stream",
-    },
-  });
-}
-
-async function serveWebApp(): Promise<Response> {
-  if (!webDistDir) return new Response("Not found", { status: 404 });
-  return (
-    (await serveWebAsset("index.html")) ??
-    new Response("Web build not found", { status: 404 })
-  );
 }
 
 // ── Main server (port 3000) ──

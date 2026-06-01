@@ -38,6 +38,21 @@ export async function createFileMetadata(input: {
   return id;
 }
 
+const fileWithKeyColumns = {
+  id: fileMetadata.id,
+  filename: fileMetadata.filename,
+  mimeType: fileMetadata.mimeType,
+  size: fileMetadata.size,
+  hash: fileMetadata.hash,
+  s3Key: fileHashes.s3Key,
+};
+
+const fileWithKeyQuery = () =>
+  db
+    .select(fileWithKeyColumns)
+    .from(fileMetadata)
+    .innerJoin(fileHashes, eq(fileMetadata.hash, fileHashes.hash));
+
 /**
  * Look up the most recently uploaded file by filename. Used for vault-style
  * `![[name.ext]]` embeds where the markdown only knows the bare filename.
@@ -45,17 +60,7 @@ export async function createFileMetadata(input: {
  * the latest replaces the older in the rendered output.
  */
 export async function getFileByFilename(filename: string) {
-  const [row] = await db
-    .select({
-      id: fileMetadata.id,
-      filename: fileMetadata.filename,
-      mimeType: fileMetadata.mimeType,
-      size: fileMetadata.size,
-      hash: fileMetadata.hash,
-      s3Key: fileHashes.s3Key,
-    })
-    .from(fileMetadata)
-    .innerJoin(fileHashes, eq(fileMetadata.hash, fileHashes.hash))
+  const [row] = await fileWithKeyQuery()
     .where(eq(fileMetadata.filename, filename))
     .orderBy(sql`${fileMetadata.createdAt} desc`)
     .limit(1);
@@ -64,18 +69,7 @@ export async function getFileByFilename(filename: string) {
 
 /** Look up a file by its metadata ID. Returns metadata + s3Key, or null. */
 export async function getFileById(fileId: string) {
-  const [row] = await db
-    .select({
-      id: fileMetadata.id,
-      filename: fileMetadata.filename,
-      mimeType: fileMetadata.mimeType,
-      size: fileMetadata.size,
-      hash: fileMetadata.hash,
-      s3Key: fileHashes.s3Key,
-    })
-    .from(fileMetadata)
-    .innerJoin(fileHashes, eq(fileMetadata.hash, fileHashes.hash))
-    .where(eq(fileMetadata.id, fileId));
+  const [row] = await fileWithKeyQuery().where(eq(fileMetadata.id, fileId));
   return row ?? null;
 }
 

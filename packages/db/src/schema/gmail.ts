@@ -51,7 +51,7 @@ export const gmailLabels = sqliteTable(
       .references(() => gmailAccounts.id, { onDelete: "cascade" }),
     gmailId: text("gmail_id").notNull(),
     name: text("name").notNull(),
-    type: text("type").notNull(), // "system" | "user"
+    type: text("type", { enum: ["system", "user"] }).notNull(),
     color: text("color"), // JSON { textColor, backgroundColor }
     createdAt: text("created_at")
       .notNull()

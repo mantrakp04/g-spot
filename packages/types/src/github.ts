@@ -98,6 +98,3 @@ export type GitHubItemPage = {
   nextCursor: string | null;
   totalCount: number;
 };
-
-export type GitHubPR = GitHubPullRequest;
-export type GitHubPRPage = GitHubPullRequestPage;

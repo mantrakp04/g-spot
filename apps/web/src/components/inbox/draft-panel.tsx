@@ -12,6 +12,7 @@ import {
   useSendGmailMessageMutation,
 } from "@/hooks/use-gmail-actions";
 import { useGoogleProfile } from "@/hooks/use-gmail-options";
+import type { GoogleProfile } from "@/lib/gmail/account";
 import { buildRfc2822Message, encodeRfc2822ToBase64Url, readFileAsBase64 } from "@/lib/gmail/rfc2822";
 import type { DraftEntry } from "@/contexts/drafts-context";
 import type { ComposeFormState } from "@/lib/gmail/types";
@@ -59,7 +60,7 @@ export function DraftPanel({
   onRemoveAttachment,
 }: DraftPanelProps) {
   const { data: profile } = useGoogleProfile(googleAccount);
-  const userEmail = profile?.email ?? "";
+  const userEmail = (profile as GoogleProfile | undefined)?.email ?? "";
   const deleteDraftMutation = useDeleteGmailDraftMutation(googleAccount);
   const sendMessageMutation = useSendGmailMessageMutation(googleAccount);
   const closedRef = useRef(false);

@@ -108,6 +108,36 @@ async function processThread(
   await markThreadProcessed(thread.id);
 }
 
+interface ThreadWorkerHooks {
+  onProcessed?: (thread: BatchThread) => void | Promise<void>;
+  onFailed?: (thread: BatchThread, error: unknown) => void | Promise<void>;
+  shouldContinue?: () => boolean;
+}
+
+async function runThreadWorkers(
+  batch: BatchThread[],
+  { onProcessed, onFailed, shouldContinue = () => true }: ThreadWorkerHooks,
+): Promise<void> {
+  const messagesByThreadId = await loadThreadMessages(batch.map((t) => t.id));
+
+  let nextIndex = 0;
+  const workerCount = Math.min(env.MEMORY_WORKER_CONCURRENCY, batch.length);
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (shouldContinue()) {
+      const thread = batch[nextIndex++];
+      if (!thread) return;
+      try {
+        await processThread(thread, messagesByThreadId.get(thread.id) ?? []);
+        await onProcessed?.(thread);
+      } catch (error) {
+        await onFailed?.(thread, error);
+      }
+    }
+  });
+
+  await Promise.all(workers);
+}
+
 class GmailExtractionOrchestrator {
   private cancelled = false;
   private skippedThreadIds = new Set<string>();
@@ -189,29 +219,18 @@ class GmailExtractionOrchestrator {
   }
 
   private async processBatch(batch: BatchThread[]): Promise<void> {
-    const messagesByThreadId = await loadThreadMessages(batch.map((t) => t.id));
-
-    let nextIndex = 0;
-    const workerCount = Math.min(env.MEMORY_WORKER_CONCURRENCY, batch.length);
-    const workers = Array.from({ length: workerCount }, async () => {
-      while (!this.cancelled) {
-        const thread = batch[nextIndex++];
-        if (!thread) return;
-        try {
-          await processThread(thread, messagesByThreadId.get(thread.id) ?? []);
-          await this.bumpProgress("processedThreads");
-        } catch (error) {
-          this.skippedThreadIds.add(thread.id);
-          await this.bumpProgress("failedThreads");
-          console.error(
-            `[gmail-extraction] Skipped ${thread.gmailThreadId}:`,
-            error instanceof Error ? error.message : error,
-          );
-        }
-      }
+    await runThreadWorkers(batch, {
+      shouldContinue: () => !this.cancelled,
+      onProcessed: () => this.bumpProgress("processedThreads"),
+      onFailed: async (thread, error) => {
+        this.skippedThreadIds.add(thread.id);
+        await this.bumpProgress("failedThreads");
+        console.error(
+          `[gmail-extraction] Skipped ${thread.gmailThreadId}:`,
+          error instanceof Error ? error.message : error,
+        );
+      },
     });
-
-    await Promise.all(workers);
   }
 
   private async bumpProgress(field: "processedThreads" | "failedThreads"): Promise<void> {
@@ -267,26 +286,14 @@ async function runScopedThreads(
   );
   if (batch.length === 0) return;
 
-  const messagesByThreadId = await loadThreadMessages(batch.map((t) => t.id));
-
-  let nextIndex = 0;
-  const workerCount = Math.min(env.MEMORY_WORKER_CONCURRENCY, batch.length);
-  const workers = Array.from({ length: workerCount }, async () => {
-    while (true) {
-      const thread = batch[nextIndex++];
-      if (!thread) return;
-      try {
-        await processThread(thread, messagesByThreadId.get(thread.id) ?? []);
-      } catch (error) {
-        console.error(
-          `[gmail-extraction:scoped] Skipped ${thread.gmailThreadId}:`,
-          error instanceof Error ? error.message : error,
-        );
-      }
-    }
+  await runThreadWorkers(batch, {
+    onFailed: (thread, error) => {
+      console.error(
+        `[gmail-extraction:scoped] Skipped ${thread.gmailThreadId}:`,
+        error instanceof Error ? error.message : error,
+      );
+    },
   });
-
-  await Promise.all(workers);
 }
 
 export type ExtractionScope =

@@ -198,6 +198,7 @@ export function buildMime(input: MimeBuildInput): string {
 
   if (text && html) {
     const boundary = buildBoundary();
+    const htmlEncoding = htmlBodyTransferEncoding(html);
     headerLines.push([
       "Content-Type",
       `multipart/alternative; boundary="${boundary}"`,
@@ -212,9 +213,9 @@ export function buildMime(input: MimeBuildInput): string {
       quotedPrintableEncode(text),
       `--${boundary}`,
       `Content-Type: text/html; charset=utf-8`,
-      `Content-Transfer-Encoding: ${htmlBodyTransferEncoding(html)}`,
+      `Content-Transfer-Encoding: ${htmlEncoding}`,
       "",
-      encodeBody(html, htmlBodyTransferEncoding(html)),
+      encodeBody(html, htmlEncoding),
       `--${boundary}--`,
     ];
     return body.join("\r\n");

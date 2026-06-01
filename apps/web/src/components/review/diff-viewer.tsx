@@ -350,13 +350,13 @@ export const FileDiffCard = forwardRef<
 
   const oldFile = useMemo<FileContents | null>(() => {
     if (isAdded) return { name: file.filename, contents: "" };
-    if (oldContents.data == null) return null;
+    if (typeof oldContents.data !== "string") return null;
     return { name: file.filename, contents: oldContents.data };
   }, [isAdded, oldContents.data, file.filename]);
 
   const newFile = useMemo<FileContents | null>(() => {
     if (isDeleted) return { name: file.filename, contents: "" };
-    if (newContents.data == null) return null;
+    if (typeof newContents.data !== "string") return null;
     return { name: file.filename, contents: newContents.data };
   }, [isDeleted, newContents.data, file.filename]);
 

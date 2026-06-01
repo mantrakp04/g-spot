@@ -1,4 +1,5 @@
 import {
+  type ComponentProps,
   useCallback,
   useEffect,
   useMemo,
@@ -27,7 +28,12 @@ import { cn } from "@g-spot/ui/lib/utils";
 import { useHotkeys } from "@tanstack/react-hotkeys";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
-import type { ReviewTarget } from "@/hooks/use-github-detail";
+import type {
+  ReviewComment,
+  ReviewTarget,
+  StackNode,
+  TimelineEvent,
+} from "@/hooks/use-github-detail";
 import {
   useGitHubPRChecks,
   useGitHubPRCommits,
@@ -218,11 +224,22 @@ export function PRReviewView({
   const fileList = useMemo(() => {
     return (files.data ?? []) as unknown as PRFile[];
   }, [files.data]);
+  // The persisted query-options spread collapses these hooks' `TData` to `{}`
+  // / `unknown` at the call site (see use-github-detail's OctokitData note).
+  // Re-pin them to the concrete shapes their `queryFn`s actually return.
+  const reviewCommentsByPath = reviewComments.data as
+    | Record<string, ReviewComment[]>
+    | undefined;
+  const timelineEvents = timeline.data as TimelineEvent[] | undefined;
+  const stackNodes = stack.data as StackNode[] | undefined;
+  const prCommits = commits.data as
+    | ComponentProps<typeof CommitSelector>["commits"];
+
   const reviewState = getPRReviewState({
     detailLoading: detail.isLoading,
     filesLoading: files.isLoading,
     timelineLoading: timeline.isLoading,
-    reviewComments: reviewComments.data,
+    reviewComments: reviewCommentsByPath,
   });
   const virtualListRef = useRef<HTMLDivElement | null>(null);
   const [activeFile, setActiveFile] = useState<string | null>(null);
@@ -415,7 +432,7 @@ export function PRReviewView({
       additions={pr.additions ?? 0}
       deletions={pr.deletions ?? 0}
       updatedAgo={relativeTime(pr.updated_at)}
-      stack={stack.data ?? []}
+      stack={stackNodes ?? []}
       target={target}
       account={account}
       canChangeBase={pr.state === "open" && !pr.merged}
@@ -460,7 +477,7 @@ export function PRReviewView({
           <TimelineSkeleton />
         ) : (
           <Timeline
-            events={timeline.data ?? []}
+            events={timelineEvents ?? []}
             target={target}
             account={account}
           />
@@ -490,7 +507,7 @@ export function PRReviewView({
           <div className="flex items-center gap-2">
             {pr ? (
               <CommitSelector
-                commits={commits.data}
+                commits={prCommits}
                 baseSha={pr.base.sha}
                 headSha={pr.head.sha}
                 range={commitRange}
@@ -536,7 +553,7 @@ export function PRReviewView({
                 <FileTreePanel
                   files={fileList}
                   activeFile={activeFile}
-                  commentsByFile={reviewComments.data ?? {}}
+                  commentsByFile={reviewCommentsByPath ?? {}}
                   onSelect={scrollToFile}
                 />
               </div>
@@ -544,7 +561,7 @@ export function PRReviewView({
               <FileRailHandle
                 files={fileList}
                 activeFile={activeFile}
-                commentsByFile={reviewComments.data ?? {}}
+                commentsByFile={reviewCommentsByPath ?? {}}
                 onSelect={scrollToFile}
               />
             )}
@@ -586,7 +603,7 @@ export function PRReviewView({
                         isActive={activeFile === f.filename}
                         mode={diffMode}
                         comments={
-                          reviewComments.data?.[f.filename] ?? EMPTY_COMMENTS
+                          reviewCommentsByPath?.[f.filename] ?? EMPTY_COMMENTS
                         }
                         target={target}
                         account={account}
@@ -610,7 +627,7 @@ export function PRReviewView({
       <CommentsDrawer
         open={commentsOpen}
         onOpenChange={setCommentsOpen}
-        commentsByFile={reviewComments.data ?? {}}
+        commentsByFile={reviewCommentsByPath ?? {}}
         onJumpTo={(target) => {
           setCommentsOpen(false);
           scrollToComment(target);

@@ -59,6 +59,8 @@ export function FileEditor({ projectId, path, active }: FileEditorProps) {
   const changeDisposableRef = useRef<monaco.IDisposable | null>(null);
   const statusRef = useRef<SaveStatus>("saved");
   const [status, setStatus] = useState<SaveStatus>("saved");
+  const [mountedEditor, setMountedEditor] =
+    useState<monaco.editor.IStandaloneCodeEditor | null>(null);
 
   // Seed both refs once when the file first loads. After that the buffer is
   // owned by Monaco and we never write back into it.
@@ -123,30 +125,23 @@ export function FileEditor({ projectId, path, active }: FileEditorProps) {
   const handleMount = useCallback(
     (editor: monaco.editor.IStandaloneCodeEditor) => {
       editorRef.current = editor;
-      changeDisposableRef.current?.dispose();
-      changeDisposableRef.current = editor.onDidChangeModelContent(scheduleSave);
-      if (active) {
-        window.requestAnimationFrame(() => editor.focus());
-      }
+      setMountedEditor(editor);
     },
-    [active, scheduleSave],
+    [],
   );
 
   useEffect(() => {
-    const editor = editorRef.current;
-    if (!editor) return;
+    if (!mountedEditor) return;
     changeDisposableRef.current?.dispose();
-    changeDisposableRef.current = editor.onDidChangeModelContent(scheduleSave);
-  }, [scheduleSave]);
+    changeDisposableRef.current =
+      mountedEditor.onDidChangeModelContent(scheduleSave);
+  }, [mountedEditor, scheduleSave]);
 
   useEffect(() => {
-    if (!active) return;
-    const editor = editorRef.current;
-    if (!editor) return;
-
-    const frame = window.requestAnimationFrame(() => editor.focus());
+    if (!active || !mountedEditor) return;
+    const frame = window.requestAnimationFrame(() => mountedEditor.focus());
     return () => window.cancelAnimationFrame(frame);
-  }, [active]);
+  }, [active, mountedEditor]);
 
   useEffect(() => {
     if (debounceRef.current !== null) {

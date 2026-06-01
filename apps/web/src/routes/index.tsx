@@ -32,7 +32,7 @@ import { useMarkGmailThreadReadMutation } from "@/hooks/use-gmail-actions";
 import { useGmailThread } from "@/hooks/use-gmail-thread";
 import { useSections, useUpdateSectionMutation } from "@/hooks/use-sections";
 import { useSectionCounts } from "@/contexts/section-counts-context";
-import type { GmailThread } from "@/lib/gmail/types";
+import type { GmailThread, GmailThreadDetail as GmailThreadDetailData } from "@/lib/gmail/types";
 import { useEmailDrawerWidth } from "@/lib/inbox/inbox-preferences";
 import { gmailKeys, githubKeys } from "@/lib/query-keys";
 
@@ -315,7 +315,7 @@ function InboxPageContent({
   );
 
   useEffect(() => {
-    const detail = searchedThread.data;
+    const detail = searchedThread.data as GmailThreadDetailData | null | undefined;
     if (!detail || !routeSearch.gmailThreadId || !routeSearch.providerAccountId) return;
     const firstMessage = detail.messages[0];
     setSelectedThread({
@@ -426,10 +426,11 @@ function InboxPageContent({
     { enabled: selectedThread != null },
   );
 
-  const { data: threadDetail, isLoading: isDetailLoading } = useGmailThread(
+  const { data: threadDetailData, isLoading: isDetailLoading } = useGmailThread(
     selectedThread?.thread.threadId ?? null,
     selectedThread?.accountId ?? null,
   );
+  const threadDetail = threadDetailData as GmailThreadDetailData | null | undefined;
 
   const [drawerWidth, setDrawerWidth] = useEmailDrawerWidth();
   const drawerWidthRef = useRef(drawerWidth);

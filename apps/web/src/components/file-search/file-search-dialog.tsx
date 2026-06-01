@@ -7,7 +7,6 @@ import {
 } from "@g-spot/ui/components/command";
 import { useQuery } from "@tanstack/react-query";
 import { File } from "lucide-react";
-import { useMemo } from "react";
 
 import { fsKeys } from "@/lib/query-keys";
 import { useOpenFileTab } from "@/lib/tabs-store";
@@ -33,13 +32,7 @@ export function FileSearchDialog({
 
   const openFile = useOpenFileTab();
 
-  // Cap the visible list — cmdk fuzzy-filters in O(n) and 50k items would
-  // jank the dialog. The full set is searched, just the rendered list is
-  // capped to whatever cmdk's filter ranks highest.
-  const items = useMemo(
-    () => filesQuery.data?.files ?? [],
-    [filesQuery.data],
-  );
+  const items = filesQuery.data?.files ?? [];
 
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange}>

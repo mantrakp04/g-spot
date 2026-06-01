@@ -11,6 +11,7 @@ import {
   queryThreads,
   searchThreads as searchStoredThreads,
 } from "@g-spot/db/gmail";
+import type { ThreadListItem } from "@g-spot/db/gmail";
 import type {
   GmailLabelRow,
   GmailMessageRow,
@@ -109,6 +110,21 @@ function toLabelOption(label: LabelCatalogEntry): FilterSuggestionOption | null 
   return { value: label.name, label: label.label };
 }
 
+function toThreadListItem(t: ThreadListItem) {
+  return {
+    id: t.id,
+    threadId: t.gmailThreadId,
+    subject: t.subject,
+    from: { name: t.fromName, email: t.fromEmail },
+    snippet: t.snippet,
+    date: t.lastMessageAt ?? "",
+    isUnread: t.labels.includes("UNREAD"),
+    labels: t.labels,
+    hasAttachment: t.hasAttachment,
+    avatarUrl: null,
+  };
+}
+
 function mapStoredThreadDetail(thread: GmailThreadRow, messages: GmailMessageRow[]) {
   return {
     id: thread.gmailThreadId,
@@ -163,18 +179,7 @@ export const gmailRouter = router({
       );
 
       return {
-        threads: threads.map((t) => ({
-          id: t.id,
-          threadId: t.gmailThreadId,
-          subject: t.subject,
-          from: { name: t.fromName, email: t.fromEmail },
-          snippet: t.snippet,
-          date: t.lastMessageAt ?? "",
-          isUnread: t.labels.includes("UNREAD"),
-          labels: t.labels,
-          hasAttachment: t.hasAttachment,
-          avatarUrl: null,
-        })),
+        threads: threads.map(toThreadListItem),
         nextPageToken: hasMore
           ? (threads.at(-1)?.lastMessageAt ?? null)
           : null,
@@ -276,17 +281,6 @@ export const gmailRouter = router({
         input.limit,
       );
 
-      return threads.map((t) => ({
-        id: t.id,
-        threadId: t.gmailThreadId,
-        subject: t.subject,
-        from: { name: t.fromName, email: t.fromEmail },
-        snippet: t.snippet,
-        date: t.lastMessageAt ?? "",
-        isUnread: t.labels.includes("UNREAD"),
-        labels: t.labels,
-        hasAttachment: t.hasAttachment,
-        avatarUrl: null,
-      }));
+      return threads.map(toThreadListItem);
     }),
 });

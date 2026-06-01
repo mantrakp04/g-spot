@@ -1,7 +1,7 @@
 import type { OAuthConnection } from "@hexclave/react";
 import { Skeleton } from "@g-spot/ui/components/skeleton";
 
-import type { ReviewTarget } from "@/hooks/use-github-detail";
+import type { ReviewTarget, TimelineEvent } from "@/hooks/use-github-detail";
 import {
   useGitHubIssueDetail,
   useGitHubIssueTimeline,
@@ -96,7 +96,7 @@ export function IssueReviewView({
           <TimelineSkeleton />
         ) : (
           <Timeline
-            events={timeline.data ?? []}
+            events={(timeline.data as TimelineEvent[] | undefined) ?? []}
             target={target}
             account={account}
           />

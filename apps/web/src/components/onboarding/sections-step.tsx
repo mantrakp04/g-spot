@@ -10,7 +10,10 @@ import { toast } from "sonner";
 
 import { ConnectedAccountSelect } from "@/components/inbox/connected-account-select";
 import { RepoSearchInput } from "@/components/inbox/repo-search-input";
-import { useGitHubRepoSearch } from "@/hooks/use-github-options";
+import {
+  type RepoPage,
+  useGitHubRepoSearch,
+} from "@/hooks/use-github-options";
 import { useCreateSectionMutation } from "@/hooks/use-sections";
 import {
   GITHUB_ISSUE_TEMPLATES,
@@ -69,7 +72,7 @@ export function SectionsStep() {
   } = useGitHubRepoSearch(githubAccount, repoQuery);
 
   const repoSearchResults = useMemo(
-    () => repoPages?.pages.flatMap((page) => page.repos) ?? [],
+    () => repoPages?.pages.flatMap((page: RepoPage) => page.repos) ?? [],
     [repoPages],
   );
 
@@ -139,6 +142,7 @@ export function SectionsStep() {
     icon: typeof Mail;
     enabled: boolean;
     hint: string;
+    controls: "gmail-account" | "github-account-and-repos" | "none";
     templates: SectionTemplate[];
   };
 
@@ -149,6 +153,7 @@ export function SectionsStep() {
       icon: Mail,
       enabled: hasGmail,
       hint: hasGmail ? "" : "Connect a Google account to add Gmail sections",
+      controls: "gmail-account",
       templates: GMAIL_TEMPLATES,
     },
     {
@@ -157,6 +162,7 @@ export function SectionsStep() {
       icon: Github,
       enabled: hasGithub,
       hint: hasGithub ? "" : "Connect GitHub to add PR sections",
+      controls: "github-account-and-repos",
       templates: GITHUB_PR_TEMPLATES,
     },
     {
@@ -165,6 +171,7 @@ export function SectionsStep() {
       icon: Github,
       enabled: hasGithub,
       hint: hasGithub ? "" : "Connect GitHub to add issue sections",
+      controls: "none",
       templates: GITHUB_ISSUE_TEMPLATES,
     },
   ];
@@ -194,9 +201,6 @@ export function SectionsStep() {
       <div className="space-y-5">
         {groups.map((group) => {
           const Icon = group.icon;
-          const isGmail = group.id === "gmail";
-          const isGithubGroup =
-            group.id === "github_pr" || group.id === "github_issue";
 
           return (
             <section
@@ -215,7 +219,7 @@ export function SectionsStep() {
                 ) : null}
               </div>
 
-              {group.enabled && isGmail ? (
+              {group.enabled && group.controls === "gmail-account" ? (
                 <div className="space-y-1.5">
                   <Label className="text-[11px] font-medium text-muted-foreground">
                     Account
@@ -230,7 +234,7 @@ export function SectionsStep() {
                 </div>
               ) : null}
 
-              {group.enabled && isGithubGroup && group.id === "github_pr" ? (
+              {group.enabled && group.controls === "github-account-and-repos" ? (
                 <div className="grid gap-3 sm:grid-cols-[1fr_1.5fr]">
                   <div className="space-y-1.5">
                     <Label className="text-[11px] font-medium text-muted-foreground">

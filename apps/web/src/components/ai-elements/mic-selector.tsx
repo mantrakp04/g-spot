@@ -55,78 +55,60 @@ export const useAudioDevices = () => {
   const [error, setError] = useState<string | null>(null);
   const [hasPermission, setHasPermission] = useState(false);
 
-  const loadDevicesWithoutPermission = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      const deviceList = await navigator.mediaDevices.enumerateDevices();
-      const audioInputs = deviceList.filter(
-        (device) => device.kind === "audioinput"
-      );
-
-      setDevices(audioInputs);
-    } catch (caughtError) {
-      const message =
-        caughtError instanceof Error
-          ? caughtError.message
-          : "Failed to get audio devices";
-
-      setError(message);
-      console.error("Error getting audio devices:", message);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  const loadDevicesWithPermission = useCallback(async () => {
-    if (loading) {
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setError(null);
-
-      const tempStream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-      });
-
-      for (const track of tempStream.getTracks()) {
-        track.stop();
+  const loadDevices = useCallback(
+    async (requestPermission = false) => {
+      if (requestPermission && loading) {
+        return;
       }
 
-      const deviceList = await navigator.mediaDevices.enumerateDevices();
-      const audioInputs = deviceList.filter(
-        (device) => device.kind === "audioinput"
-      );
+      try {
+        setLoading(true);
+        setError(null);
 
-      setDevices(audioInputs);
-      setHasPermission(true);
-    } catch (caughtError) {
-      const message =
-        caughtError instanceof Error
-          ? caughtError.message
-          : "Failed to get audio devices";
+        if (requestPermission) {
+          const tempStream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+          });
 
-      setError(message);
-      console.error("Error getting audio devices:", message);
-    } finally {
-      setLoading(false);
-    }
-  }, [loading]);
+          for (const track of tempStream.getTracks()) {
+            track.stop();
+          }
+        }
+
+        const deviceList = await navigator.mediaDevices.enumerateDevices();
+        const audioInputs = deviceList.filter(
+          (device) => device.kind === "audioinput"
+        );
+
+        setDevices(audioInputs);
+
+        if (requestPermission) {
+          setHasPermission(true);
+        }
+      } catch (caughtError) {
+        const message =
+          caughtError instanceof Error
+            ? caughtError.message
+            : "Failed to get audio devices";
+
+        setError(message);
+        console.error("Error getting audio devices:", message);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [loading]
+  );
 
   useEffect(() => {
-    loadDevicesWithoutPermission();
-  }, [loadDevicesWithoutPermission]);
+    loadDevices();
+    // Only run on mount; loadDevices identity changes with `loading`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const handleDeviceChange = () => {
-      if (hasPermission) {
-        loadDevicesWithPermission();
-      } else {
-        loadDevicesWithoutPermission();
-      }
+      loadDevices(hasPermission);
     };
 
     navigator.mediaDevices.addEventListener("devicechange", handleDeviceChange);
@@ -137,7 +119,12 @@ export const useAudioDevices = () => {
         handleDeviceChange
       );
     };
-  }, [hasPermission, loadDevicesWithPermission, loadDevicesWithoutPermission]);
+  }, [hasPermission, loadDevices]);
+
+  const loadDevicesWithPermission = useCallback(
+    () => loadDevices(true),
+    [loadDevices]
+  );
 
   return {
     devices,

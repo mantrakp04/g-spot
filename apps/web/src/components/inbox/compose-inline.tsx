@@ -13,6 +13,7 @@ import {
 } from "@/hooks/use-gmail-actions";
 import { useGoogleProfile } from "@/hooks/use-gmail-options";
 import { buildRfc2822Message, encodeRfc2822ToBase64Url, readFileAsBase64 } from "@/lib/gmail/rfc2822";
+import type { GoogleProfile } from "@/lib/gmail/account";
 import type { ComposeFormState } from "@/lib/gmail/types";
 import { ComposeForm } from "./compose-form";
 
@@ -25,7 +26,7 @@ type ComposeInlineProps = {
 export function ComposeInline({ draft, googleAccount, accounts }: ComposeInlineProps) {
   const { updateField, setGmailDraftId, setAccountId, closeDraft, setInlineDraft, addAttachments, removeAttachment } = useDrafts();
   const { data: profile } = useGoogleProfile(googleAccount);
-  const userEmail = profile?.email ?? "";
+  const userEmail = (profile as GoogleProfile | undefined)?.email ?? "";
   const deleteDraftMutation = useDeleteGmailDraftMutation(googleAccount);
   const sendMessageMutation = useSendGmailMessageMutation(googleAccount);
 

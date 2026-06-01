@@ -1,10 +1,11 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { Octokit } from "octokit";
+import type { InfiniteData, QueryPersister } from "@tanstack/react-query";
+import type { Octokit } from "octokit";
 import type { OAuthConnection } from "@hexclave/react";
 import type { FilterCondition } from "@g-spot/types/filters";
 
-import { getConnectedAccountAccessToken } from "@/lib/connected-account";
 import { buildGitHubSearchQuery, type GitHubItemType } from "@/lib/github/api";
+import { getGitHubOctokit } from "@/lib/github/client";
 import { githubKeys } from "@/lib/query-keys";
 import { persistedStaleWhileRevalidateQueryOptions } from "@/utils/query-defaults";
 
@@ -50,11 +51,18 @@ export function useGitHubRepoSearch(
 ) {
   const normalizedQuery = query.trim();
 
-  return useInfiniteQuery({
+  const { persister, ...infiniteDefaults } = persistedStaleWhileRevalidateQueryOptions;
+
+  return useInfiniteQuery<
+    RepoPage,
+    Error,
+    InfiniteData<RepoPage, number>,
+    ReturnType<typeof githubKeys.repoSearch>,
+    number
+  >({
     queryKey: githubKeys.repoSearch(account?.providerAccountId, normalizedQuery),
     queryFn: async ({ pageParam }): Promise<RepoPage> => {
-      const accessToken = await getConnectedAccountAccessToken(account!);
-      const octokit = new Octokit({ auth: accessToken });
+      const octokit = await getGitHubOctokit(account!);
 
       if (normalizedQuery.endsWith("/")) {
         return fetchOwnerRepos(octokit, normalizedQuery.slice(0, -1), pageParam);
@@ -88,7 +96,8 @@ export function useGitHubRepoSearch(
     initialPageParam: 1,
     getNextPageParam: (lastPage) => lastPage.nextPage,
     enabled: !!account,
-    ...persistedStaleWhileRevalidateQueryOptions,
+    ...infiniteDefaults,
+    persister: persister as QueryPersister<RepoPage, ReturnType<typeof githubKeys.repoSearch>, number>,
   });
 }
 
@@ -133,8 +142,7 @@ export function useGitHubLabels(
   return useQuery({
     queryKey: githubKeys.labels(account?.providerAccountId, repos),
     queryFn: async () => {
-      const accessToken = await getConnectedAccountAccessToken(account!);
-      const octokit = new Octokit({ auth: accessToken });
+      const octokit = await getGitHubOctokit(account!);
 
       const allLabels = await Promise.all(
         repos.map(async (repo) => {
@@ -171,8 +179,7 @@ export async function fetchGitHubUserSearch(
   const trimmedQuery = query.trim();
   if (!trimmedQuery) return [];
 
-  const accessToken = await getConnectedAccountAccessToken(account);
-  const octokit = new Octokit({ auth: accessToken });
+  const octokit = await getGitHubOctokit(account);
   const { data } = await octokit.rest.search.users({
     q: trimmedQuery,
     per_page: 10,
@@ -198,8 +205,7 @@ export function useGitHubUsers(
 export async function fetchGitHubProfileForConnection(
   account: OAuthConnection,
 ) {
-  const accessToken = await getConnectedAccountAccessToken(account);
-  const octokit = new Octokit({ auth: accessToken });
+  const octokit = await getGitHubOctokit(account);
   const { data } = await octokit.rest.users.getAuthenticated();
   return { login: data.login, avatarUrl: data.avatar_url, name: data.name };
 }
@@ -214,65 +220,6 @@ export function useGitHubProfile(account: OAuthConnection | null) {
 }
 
 const FILTER_SUGGESTION_RESULT_LIMIT = 25;
-
-const SUGGESTION_FRAGMENTS: Record<GitHubItemType, Record<string, string>> = {
-  pr: {
-    author: `author { login }`,
-    reviewer: `
-      reviewRequests(first: 20) {
-        nodes { requestedReviewer { __typename ... on User { login } } }
-      }
-      latestReviews(first: 20) { nodes { author { login } } }
-    `,
-    team_reviewer: `
-      reviewRequests(first: 20) {
-        nodes {
-          requestedReviewer {
-            __typename
-            ... on Team { slug organization { login } }
-          }
-        }
-      }
-    `,
-    assignee: `assignees(first: 20) { nodes { login } }`,
-    mentions: `
-      author { login }
-      assignees(first: 20) { nodes { login } }
-      participants(first: 20) { nodes { login } }
-      latestReviews(first: 20) { nodes { author { login } } }
-    `,
-    involves: `
-      author { login }
-      assignees(first: 20) { nodes { login } }
-      participants(first: 20) { nodes { login } }
-      latestReviews(first: 20) { nodes { author { login } } }
-    `,
-    repo: `repository { nameWithOwner }`,
-    label: `labels(first: 20) { nodes { name } }`,
-    milestone: `milestone { title }`,
-    language: `repository { primaryLanguage { name } }`,
-    head: `headRefName`,
-    base: `baseRefName`,
-  },
-  issue: {
-    author: `author { login }`,
-    assignee: `assignees(first: 20) { nodes { login } }`,
-    mentions: `
-      author { login }
-      assignees(first: 20) { nodes { login } }
-      participants(first: 20) { nodes { login } }
-    `,
-    involves: `
-      author { login }
-      assignees(first: 20) { nodes { login } }
-      participants(first: 20) { nodes { login } }
-    `,
-    repo: `repository { nameWithOwner }`,
-    label: `labels(first: 20) { nodes { name } }`,
-    milestone: `milestone { title }`,
-    language: `repository { primaryLanguage { name } }`,
-  },
-};
 
 type SuggestionNode = {
   author?: { login: string } | null;
@@ -313,69 +260,160 @@ function pushUserSuggestion(options: FilterSuggestionOption[], login: string | n
   if (login) options.push({ value: login, label: login });
 }
 
-function extractSuggestions(field: string, node: SuggestionNode, options: FilterSuggestionOption[]) {
-  switch (field) {
-    case "author":
-      pushUserSuggestion(options, node.author?.login);
-      break;
-    case "reviewer":
-      node.latestReviews?.nodes.forEach((review) => pushUserSuggestion(options, review.author?.login));
-      node.reviewRequests?.nodes.forEach((request) => {
-        if (request.requestedReviewer?.__typename === "User") {
-          pushUserSuggestion(options, request.requestedReviewer.login);
-        }
+type SuggestionField = {
+  fragment: string;
+  extract: (node: SuggestionNode, options: FilterSuggestionOption[]) => void;
+};
+
+const authorField: SuggestionField = {
+  fragment: `author { login }`,
+  extract: (node, options) => pushUserSuggestion(options, node.author?.login),
+};
+
+const assigneeField: SuggestionField = {
+  fragment: `assignees(first: 20) { nodes { login } }`,
+  extract: (node, options) =>
+    node.assignees?.nodes.forEach((assignee) => pushUserSuggestion(options, assignee.login)),
+};
+
+const repoField: SuggestionField = {
+  fragment: `repository { nameWithOwner }`,
+  extract: (node, options) => {
+    if (node.repository?.nameWithOwner) {
+      options.push({ value: node.repository.nameWithOwner, label: node.repository.nameWithOwner });
+    }
+  },
+};
+
+const labelField: SuggestionField = {
+  fragment: `labels(first: 20) { nodes { name } }`,
+  extract: (node, options) =>
+    node.labels?.nodes.forEach((label) => options.push({ value: label.name, label: label.name })),
+};
+
+const milestoneField: SuggestionField = {
+  fragment: `milestone { title }`,
+  extract: (node, options) => {
+    if (node.milestone?.title) {
+      options.push({ value: node.milestone.title, label: node.milestone.title });
+    }
+  },
+};
+
+const languageField: SuggestionField = {
+  fragment: `repository { primaryLanguage { name } }`,
+  extract: (node, options) => {
+    if (node.repository?.primaryLanguage?.name) {
+      options.push({
+        value: node.repository.primaryLanguage.name,
+        label: node.repository.primaryLanguage.name,
       });
-      break;
-    case "team_reviewer":
-      node.reviewRequests?.nodes.forEach((request) => {
-        if (request.requestedReviewer?.__typename === "Team") {
-          const team = request.requestedReviewer;
-          const value = team.organization?.login
-            ? `${team.organization.login}/${team.slug}`
-            : team.slug;
-          options.push({ value, label: value });
+    }
+  },
+};
+
+const prMentionsField: SuggestionField = {
+  fragment: `
+    author { login }
+    assignees(first: 20) { nodes { login } }
+    participants(first: 20) { nodes { login } }
+    latestReviews(first: 20) { nodes { author { login } } }
+  `,
+  extract: (node, options) => {
+    node.participants?.nodes.forEach((participant) => pushUserSuggestion(options, participant.login));
+    pushUserSuggestion(options, node.author?.login);
+    node.assignees?.nodes.forEach((assignee) => pushUserSuggestion(options, assignee.login));
+    node.latestReviews?.nodes?.forEach((review) => pushUserSuggestion(options, review.author?.login));
+  },
+};
+
+const issueMentionsField: SuggestionField = {
+  fragment: `
+    author { login }
+    assignees(first: 20) { nodes { login } }
+    participants(first: 20) { nodes { login } }
+  `,
+  extract: (node, options) => {
+    node.participants?.nodes.forEach((participant) => pushUserSuggestion(options, participant.login));
+    pushUserSuggestion(options, node.author?.login);
+    node.assignees?.nodes.forEach((assignee) => pushUserSuggestion(options, assignee.login));
+    node.latestReviews?.nodes?.forEach((review) => pushUserSuggestion(options, review.author?.login));
+  },
+};
+
+const SUGGESTION_FIELDS: Record<GitHubItemType, Record<string, SuggestionField>> = {
+  pr: {
+    author: authorField,
+    reviewer: {
+      fragment: `
+        reviewRequests(first: 20) {
+          nodes { requestedReviewer { __typename ... on User { login } } }
         }
-      });
-      break;
-    case "assignee":
-      node.assignees?.nodes.forEach((assignee) => pushUserSuggestion(options, assignee.login));
-      break;
-    case "mentions":
-    case "involves":
-      node.participants?.nodes.forEach((participant) => pushUserSuggestion(options, participant.login));
-      pushUserSuggestion(options, node.author?.login);
-      node.assignees?.nodes.forEach((assignee) => pushUserSuggestion(options, assignee.login));
-      node.latestReviews?.nodes?.forEach((review) => pushUserSuggestion(options, review.author?.login));
-      break;
-    case "repo":
-      if (node.repository?.nameWithOwner) {
-        options.push({ value: node.repository.nameWithOwner, label: node.repository.nameWithOwner });
-      }
-      break;
-    case "label":
-      node.labels?.nodes.forEach((label) => options.push({ value: label.name, label: label.name }));
-      break;
-    case "milestone":
-      if (node.milestone?.title) {
-        options.push({ value: node.milestone.title, label: node.milestone.title });
-      }
-      break;
-    case "language":
-      if (node.repository?.primaryLanguage?.name) {
-        options.push({
-          value: node.repository.primaryLanguage.name,
-          label: node.repository.primaryLanguage.name,
+        latestReviews(first: 20) { nodes { author { login } } }
+      `,
+      extract: (node, options) => {
+        node.latestReviews?.nodes.forEach((review) => pushUserSuggestion(options, review.author?.login));
+        node.reviewRequests?.nodes.forEach((request) => {
+          if (request.requestedReviewer?.__typename === "User") {
+            pushUserSuggestion(options, request.requestedReviewer.login);
+          }
         });
-      }
-      break;
-    case "head":
-      if (node.headRefName) options.push({ value: node.headRefName, label: node.headRefName });
-      break;
-    case "base":
-      if (node.baseRefName) options.push({ value: node.baseRefName, label: node.baseRefName });
-      break;
-  }
-}
+      },
+    },
+    team_reviewer: {
+      fragment: `
+        reviewRequests(first: 20) {
+          nodes {
+            requestedReviewer {
+              __typename
+              ... on Team { slug organization { login } }
+            }
+          }
+        }
+      `,
+      extract: (node, options) => {
+        node.reviewRequests?.nodes.forEach((request) => {
+          if (request.requestedReviewer?.__typename === "Team") {
+            const team = request.requestedReviewer;
+            const value = team.organization?.login
+              ? `${team.organization.login}/${team.slug}`
+              : team.slug;
+            options.push({ value, label: value });
+          }
+        });
+      },
+    },
+    assignee: assigneeField,
+    mentions: prMentionsField,
+    involves: prMentionsField,
+    repo: repoField,
+    label: labelField,
+    milestone: milestoneField,
+    language: languageField,
+    head: {
+      fragment: `headRefName`,
+      extract: (node, options) => {
+        if (node.headRefName) options.push({ value: node.headRefName, label: node.headRefName });
+      },
+    },
+    base: {
+      fragment: `baseRefName`,
+      extract: (node, options) => {
+        if (node.baseRefName) options.push({ value: node.baseRefName, label: node.baseRefName });
+      },
+    },
+  },
+  issue: {
+    author: authorField,
+    assignee: assigneeField,
+    mentions: issueMentionsField,
+    involves: issueMentionsField,
+    repo: repoField,
+    label: labelField,
+    milestone: milestoneField,
+    language: languageField,
+  },
+};
 
 function isMissingGitHubOrgScopeError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
@@ -392,19 +430,17 @@ export async function fetchGitHubFilterSuggestions(
   filters: FilterCondition[],
   repos: string[],
 ): Promise<FilterSuggestionOption[]> {
-  const fragments = SUGGESTION_FRAGMENTS[itemType];
-  const fragment = fragments[field];
-  if (!fragment) return [];
+  const spec = SUGGESTION_FIELDS[itemType][field];
+  if (!spec) return [];
 
-  const accessToken = await getConnectedAccountAccessToken(account);
-  const octokit = new Octokit({ auth: accessToken });
+  const octokit = await getGitHubOctokit(account);
   const searchQuery = buildGitHubSearchQuery(itemType, filters, repos);
   const graphqlType = itemType === "pr" ? "PullRequest" : "Issue";
 
   const query = `
     query FilterSuggestions($searchQuery: String!, $first: Int!) {
       search(query: $searchQuery, type: ISSUE, first: $first) {
-        nodes { ... on ${graphqlType} { ${fragment} } }
+        nodes { ... on ${graphqlType} { ${spec.fragment} } }
       }
     }
   `;
@@ -422,7 +458,7 @@ export async function fetchGitHubFilterSuggestions(
 
   const options: FilterSuggestionOption[] = [];
   for (const node of data.search.nodes) {
-    extractSuggestions(field, node, options);
+    spec.extract(node, options);
   }
   return dedupeSuggestions(options);
 }

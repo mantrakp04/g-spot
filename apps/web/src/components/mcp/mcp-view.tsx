@@ -280,24 +280,18 @@ function describeStatus(status: McpServerSnapshot["status"]): string {
   }
 }
 
-function StatusPill({ status }: { status: McpServerSnapshot["status"] }) {
-  const tone =
-    status.kind === "ready"
-      ? "border-emerald-500/30 text-emerald-500"
-      : status.kind === "starting"
-        ? "border-amber-500/30 text-amber-500"
-        : status.kind === "disabled"
-          ? "border-border text-muted-foreground"
-          : "border-destructive/40 text-destructive";
+const STATUS_META: Record<
+  McpServerSnapshot["status"]["kind"],
+  { label: string; tone: string }
+> = {
+  ready: { label: "Ready", tone: "border-emerald-500/30 text-emerald-500" },
+  starting: { label: "Starting", tone: "border-amber-500/30 text-amber-500" },
+  disabled: { label: "Disabled", tone: "border-border text-muted-foreground" },
+  error: { label: "Error", tone: "border-destructive/40 text-destructive" },
+};
 
-  const label =
-    status.kind === "ready"
-      ? "Ready"
-      : status.kind === "starting"
-        ? "Starting"
-        : status.kind === "disabled"
-          ? "Disabled"
-          : "Error";
+function StatusPill({ status }: { status: McpServerSnapshot["status"] }) {
+  const { label, tone } = STATUS_META[status.kind];
 
   return (
     <Badge

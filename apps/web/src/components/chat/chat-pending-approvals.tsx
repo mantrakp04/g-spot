@@ -77,22 +77,14 @@ export function ChatPendingApprovals({
   );
 
   const pending = useMemo(() => {
-    if (!streaming) return persistedApprovals as PendingApprovalRef[];
+    if (!streaming) return persistedApprovals;
     const live = collectPendingApprovalsFrom(streaming as UIMessage);
-    if (live.length === 0) return persistedApprovals as PendingApprovalRef[];
-    const seen = new Set<string>();
-    const out: PendingApprovalRef[] = [];
-    for (const a of persistedApprovals) {
-      if (seen.has(a.toolCallId)) continue;
-      seen.add(a.toolCallId);
-      out.push(a);
-    }
-    for (const a of live) {
-      if (seen.has(a.toolCallId)) continue;
-      seen.add(a.toolCallId);
-      out.push(a);
-    }
-    return out;
+    if (live.length === 0) return persistedApprovals;
+    const seen = new Set(persistedApprovals.map((a) => a.toolCallId));
+    return [
+      ...persistedApprovals,
+      ...live.filter((a) => !seen.has(a.toolCallId)),
+    ];
   }, [persistedApprovals, streaming]);
 
   if (pending.length === 0) return null;

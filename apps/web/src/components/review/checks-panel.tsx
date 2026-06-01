@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { RotateCw } from "lucide-react";
 import type { OAuthConnection } from "@hexclave/react";
 import { toast } from "sonner";
@@ -33,13 +33,6 @@ export function ChecksPanel({
   useEffect(() => {
     setShowAll(false);
   }, [targetKey]);
-
-  const rerun = useRerunCheckMutation(
-    target ?? { kind: "pr", owner: "", repo: "", number: 0 },
-    account ?? null,
-    headSha,
-  );
-  const canRerun = !!target && !!account;
 
   if (checks.length === 0) {
     return (
@@ -82,49 +75,88 @@ export function ChecksPanel({
         ) : null}
       </div>
       {visible.length > 0 ? (
-        <ul className="space-y-0.5">
-          {visible.map((c) => (
-            <li key={c.id}>
-              <PrCiCheckItem
-                check={c}
-                action={
-                  canRerun && isFailedPrCiCheck(c) ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-xs"
-                      aria-label={`Retry ${c.name}`}
-                      title="Retry"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        rerun.mutate(
-                          { check: c },
-                          {
-                            onSuccess: () => toast.success(`Retrying ${c.name}`),
-                            onError: (err) =>
-                              toast.error(
-                                err instanceof Error
-                                  ? err.message
-                                  : "Failed to retry check",
-                              ),
-                          },
-                        );
-                      }}
-                      className="opacity-0 transition-opacity group-hover/check:opacity-100 focus-visible:opacity-100"
-                    >
-                      <RotateCw />
-                    </Button>
-                  ) : null
-                }
-              />
-            </li>
-          ))}
-        </ul>
+        target && account ? (
+          <RerunnableChecksList
+            checks={visible}
+            target={target}
+            account={account}
+            headSha={headSha}
+          />
+        ) : (
+          <ChecksList checks={visible} />
+        )
       ) : (
         <div className="rounded-md px-2 py-1 text-[12px] text-muted-foreground/70">
           All checks passing.
         </div>
       )}
     </div>
+  );
+}
+
+function ChecksList({
+  checks,
+  renderAction,
+}: {
+  checks: CheckItem[];
+  renderAction?: (check: CheckItem) => ReactNode;
+}) {
+  return (
+    <ul className="space-y-0.5">
+      {checks.map((c) => (
+        <li key={c.id}>
+          <PrCiCheckItem check={c} action={renderAction?.(c) ?? null} />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function RerunnableChecksList({
+  checks,
+  target,
+  account,
+  headSha,
+}: {
+  checks: CheckItem[];
+  target: ReviewTarget;
+  account: OAuthConnection;
+  headSha?: string;
+}) {
+  const rerun = useRerunCheckMutation(target, account, headSha);
+
+  return (
+    <ChecksList
+      checks={checks}
+      renderAction={(c) =>
+        isFailedPrCiCheck(c) ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            aria-label={`Retry ${c.name}`}
+            title="Retry"
+            onClick={(e) => {
+              e.preventDefault();
+              rerun.mutate(
+                { check: c },
+                {
+                  onSuccess: () => toast.success(`Retrying ${c.name}`),
+                  onError: (err) =>
+                    toast.error(
+                      err instanceof Error
+                        ? err.message
+                        : "Failed to retry check",
+                    ),
+                },
+              );
+            }}
+            className="opacity-0 transition-opacity group-hover/check:opacity-100 focus-visible:opacity-100"
+          >
+            <RotateCw />
+          </Button>
+        ) : null
+      }
+    />
   );
 }

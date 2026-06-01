@@ -10,6 +10,7 @@ import type {
   GmailThreadDetail,
 } from "@/lib/gmail/types";
 import { buildRfc2822Message, encodeRfc2822ToBase64Url } from "@/lib/gmail/rfc2822";
+import type { GoogleProfile } from "@/lib/gmail/account";
 import {
   useDeleteGmailDraftMutation,
   useSendGmailMessageMutation,
@@ -108,7 +109,7 @@ export function useComposeState(
   googleAccount: OAuthConnection | null,
 ): ComposeState {
   const { data: profile } = useGoogleProfile(googleAccount);
-  const userEmail = profile?.email ?? "";
+  const userEmail = (profile as GoogleProfile | undefined)?.email ?? "";
 
   const [isOpen, setIsOpen] = useState(false);
   const [mode, setMode] = useState<ComposeMode>("new");

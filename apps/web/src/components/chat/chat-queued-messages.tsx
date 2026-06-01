@@ -88,44 +88,45 @@ export function ChatQueuedMessages({ chatId, className }: ChatQueuedMessagesProp
   if (!chatId) return null;
   if (queue.steer.length === 0 && queue.followup.length === 0) return null;
 
+  const sections = [
+    {
+      key: "steer",
+      items: queue.steer,
+      icon: <SparklesIcon className="size-3.5" />,
+      singular: "steering message",
+      plural: "steering messages",
+    },
+    {
+      key: "followup",
+      items: queue.followup,
+      icon: <ListOrderedIcon className="size-3.5" />,
+      singular: "queued message",
+      plural: "queued messages",
+    },
+  ];
+
   return (
     <div className={cn("mx-auto w-full max-w-2xl", className)}>
       <Queue>
-        {queue.steer.length > 0 && (
-          <QueueSection>
-            <QueueSectionTrigger>
-              <QueueSectionLabel
-                count={queue.steer.length}
-                label={queue.steer.length === 1 ? "steering message" : "steering messages"}
-                icon={<SparklesIcon className="size-3.5" />}
-              />
-            </QueueSectionTrigger>
-            <QueueSectionContent>
-              <QueueList>
-                {queue.steer.map((item) => (
-                  <QueueItemRow key={item.id} chatId={chatId} item={item} />
-                ))}
-              </QueueList>
-            </QueueSectionContent>
-          </QueueSection>
-        )}
-        {queue.followup.length > 0 && (
-          <QueueSection>
-            <QueueSectionTrigger>
-              <QueueSectionLabel
-                count={queue.followup.length}
-                label={queue.followup.length === 1 ? "queued message" : "queued messages"}
-                icon={<ListOrderedIcon className="size-3.5" />}
-              />
-            </QueueSectionTrigger>
-            <QueueSectionContent>
-              <QueueList>
-                {queue.followup.map((item) => (
-                  <QueueItemRow key={item.id} chatId={chatId} item={item} />
-                ))}
-              </QueueList>
-            </QueueSectionContent>
-          </QueueSection>
+        {sections.map(({ key, items, icon, singular, plural }) =>
+          items.length > 0 ? (
+            <QueueSection key={key}>
+              <QueueSectionTrigger>
+                <QueueSectionLabel
+                  count={items.length}
+                  label={items.length === 1 ? singular : plural}
+                  icon={icon}
+                />
+              </QueueSectionTrigger>
+              <QueueSectionContent>
+                <QueueList>
+                  {items.map((item) => (
+                    <QueueItemRow key={item.id} chatId={chatId} item={item} />
+                  ))}
+                </QueueList>
+              </QueueSectionContent>
+            </QueueSection>
+          ) : null,
         )}
       </Queue>
     </div>

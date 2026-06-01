@@ -1,6 +1,6 @@
 import type { AgentSessionEvent, ToolInfo } from "@earendil-works/pi-coding-agent";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { Message, Model, Transport } from "@earendil-works/pi-ai";
+import type { Api, Message, Model, Transport } from "@earendil-works/pi-ai";
 import { z } from "zod";
 
 export const PI_QUEUE_MODE_VALUES = ["one-at-a-time", "all"] as const;
@@ -89,7 +89,7 @@ export type PiProviderApiKeyInput = z.infer<typeof piProviderApiKeySchema>;
 
 export type PiSdkTransport = Transport;
 export type PiSdkThinkingLevel = ThinkingLevel;
-export type PiSdkModel = Model<any>;
+export type PiSdkModel = Model<Api>;
 export type PiSdkMessage = Message;
 export type PiSdkSessionEvent = AgentSessionEvent;
 export type PiSdkToolInfo = ToolInfo;

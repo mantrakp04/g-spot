@@ -29,14 +29,6 @@ interface SkillsViewProps {
   description?: string;
 }
 
-function isLocalSkill(value: unknown): value is Skill {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof (value as Skill).id === "string"
-  );
-}
-
 export function SkillsView({ projectId, description }: SkillsViewProps) {
   const globalQuery = useGlobalSkills();
   const projectQuery = useProjectSkills(projectId);
@@ -76,7 +68,7 @@ export function SkillsView({ projectId, description }: SkillsViewProps) {
     }
   }
 
-  const skills = (skillsQuery.data ?? []).filter(isLocalSkill);
+  const skills = skillsQuery.data ?? [];
 
   return (
     <div className="space-y-6">

@@ -35,6 +35,7 @@ import { toast } from "sonner";
 import { GmailWorkflowEditorDialog } from "./gmail-workflow-editor-dialog";
 import { useConfirmDialog } from "@/contexts/confirm-dialog-context";
 import { useGoogleProfile } from "@/hooks/use-gmail-options";
+import type { GoogleProfile } from "@/lib/gmail/account";
 import { gmailKeys } from "@/lib/query-keys";
 import { queryClient, trpcClient } from "@/utils/trpc";
 import { env } from "@g-spot/env/web";
@@ -65,8 +66,8 @@ function AccountLabel({ account }: { account: OAuthConnection }) {
     return <span className="truncate">demo@g-spot.dev</span>;
   }
   const profile = useGoogleProfile(account);
-  const label =
-    profile.data?.email ?? profile.data?.name ?? account.providerAccountId;
+  const data = profile.data as GoogleProfile | undefined;
+  const label = data?.email ?? data?.name ?? account.providerAccountId;
   return <span className="truncate">{label}</span>;
 }
 

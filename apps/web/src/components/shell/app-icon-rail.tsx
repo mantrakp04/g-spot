@@ -115,9 +115,8 @@ function SignInButton() {
 }
 
 function UserSlot() {
-  if (env.VITE_DEMO_MODE) return null;
-
   const user = useUser();
+  if (env.VITE_DEMO_MODE) return null;
   return user ? <NavUser compact /> : <SignInButton />;
 }
 

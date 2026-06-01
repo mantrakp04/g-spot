@@ -15,19 +15,43 @@ import { cn } from "@g-spot/ui/lib/utils";
 import type { OAuthConnection } from "@hexclave/react";
 import { useQueries } from "@tanstack/react-query";
 
-import {
-  fetchGitHubProfileForConnection,
-  useGitHubProfile,
-} from "@/hooks/use-github-options";
-import {
-  fetchGoogleProfileForConnection,
-  useGoogleProfile,
-} from "@/hooks/use-gmail-options";
+import { fetchGitHubProfileForConnection } from "@/hooks/use-github-options";
+import { fetchGoogleProfileForConnection } from "@/hooks/use-gmail-options";
 import { getInitials } from "@/lib/initials";
 import { githubKeys, googleKeys } from "@/lib/query-keys";
 import { persistedStaleWhileRevalidateQueryOptions } from "@/utils/query-defaults";
 
 type SupportedProvider = "github" | "google";
+
+type GitHubProfile = Awaited<ReturnType<typeof fetchGitHubProfileForConnection>>;
+type GoogleProfile = Awaited<ReturnType<typeof fetchGoogleProfileForConnection>>;
+type ConnectedProfile = GitHubProfile | GoogleProfile;
+
+type ProviderAdapter = {
+  fetchProfile: (account: OAuthConnection) => Promise<ConnectedProfile>;
+  profileQueryKey: (providerAccountId: string) => readonly unknown[];
+  toLabel: (profile: ConnectedProfile) => string | null | undefined;
+  toAvatarUrl: (profile: ConnectedProfile) => string | undefined;
+};
+
+const providerAdapters: Record<SupportedProvider, ProviderAdapter> = {
+  github: {
+    fetchProfile: fetchGitHubProfileForConnection,
+    profileQueryKey: githubKeys.profile,
+    toLabel: (profile) =>
+      "login" in profile ? (profile.login ?? profile.name) : profile.name,
+    toAvatarUrl: (profile) =>
+      "avatarUrl" in profile ? profile.avatarUrl : undefined,
+  },
+  google: {
+    fetchProfile: fetchGoogleProfileForConnection,
+    profileQueryKey: googleKeys.profile,
+    toLabel: (profile) =>
+      "email" in profile ? (profile.email ?? profile.name) : profile.name,
+    toAvatarUrl: (profile) =>
+      "picture" in profile ? profile.picture : undefined,
+  },
+};
 
 type ConnectedAccountSelectProps = {
   accounts: OAuthConnection[];
@@ -68,49 +92,35 @@ export function ConnectedAccountSelect({
     );
   }, [relevantAccounts, value]);
 
-  const { data: githubProfile } = useGitHubProfile(
-    provider === "github" ? selectedAccount : null,
-  );
-  const { data: googleProfile } = useGoogleProfile(
-    provider === "google" ? selectedAccount : null,
-  );
+  const adapter = providerAdapters[provider];
 
   const profileQueries = useQueries({
-    queries: relevantAccounts.map((account) =>
-      provider === "github"
-        ? {
-            queryKey: githubKeys.profile(account.providerAccountId),
-            queryFn: () => fetchGitHubProfileForConnection(account),
-            enabled: true,
-            ...persistedStaleWhileRevalidateQueryOptions,
-          }
-        : {
-            queryKey: googleKeys.profile(account.providerAccountId),
-            queryFn: () => fetchGoogleProfileForConnection(account),
-            enabled: true,
-            ...persistedStaleWhileRevalidateQueryOptions,
-          },
-    ),
+    queries: relevantAccounts.map((account) => ({
+      queryKey: adapter.profileQueryKey(account.providerAccountId),
+      queryFn: () => adapter.fetchProfile(account),
+      enabled: true,
+      ...persistedStaleWhileRevalidateQueryOptions,
+    })),
   });
 
-  const profileLabelMap = useMemo(() => {
-    const map = new Map<string, string>();
+  const profileByAccountId = useMemo(() => {
+    const map = new Map<string, ConnectedProfile>();
 
     for (let i = 0; i < relevantAccounts.length; i++) {
       const account = relevantAccounts[i];
       const query = profileQueries[i];
       if (!query?.data) continue;
 
-      const data = query.data as Record<string, string>;
-      const label = data.login ?? data.email ?? data.name ?? account.providerAccountId;
-      map.set(account.providerAccountId, label);
+      map.set(account.providerAccountId, query.data);
     }
 
     return map;
   }, [profileQueries, relevantAccounts]);
 
-  const getAccountLabel = (providerAccountId: string) =>
-    profileLabelMap.get(providerAccountId) ?? providerAccountId;
+  const getAccountLabel = (providerAccountId: string) => {
+    const profile = profileByAccountId.get(providerAccountId);
+    return (profile && adapter.toLabel(profile)) ?? providerAccountId;
+  };
 
   if (relevantAccounts.length === 0) {
     return (
@@ -132,8 +142,10 @@ export function ConnectedAccountSelect({
   }
 
   const selectedLabel = value ? getAccountLabel(value) : placeholder;
-  const avatarSrc =
-    provider === "github" ? githubProfile?.avatarUrl : googleProfile?.picture;
+  const selectedProfile = value ? profileByAccountId.get(value) : undefined;
+  const avatarSrc = selectedProfile
+    ? adapter.toAvatarUrl(selectedProfile)
+    : undefined;
 
   return (
     <Select

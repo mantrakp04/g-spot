@@ -71,8 +71,8 @@ const LINE_DIFF_OPTIONS: Array<{
 ];
 
 export function DiffCustomizerMenu() {
-  const [settings, setSettings] = useAtom(diffCustomizationAtom);
-  const current = { ...DEFAULTS, ...settings };
+  const [, setSettings] = useAtom(diffCustomizationAtom);
+  const current = useDiffCustomization();
   const update = (patch: Partial<DiffCustomization>) =>
     setSettings({ ...current, ...patch });
 

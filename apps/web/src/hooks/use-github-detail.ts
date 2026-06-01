@@ -10,6 +10,22 @@ import {
 import { normalizePullRequestFiles } from "@/lib/github/pr-files";
 import { persistedStaleWhileRevalidateQueryOptions } from "@/utils/query-defaults";
 
+/**
+ * Octokit REST methods are generic, which poisons `useQuery` overload
+ * resolution when combined with the persisted query-options spread (TData
+ * collapses to `{}`). Pin the data generic on the affected hooks with the
+ * concrete response shape derived from the endpoint method.
+ */
+type OctokitRest = InstanceType<typeof Octokit>["rest"];
+type OctokitData<F> = F extends (...args: never[]) => Promise<{ data: infer D }>
+  ? D
+  : never;
+type PRDetailData = OctokitData<OctokitRest["pulls"]["get"]>;
+type IssueDetailData = OctokitData<OctokitRest["issues"]["get"]>;
+type RepoLabelsData = OctokitData<OctokitRest["issues"]["listLabelsForRepo"]>;
+type RepoAssigneesData = OctokitData<OctokitRest["issues"]["listAssignees"]>;
+type RepoMilestonesData = OctokitData<OctokitRest["issues"]["listMilestones"]>;
+
 export type ReviewKind = "pr" | "issue";
 
 export type ReviewTarget = {
@@ -177,7 +193,7 @@ export function useGitHubPRDetail(
 ) {
   const accountId = account?.providerAccountId;
   const queryKey = githubDetailKeys.pr(target, accountId);
-  return useQuery({
+  return useQuery<PRDetailData>({
     queryKey,
     enabled: target.kind === "pr",
     queryFn: async () => {
@@ -549,7 +565,7 @@ export function useGitHubPRChecks(
   headSha: string | null | undefined,
 ) {
   const accountId = account?.providerAccountId;
-  return useQuery({
+  return useQuery<CheckItem[]>({
     queryKey: prChecksQueryKey(target, accountId, headSha),
     enabled: !!headSha && target.kind === "pr",
     queryFn: async (): Promise<CheckItem[]> => {
@@ -972,7 +988,7 @@ export function useGitHubIssueDetail(
 ) {
   const accountId = account?.providerAccountId;
   const queryKey = githubDetailKeys.issue(target, accountId);
-  return useQuery({
+  return useQuery<IssueDetailData>({
     queryKey,
     enabled: !!account && target.kind === "issue",
     queryFn: async () => {
@@ -1093,7 +1109,7 @@ export function useGitHubRepoLabels(
   target: Pick<ReviewTarget, "owner" | "repo">,
   account: OAuthConnection | null,
 ) {
-  return useQuery({
+  return useQuery<RepoLabelsData>({
     queryKey: githubDetailKeys.repoLabels(target, account?.providerAccountId),
     enabled: !!account,
     queryFn: async () => {
@@ -1113,7 +1129,7 @@ export function useGitHubRepoAssignees(
   target: Pick<ReviewTarget, "owner" | "repo">,
   account: OAuthConnection | null,
 ) {
-  return useQuery({
+  return useQuery<RepoAssigneesData>({
     queryKey: githubDetailKeys.repoAssignees(target, account?.providerAccountId),
     enabled: !!account,
     queryFn: async () => {
@@ -1133,7 +1149,7 @@ export function useGitHubRepoMilestones(
   target: Pick<ReviewTarget, "owner" | "repo">,
   account: OAuthConnection | null,
 ) {
-  return useQuery({
+  return useQuery<RepoMilestonesData>({
     queryKey: githubDetailKeys.repoMilestones(
       target,
       account?.providerAccountId,

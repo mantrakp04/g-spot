@@ -55,6 +55,26 @@ type ServerHandle = {
   retryTimer: ReturnType<typeof setTimeout> | null;
 };
 
+const NOOP_DISPOSE = async (): Promise<void> => {};
+
+function baseHandle(
+  scope: Scope,
+  name: string,
+  entry: McpServerEntry,
+): ServerHandle {
+  return {
+    scope,
+    name,
+    fingerprint: fingerprint(entry),
+    transport: detectTransport(entry),
+    status: { kind: "starting", attempt: 1 },
+    client: null,
+    tools: [],
+    dispose: NOOP_DISPOSE,
+    retryTimer: null,
+  };
+}
+
 const handles = new Map<string, ServerHandle>();
 const projectsLoaded = new Map<string, string>(); // projectId -> projectPath
 
@@ -219,15 +239,8 @@ async function spawnServer(args: {
   clearRetryTimer(previous);
 
   const placeholder: ServerHandle = {
-    scope,
-    name,
-    fingerprint: fingerprint(entry),
-    transport,
+    ...baseHandle(scope, name, entry),
     status: { kind: "starting", attempt },
-    client: null,
-    tools: [],
-    dispose: async () => {},
-    retryTimer: null,
   };
   handles.set(id, placeholder);
 
@@ -270,10 +283,7 @@ async function spawnServer(args: {
     );
 
     handles.set(id, {
-      scope,
-      name,
-      fingerprint: fingerprint(entry),
-      transport,
+      ...baseHandle(scope, name, entry),
       status: { kind: "ready", toolCount: tools.length },
       client,
       tools,
@@ -284,7 +294,6 @@ async function spawnServer(args: {
           console.warn("[mcp] dispose failed", { id, error });
         }
       },
-      retryTimer: null,
     });
     console.log("[mcp] ready", { id, transport, toolCount: tools.length });
   } catch (error) {
@@ -299,15 +308,8 @@ async function spawnServer(args: {
     });
 
     const errorHandle: ServerHandle = {
-      scope,
-      name,
-      fingerprint: fingerprint(entry),
-      transport,
+      ...baseHandle(scope, name, entry),
       status: { kind: "error", message, attempt, retryAt },
-      client: null,
-      tools: [],
-      dispose: async () => {},
-      retryTimer: null,
     };
 
     if (backoff != null) {
@@ -363,15 +365,8 @@ async function reconcile(args: {
         await existing.dispose();
       }
       handles.set(id, {
-        scope,
-        name,
-        fingerprint: fingerprint(entry),
-        transport: detectTransport(entry),
+        ...baseHandle(scope, name, entry),
         status: { kind: "disabled" },
-        client: null,
-        tools: [],
-        dispose: async () => {},
-        retryTimer: null,
       });
       continue;
     }

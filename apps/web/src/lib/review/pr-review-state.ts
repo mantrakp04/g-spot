@@ -1,4 +1,4 @@
-import type { ReviewTarget } from "@/hooks/use-github-detail";
+import type { ReviewComment, ReviewTarget } from "@/hooks/use-github-detail";
 import type { PendingCommentsKey } from "@/hooks/use-pending-comments";
 
 export function getPendingCommentsKey(target: ReviewTarget): PendingCommentsKey {
@@ -13,7 +13,7 @@ export function getPRReviewState(input: {
   detailLoading: boolean;
   filesLoading: boolean;
   timelineLoading: boolean;
-  reviewComments?: Record<string, readonly unknown[]>;
+  reviewComments?: Record<string, ReviewComment[]>;
 }) {
   let inlineCommentCount = 0;
   for (const list of Object.values(input.reviewComments ?? {})) {

@@ -30,26 +30,24 @@ export const queryClient = new QueryClient({
 const trpcUrl = serverPath("/trpc");
 
 const AUTH_HEADERS_TTL_MS = 30_000;
-let authHeadersCache: { headers: Record<string, string>; expiresAt: number } | null = null;
-let authHeadersInflight: Promise<Record<string, string>> | null = null;
+let authHeadersCache: { expiresAt: number; promise: Promise<Record<string, string>> } | null = null;
 
 async function resolveAuthHeaders(): Promise<Record<string, string>> {
-  if (authHeadersCache && authHeadersCache.expiresAt > Date.now()) {
-    return authHeadersCache.headers;
+  const now = Date.now();
+  if (authHeadersCache && authHeadersCache.expiresAt > now) {
+    return authHeadersCache.promise;
   }
-  if (authHeadersInflight) return authHeadersInflight;
 
-  authHeadersInflight = (async () => {
-    try {
-      const user = await stackClientApp.getUser();
-      const headers = user ? await user.getAuthHeaders() : {};
-      authHeadersCache = { headers, expiresAt: Date.now() + AUTH_HEADERS_TTL_MS };
-      return headers;
-    } finally {
-      authHeadersInflight = null;
-    }
+  const promise = (async () => {
+    const user = await stackClientApp.getUser();
+    return user ? await user.getAuthHeaders() : {};
   })();
-  return authHeadersInflight;
+  promise.catch(() => {
+    authHeadersCache = null;
+  });
+  authHeadersCache = { expiresAt: now + AUTH_HEADERS_TTL_MS, promise };
+
+  return promise;
 }
 
 export const trpcClient = createTRPCClient<AppRouter>({

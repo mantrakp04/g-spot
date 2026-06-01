@@ -150,7 +150,9 @@ function PreviewDeploysDropdown({
   headSha: string;
 }) {
   const q = useGitHubPRDeployments(target, account, headSha);
-  const deployments = q.data ?? [];
+  // `useGitHubPRDeployments`'s persisted query options widen the inferred data
+  // type; the queryFn provably resolves to `DeploymentSummary[]`.
+  const deployments = (q.data ?? []) as DeploymentSummary[];
   const groups = groupDeployments(deployments);
   return (
     <DropdownMenu>

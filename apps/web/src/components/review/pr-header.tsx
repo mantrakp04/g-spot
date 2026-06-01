@@ -54,6 +54,8 @@ type PRHeaderProps = {
   canChangeBase: boolean;
 };
 
+type RepoBranch = { name: string; protected: boolean };
+
 function BranchChip({ name }: { name: string }) {
   async function copy() {
     try {
@@ -95,7 +97,10 @@ function BaseBranchSelector({
   const branches = useGitHubRepoBranches(target, account, open);
   const updateBase = useUpdatePRBaseMutation(target, account);
 
-  const items = useMemo(() => branches.data ?? [], [branches.data]);
+  const items = useMemo<RepoBranch[]>(
+    () => (branches.data as RepoBranch[] | undefined) ?? [],
+    [branches.data],
+  );
 
   async function copy() {
     try {

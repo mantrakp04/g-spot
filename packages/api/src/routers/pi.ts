@@ -194,12 +194,10 @@ export const piRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
-      await installPiAddon(
-        input.source.trim(),
-        await getProjectPathOrThrow(input.projectId),
-      );
+      const projectPath = await getProjectPathOrThrow(input.projectId);
+      await installPiAddon(input.source.trim(), projectPath);
 
-      return listPiAddons(await getProjectPathOrThrow(input.projectId));
+      return listPiAddons(projectPath);
     }),
 
   removeAddon: publicProcedure
@@ -210,12 +208,10 @@ export const piRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
-      await removePiAddon(
-        input.source.trim(),
-        await getProjectPathOrThrow(input.projectId),
-      );
+      const projectPath = await getProjectPathOrThrow(input.projectId);
+      await removePiAddon(input.source.trim(), projectPath);
 
-      return listPiAddons(await getProjectPathOrThrow(input.projectId));
+      return listPiAddons(projectPath);
     }),
 
   popularCatalog: publicProcedure

@@ -38,7 +38,6 @@ import { applyCheckpoint } from "./checkpoint";
 const FETCH_CONCURRENCY = env.GMAIL_SYNC_CONCURRENCY;
 const MAX_CIRCUIT_BACKOFF_SEC = 600;
 const PROGRESS_FLUSH_MS = 500;
-const COMPLETION_POLL_MS = 250;
 
 type GmailProfile = Awaited<ReturnType<typeof getProfile>>;
 
@@ -99,6 +98,7 @@ export class GmailSyncOrchestrator {
   private progress: SyncProgress;
   private extractableGmailThreadIds = new Set<string>();
   private inflight = 0;
+  private drainResolve: (() => void) | null = null;
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private dirtyFetched = 0;
   private dirtyFailed = 0;
@@ -123,6 +123,11 @@ export class GmailSyncOrchestrator {
     this.cancelled = true;
     this.circuit.close();
     this.progress.status = "paused";
+    if (this.drainResolve) {
+      const resolve = this.drainResolve;
+      this.drainResolve = null;
+      resolve();
+    }
   }
 
   async startSync(plan: SyncExecutionPlan): Promise<void> {
@@ -227,6 +232,11 @@ export class GmailSyncOrchestrator {
       void this.limit(() => this.fetchOne(gmailThreadId))
         .finally(() => {
           this.inflight -= 1;
+          if (this.inflight === 0 && this.drainResolve) {
+            const resolve = this.drainResolve;
+            this.drainResolve = null;
+            resolve();
+          }
         });
     }
   }
@@ -368,9 +378,10 @@ export class GmailSyncOrchestrator {
   }
 
   private async waitForCompletion(): Promise<void> {
-    while (!this.cancelled && (this.inflight > 0 || this.limit.activeCount > 0 || this.limit.pendingCount > 0)) {
-      await sleep(COMPLETION_POLL_MS);
-    }
+    if (this.cancelled || this.inflight === 0) return;
+    await new Promise<void>((resolve) => {
+      this.drainResolve = resolve;
+    });
   }
 
   private async persistFetchState(
@@ -433,10 +444,6 @@ function freshProgress(): SyncProgress {
     startedAt: null,
     error: null,
   };
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // ---------------------------------------------------------------------------

@@ -4,8 +4,6 @@ export type {
   GitHubItem,
   GitHubItemPage,
   GitHubLabel,
-  GitHubPR,
-  GitHubPRPage,
   GitHubPullRequest,
   GitHubPullRequestPage,
   GitHubStatusCheck,

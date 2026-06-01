@@ -12,10 +12,20 @@ import { Download, Loader2, RefreshCw, RotateCcw, X } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { useGoogleProfile } from "@/hooks/use-gmail-options";
+import {
+  fetchGoogleProfileForConnection,
+  useGoogleProfile,
+} from "@/hooks/use-gmail-options";
 import { getGoogleAccessToken } from "@/lib/gmail/client-api";
 import { getInitials } from "@/lib/initials";
 import { trpcClient } from "@/utils/trpc";
+
+// The shared query options spread a `persister` that erases the query fn's
+// inferred return type, widening `q.data` to `{}`. Recover the real profile
+// shape from the fetcher so accessors stay type-safe.
+type GoogleProfile = Awaited<
+  ReturnType<typeof fetchGoogleProfileForConnection>
+>;
 
 export function GoogleAccountRow({
   account,
@@ -29,6 +39,7 @@ export function GoogleAccountRow({
   const [removing, setRemoving] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
   const q = useGoogleProfile(account);
+  const profileData = q.data as GoogleProfile | undefined;
 
   // ----- Sync state -----
   const syncProgress = useQuery({
@@ -95,7 +106,7 @@ export function GoogleAccountRow({
   async function handleRemove() {
     setRemoving(true);
     try {
-      await onRemove(q.data?.email ?? null);
+      await onRemove(profileData?.email ?? null);
     } finally {
       setRemoving(false);
     }
@@ -104,7 +115,7 @@ export function GoogleAccountRow({
   async function handleReconnect() {
     setReconnecting(true);
     try {
-      await onReconnect(q.data?.email ?? null);
+      await onReconnect(profileData?.email ?? null);
     } finally {
       setReconnecting(false);
     }
@@ -122,7 +133,7 @@ export function GoogleAccountRow({
     );
   }
 
-  const profile = q.isSuccess ? q.data : null;
+  const profile = q.isSuccess ? (profileData ?? null) : null;
   const name = profile?.name || null;
   const email = profile?.email || null;
 

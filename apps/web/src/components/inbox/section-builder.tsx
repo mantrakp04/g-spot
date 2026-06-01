@@ -111,11 +111,14 @@ import {
   type QueryableFilterValue,
 } from "@/ai-flows/section-filters/use-section-filter-agent";
 import {
+  fetchGitHubProfileForConnection,
   useGitHubRepoSearch,
   useGitHubLabels,
   useGitHubProfile,
+  type FilterSuggestionOption,
 } from "@/hooks/use-github-options";
 import {
+  fetchGoogleProfileForConnection,
   useGmailLabels,
   useGoogleProfile,
 } from "@/hooks/use-gmail-options";
@@ -123,6 +126,9 @@ import { useSectionFilterSuggestions } from "@/hooks/use-filter-suggestions";
 import { ConnectedAccountSelect } from "./connected-account-select";
 import { FilterConditionRow } from "./filter-condition-row";
 import { RepoSearchInput } from "./repo-search-input";
+
+type GitHubProfile = Awaited<ReturnType<typeof fetchGitHubProfileForConnection>>;
+type GoogleProfile = Awaited<ReturnType<typeof fetchGoogleProfileForConnection>>;
 
 type SectionData = {
   id: string;
@@ -619,10 +625,10 @@ function SectionBuilderContent({
   }, [accounts, accountId]);
   const { data: githubProfile } = useGitHubProfile(
     isGitHubSource ? selectedAccount : null,
-  );
+  ) as { data: GitHubProfile | undefined };
   const { data: googleProfile } = useGoogleProfile(
     source === "gmail" ? selectedAccount : null,
-  );
+  ) as { data: GoogleProfile | undefined };
   const selectedAccountLabel = isGitHubSource
     ? githubProfile?.login ?? null
     : googleProfile?.email ?? null;
@@ -658,9 +664,15 @@ function SectionBuilderContent({
 
   // Other options
   const { data: labelOptions, isLoading: loadingLabels } =
-    useGitHubLabels(isGitHubSource ? selectedAccount : null, repos);
+    useGitHubLabels(isGitHubSource ? selectedAccount : null, repos) as {
+      data: FilterSuggestionOption[] | undefined;
+      isLoading: boolean;
+    };
   const { data: gmailLabelOptions, isLoading: loadingGmailLabels } =
-    useGmailLabels(source === "gmail" ? selectedAccount : null);
+    useGmailLabels(source === "gmail" ? selectedAccount : null) as {
+      data: FilterSuggestionOption[] | undefined;
+      isLoading: boolean;
+    };
   const suggestionStates = useSectionFilterSuggestions({
     source,
     account: selectedAccount,

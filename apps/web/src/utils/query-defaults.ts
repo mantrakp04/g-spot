@@ -1,3 +1,5 @@
+import type { QueryPersister } from "@tanstack/react-query";
+
 import { queryPersister } from "@/utils/query-persister";
 
 export const staleWhileRevalidateQueryOptions = {
@@ -9,6 +11,5 @@ export const staleWhileRevalidateQueryOptions = {
 
 export const persistedStaleWhileRevalidateQueryOptions = {
   ...staleWhileRevalidateQueryOptions,
-  // TanStack's persister option is still experimental and not inferred cleanly here.
-  persister: queryPersister as any,
+  persister: queryPersister satisfies QueryPersister,
 };

@@ -22,6 +22,16 @@ const IGNORED_DIRS = new Set([
 
 const MAX_FILES = 50_000;
 
+function shouldSkip(name: string) {
+  return IGNORED_DIRS.has(name);
+}
+
+function classify(entry: Dirent): FsEntry["kind"] | null {
+  if (entry.isDirectory()) return "directory";
+  if (entry.isFile() || entry.isSymbolicLink()) return "file";
+  return null;
+}
+
 export type FsEntry = {
   name: string;
   /** Path relative to the project root, using forward slashes. */
@@ -62,16 +72,13 @@ export async function listDirectory(
   const entries = await fs.readdir(abs, { withFileTypes: true });
   const out: FsEntry[] = [];
   for (const entry of entries) {
-    if (IGNORED_DIRS.has(entry.name)) continue;
-    if (entry.name.startsWith(".DS_Store")) continue;
+    if (shouldSkip(entry.name)) continue;
+    const kind = classify(entry);
+    if (!kind) continue;
     const childRel = toPosix(
       relativePath ? `${relativePath}/${entry.name}` : entry.name,
     );
-    if (entry.isDirectory()) {
-      out.push({ name: entry.name, path: childRel, kind: "directory" });
-    } else if (entry.isFile() || entry.isSymbolicLink()) {
-      out.push({ name: entry.name, path: childRel, kind: "file" });
-    }
+    out.push({ name: entry.name, path: childRel, kind });
   }
   out.sort((a, b) => {
     if (a.kind !== b.kind) return a.kind === "directory" ? -1 : 1;
@@ -97,13 +104,14 @@ export async function listAllFiles(projectPath: string): Promise<string[]> {
     }
     for (const entry of entries) {
       if (out.length >= MAX_FILES) return;
-      if (IGNORED_DIRS.has(entry.name)) continue;
-      if (entry.name.startsWith(".DS_Store")) continue;
+      if (shouldSkip(entry.name)) continue;
+      const kind = classify(entry);
+      if (!kind) continue;
       const childAbs = path.join(dirAbs, entry.name);
       const childRel = dirRel ? `${dirRel}/${entry.name}` : entry.name;
-      if (entry.isDirectory()) {
+      if (kind === "directory") {
         await walk(childAbs, childRel);
-      } else if (entry.isFile() || entry.isSymbolicLink()) {
+      } else {
         out.push(childRel);
       }
     }

@@ -42,11 +42,9 @@ export function ChangeContextMenu({
   const isConflicted = group === "merge";
   const diffMode = FALLBACK_DIFF_MODE[group];
 
-  const copyPath = async (relative: boolean) => {
+  const copyPath = async () => {
     try {
-      await navigator.clipboard.writeText(
-        relative ? change.path : change.path,
-      );
+      await navigator.clipboard.writeText(change.path);
     } catch {
       /* ignore */
     }
@@ -118,11 +116,8 @@ export function ChangeContextMenu({
             Add to .gitignore
           </ContextMenuItem>
         )}
-        <ContextMenuItem onClick={() => copyPath(true)}>
+        <ContextMenuItem onClick={() => copyPath()}>
           Copy Path
-        </ContextMenuItem>
-        <ContextMenuItem onClick={() => copyPath(true)}>
-          Copy Relative Path
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>

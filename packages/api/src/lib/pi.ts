@@ -47,8 +47,7 @@ const PI_BUILTIN_TOOL_DEFINITION_FACTORIES = {
   ls: createLsToolDefinition,
 } satisfies Record<PiBuiltinToolName, unknown>;
 
-const DEFAULT_CHAT_CONFIG = piAgentConfigSchema.parse({});
-const DEFAULT_WORKER_CONFIG = piAgentConfigSchema.parse({});
+const DEFAULT_PI_AGENT_CONFIG = piAgentConfigSchema.parse({});
 
 function isPiBuiltinToolName(toolName: string): toolName is PiBuiltinToolName {
   return toolName in PI_BUILTIN_TOOL_DEFINITION_FACTORIES;
@@ -120,12 +119,8 @@ function normalizeStoredCredentials(
   );
 }
 
-export function getDefaultChatConfig() {
-  return { ...DEFAULT_CHAT_CONFIG };
-}
-
-export function getDefaultWorkerConfig() {
-  return { ...DEFAULT_WORKER_CONFIG };
+export function getDefaultPiAgentConfig() {
+  return { ...DEFAULT_PI_AGENT_CONFIG };
 }
 
 function parseStoredAgentConfig(
@@ -153,8 +148,8 @@ export async function getPiUserState(): Promise<{
 }> {
   const row = await getPiState();
   const defaults = {
-    chat: parseStoredAgentConfig(row?.chatDefaults, DEFAULT_CHAT_CONFIG),
-    worker: parseStoredAgentConfig(row?.workerDefaults, DEFAULT_WORKER_CONFIG),
+    chat: parseStoredAgentConfig(row?.chatDefaults, DEFAULT_PI_AGENT_CONFIG),
+    worker: parseStoredAgentConfig(row?.workerDefaults, DEFAULT_PI_AGENT_CONFIG),
   };
   const credentials = normalizeStoredCredentials(row?.credentials);
 
@@ -300,7 +295,7 @@ export function getPiBuiltinTools(): PiSdkToolInfo[] {
 
 export function normalizePiAgentConfig(
   value: unknown,
-  fallback: PiAgentConfig = DEFAULT_CHAT_CONFIG,
+  fallback: PiAgentConfig = DEFAULT_PI_AGENT_CONFIG,
 ) {
   return mergeAgentConfig(value, fallback);
 }

@@ -99,12 +99,11 @@ async function pickAvailableSkillName(
       ? await listGlobalSkills()
       : await listProjectSkills(projectId);
   const taken = new Set<string>(existing.map((s) => s.name));
-  const reserved = new Set<string>(RESERVED_SKILL_NAMES);
 
   const base = preferred || "skill";
   let candidate = base;
   let suffix = 1;
-  while (taken.has(candidate) || reserved.has(candidate)) {
+  while (taken.has(candidate) || RESERVED_SET.has(candidate)) {
     const tail = `-${suffix++}`;
     candidate = `${base.slice(0, 64 - tail.length)}${tail}`;
     if (suffix > 50) {

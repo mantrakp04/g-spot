@@ -14,16 +14,16 @@ import {
   DropdownMenuTrigger,
 } from "@g-spot/ui/components/dropdown-menu";
 
-import type { useGitHubPRCommits } from "@/hooks/use-github-detail";
+import type { Octokit } from "octokit";
 
 export type CommitRange = {
   baseSha: string;
   headSha: string;
 } | null;
 
-type PRCommits = NonNullable<
-  ReturnType<typeof useGitHubPRCommits>["data"]
->;
+type PRCommits = Awaited<
+  ReturnType<Octokit["rest"]["pulls"]["listCommits"]>
+>["data"];
 
 export function CommitSelector({
   commits,

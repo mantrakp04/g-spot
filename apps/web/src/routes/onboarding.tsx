@@ -1,3 +1,4 @@
+import type { ComponentProps } from "react";
 import { useCallback, useMemo } from "react";
 
 import { Button } from "@g-spot/ui/components/button";
@@ -46,6 +47,61 @@ const STEPS = [
 ] as const;
 
 type StepId = (typeof STEPS)[number]["id"];
+
+const TOUR_STEPS: Partial<Record<StepId, ComponentProps<typeof TourStep>>> = {
+  memory: {
+    icon: BrainIcon,
+    title: "Memory",
+    tagline: "Pi remembers what matters.",
+    description:
+      "Your AI agent builds a memory graph as you work. Pin facts, edit them, or browse the graph from settings. Memory is local and per-machine.",
+    bullets: [
+      "Auto-captured from chats and tool calls",
+      "Editable knowledge graph",
+      "Used to ground future responses",
+    ],
+    visual: <MemoryVisual />,
+  },
+  reviews: {
+    icon: Github,
+    title: "GitHub reviews",
+    tagline: "Triage PRs without leaving the app.",
+    description:
+      "Open a PR from any GitHub section and review inline — diff, threads, suggestions, and queued review comments — then submit them in one batch.",
+    bullets: [
+      "Inline diff viewer with comment threads",
+      "Queue multiple comments and submit as one review",
+      "Approve, request changes, or comment from the same view",
+    ],
+    visual: <ReviewsVisual />,
+  },
+  workflows: {
+    icon: Inbox,
+    title: "Gmail workflows",
+    tagline: "Automations for your inbox.",
+    description:
+      "Define workflows that run on incoming Gmail — auto-label, draft replies with Pi, snooze, or trigger custom actions. Configure them anytime from Settings → Gmail workflows.",
+    bullets: [
+      "Trigger on new mail matching a filter",
+      "Compose Pi-drafted replies for review",
+      "Combine actions in a single workflow",
+    ],
+    visual: <WorkflowsVisual />,
+  },
+  notes: {
+    icon: NotebookText,
+    title: "Notes",
+    tagline: "Markdown notes that link back.",
+    description:
+      "Wikilinks, tags, math, Mermaid diagrams, daily notes — all stored locally. Drop links to threads, PRs, and chats; Pi can read and write notes for you.",
+    bullets: [
+      "Wikilinks and backlinks",
+      "Math, Mermaid, code, daily notes",
+      "Pi can read and write notes",
+    ],
+    visual: <NotesVisual />,
+  },
+};
 
 const STEP_IDS = STEPS.map((step) => step.id) as readonly StepId[];
 
@@ -193,26 +249,17 @@ function OnboardingRoute() {
           </header>
 
           <div className="flex-1 overflow-y-auto px-6 py-8">
-            {(() => {
-              const isTour =
-                activeStep === "memory" ||
-                activeStep === "reviews" ||
-                activeStep === "workflows" ||
-                activeStep === "notes";
-              return (
-                <div
-                  className={cn(
-                    "mx-auto",
-                    activeStep === "agent" ? "max-w-5xl" : "max-w-3xl",
-                    isTour && "flex min-h-full items-center",
-                  )}
-                >
-                  <div className="w-full">
-                    <StepBody step={activeStep} />
-                  </div>
-                </div>
-              );
-            })()}
+            <div
+              className={cn(
+                "mx-auto",
+                activeStep === "agent" ? "max-w-5xl" : "max-w-3xl",
+                activeStep in TOUR_STEPS && "flex min-h-full items-center",
+              )}
+            >
+              <div className="w-full">
+                <StepBody step={activeStep} />
+              </div>
+            </div>
           </div>
         </main>
       </div>
@@ -232,65 +279,9 @@ function StepBody({ step }: { step: StepId }) {
       return <SectionsStep />;
     case "agent":
       return <PiStep />;
-    case "memory":
-      return (
-        <TourStep
-          icon={BrainIcon}
-          title="Memory"
-          tagline="Pi remembers what matters."
-          description="Your AI agent builds a memory graph as you work. Pin facts, edit them, or browse the graph from settings. Memory is local and per-machine."
-          bullets={[
-            "Auto-captured from chats and tool calls",
-            "Editable knowledge graph",
-            "Used to ground future responses",
-          ]}
-          visual={<MemoryVisual />}
-        />
-      );
-    case "reviews":
-      return (
-        <TourStep
-          icon={Github}
-          title="GitHub reviews"
-          tagline="Triage PRs without leaving the app."
-          description="Open a PR from any GitHub section and review inline — diff, threads, suggestions, and queued review comments — then submit them in one batch."
-          bullets={[
-            "Inline diff viewer with comment threads",
-            "Queue multiple comments and submit as one review",
-            "Approve, request changes, or comment from the same view",
-          ]}
-          visual={<ReviewsVisual />}
-        />
-      );
-    case "workflows":
-      return (
-        <TourStep
-          icon={Inbox}
-          title="Gmail workflows"
-          tagline="Automations for your inbox."
-          description="Define workflows that run on incoming Gmail — auto-label, draft replies with Pi, snooze, or trigger custom actions. Configure them anytime from Settings → Gmail workflows."
-          bullets={[
-            "Trigger on new mail matching a filter",
-            "Compose Pi-drafted replies for review",
-            "Combine actions in a single workflow",
-          ]}
-          visual={<WorkflowsVisual />}
-        />
-      );
-    case "notes":
-      return (
-        <TourStep
-          icon={NotebookText}
-          title="Notes"
-          tagline="Markdown notes that link back."
-          description="Wikilinks, tags, math, Mermaid diagrams, daily notes — all stored locally. Drop links to threads, PRs, and chats; Pi can read and write notes for you."
-          bullets={[
-            "Wikilinks and backlinks",
-            "Math, Mermaid, code, daily notes",
-            "Pi can read and write notes",
-          ]}
-          visual={<NotesVisual />}
-        />
-      );
+    default: {
+      const tour = TOUR_STEPS[step];
+      return tour ? <TourStep {...tour} /> : null;
+    }
   }
 }

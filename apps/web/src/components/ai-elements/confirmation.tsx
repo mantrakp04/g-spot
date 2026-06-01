@@ -8,33 +8,7 @@ import { createContext, useContext, useMemo } from "react";
 
 import type { ToolUIPart } from "@/lib/chat-ui";
 
-type ToolUIPartApproval =
-  | {
-      id: string;
-      approved?: never;
-      reason?: never;
-    }
-  | {
-      id: string;
-      approved: boolean;
-      reason?: string;
-    }
-  | {
-      id: string;
-      approved: true;
-      reason?: string;
-    }
-  | {
-      id: string;
-      approved: true;
-      reason?: string;
-    }
-  | {
-      id: string;
-      approved: false;
-      reason?: string;
-    }
-  | undefined;
+type ToolUIPartApproval = NonNullable<ToolUIPart["approval"]> | undefined;
 
 interface ConfirmationContextValue {
   approval: ToolUIPartApproval;

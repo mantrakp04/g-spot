@@ -1,6 +1,7 @@
 import { cn } from "@g-spot/ui/lib/utils";
+import { atom, useAtom } from "jotai";
 import { ChevronRight } from "lucide-react";
-import { type MouseEvent, useState } from "react";
+import { type MouseEvent, useCallback, useMemo } from "react";
 import { FolderIcon, OpenFolderIcon } from "react-files-icons";
 
 import type { DiffMode } from "@/lib/tabs-store";
@@ -8,6 +9,8 @@ import type { DiffMode } from "@/lib/tabs-store";
 import { ResourceRow } from "./resource-row";
 import type { GroupId, ViewMode } from "./use-changes";
 import type { ChangeEntry, GitMutations } from "./use-git-mutations";
+
+const collapsedFoldersAtom = atom<Record<string, boolean>>({});
 
 type TreeNode = {
   name: string;
@@ -96,6 +99,11 @@ export function ResourceTree({
   onOpenFile,
   onOpenDiff,
 }: Props) {
+  const tree = useMemo(
+    () => buildTree(changes, viewMode === "compact"),
+    [changes, viewMode],
+  );
+
   if (viewMode === "list") {
     return (
       <>
@@ -117,8 +125,6 @@ export function ResourceTree({
       </>
     );
   }
-
-  const tree = buildTree(changes, viewMode === "compact");
 
   return (
     <>
@@ -163,7 +169,12 @@ function TreeNodeView({
   onOpenFile,
   onOpenDiff,
 }: NodeViewProps) {
-  const [open, setOpen] = useState(true);
+  const [collapsed, setCollapsed] = useAtom(collapsedFoldersAtom);
+  const key = `${group}:${node.fullPath}`;
+  const open = !collapsed[key];
+  const toggleOpen = useCallback(() => {
+    setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
+  }, [setCollapsed, key]);
 
   if (node.kind === "file" && node.change) {
     return (
@@ -189,7 +200,7 @@ function TreeNodeView({
     <>
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={toggleOpen}
         className="flex h-6 min-w-0 items-center gap-1.5 px-2 text-left text-xs hover:bg-muted/50"
         style={{ paddingLeft: `${0.5 + depth * 0.75}rem` }}
       >

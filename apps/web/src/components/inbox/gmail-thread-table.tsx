@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import type { GmailThread } from "@/lib/gmail/types";
 import { useGmailThreadCount } from "@/hooks/use-gmail-thread-count";
+import type { GmailLabelCatalogEntry } from "@/hooks/use-gmail-options";
 import { useGmailThreads } from "@/hooks/use-gmail-threads";
 import { useUpdateSectionMutation } from "@/hooks/use-sections";
 import { gmailKeys } from "@/lib/query-keys";
@@ -47,7 +48,7 @@ export function GmailThreadTable({
     filters,
     providerAccountId,
   );
-  const { data: labelCatalog } = useQuery({
+  const { data: labelCatalog } = useQuery<GmailLabelCatalogEntry[]>({
     queryKey: gmailKeys.labelsCatalog(providerAccountId),
     queryFn: () =>
       trpcClient.gmail.getLabelCatalog.query({
@@ -58,7 +59,12 @@ export function GmailThreadTable({
   });
 
   const loadedCount = data?.pages.reduce((sum, p) => sum + p.threads.length, 0) ?? 0;
-  const displayCount = countData?.count ?? loadedCount;
+  // useGmailThreadCount's data type is currently erased to `{}` by the shared
+  // persister options (query-defaults.ts) — re-derive the real procedure output.
+  const totalCount = countData as
+    | Awaited<ReturnType<typeof trpcClient.gmail.getThreadCount.query>>
+    | undefined;
+  const displayCount = totalCount?.count ?? loadedCount;
   useEffect(() => {
     onCountChange?.(displayCount, isCountTotalPending);
   }, [isCountTotalPending, displayCount, onCountChange]);

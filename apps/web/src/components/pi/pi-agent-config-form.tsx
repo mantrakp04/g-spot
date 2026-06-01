@@ -243,6 +243,7 @@ export function PiAgentConfigForm({
           {tools.map((tool) => {
             const toolName = tool.name as PiBuiltinToolName;
             const checked = value.activeToolNames.includes(toolName);
+            const isLastChecked = checked && value.activeToolNames.length === 1;
             return (
               <label
                 key={tool.name}
@@ -253,6 +254,7 @@ export function PiAgentConfigForm({
               >
                 <Checkbox
                   checked={checked}
+                  disabled={isLastChecked}
                   onCheckedChange={(nextChecked) => {
                     const nextToolNames = nextChecked
                       ? Array.from(
@@ -261,13 +263,7 @@ export function PiAgentConfigForm({
                       : value.activeToolNames.filter(
                           (name) => name !== toolName,
                         );
-                    onChange({
-                      ...value,
-                      activeToolNames:
-                        nextToolNames.length > 0
-                          ? nextToolNames
-                          : value.activeToolNames,
-                    });
+                    onChange({ ...value, activeToolNames: nextToolNames });
                   }}
                 />
                 <div className="space-y-1">

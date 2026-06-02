@@ -18,7 +18,11 @@ export const config: HexclaveConfig = {
   "payments": {
     "products": {
       "test1": {
-        "prices": "include-by-default",
+        "prices": {
+          "manual": {
+            "USD": "0"
+          }
+        },
         "freeTrial": [
           7,
           "day"

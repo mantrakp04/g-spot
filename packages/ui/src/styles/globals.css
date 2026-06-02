@@ -311,3 +311,44 @@
     letter-spacing: var(--tracking-normal);
   }
 }
+
+/* Global native scrollbar styling — match the Base UI <ScrollArea> look
+ * (thin, rounded, border-colored thumb, transparent track) so every scroll
+ * container in the app looks the same. Firefox uses `scrollbar-*`; WebKit
+ * uses `::-webkit-scrollbar-*`. The `.no-scrollbar` opt-out still hides
+ * scrollbars entirely for cases like the tab bar / right sidebar. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--border);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--muted-foreground);
+  background-clip: padding-box;
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}

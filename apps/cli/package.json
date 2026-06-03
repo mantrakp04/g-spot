@@ -1,6 +1,6 @@
 {
   "name": "g-spot-cli",
-  "version": "0.0.4",
+  "version": "0.0.41",
   "description": "CLI launcher for the g-spot local-first web and server app.",
   "repository": {
     "type": "git",

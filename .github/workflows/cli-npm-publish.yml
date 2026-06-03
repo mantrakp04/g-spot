@@ -70,4 +70,4 @@ jobs:
       - name: Publish to npm
         if: steps.npm.outputs.exists == 'false'
         working-directory: apps/cli
-        run: npm publish --access public
+        run: npm publish --access public --provenance

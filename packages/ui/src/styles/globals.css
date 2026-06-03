@@ -312,16 +312,17 @@
   }
 }
 
-/* Global native scrollbar styling — match the Base UI <ScrollArea> look
- * (thin, rounded, border-colored thumb, transparent track) so every scroll
- * container in the app looks the same. Firefox uses `scrollbar-*`; WebKit
- * uses `::-webkit-scrollbar-*`. The `.no-scrollbar` opt-out still hides
- * scrollbars entirely for cases like the tab bar / right sidebar. */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
-}
-
+/* Global scrollbar styling — match the Base UI <ScrollArea> look (thin,
+ * rounded, border-colored thumb, transparent track) so every scroll container
+ * looks the same.
+ *
+ * WebKit (Safari / WKWebView — our desktop shell) and Chromium use the
+ * `::-webkit-scrollbar-*` pseudo-elements. IMPORTANT: in Safari 18.2+ the
+ * standard `scrollbar-width` / `scrollbar-color` properties OVERRIDE and
+ * disable `::-webkit-scrollbar` styling, falling back to the native macOS bar.
+ * So we must NOT set those standard props globally — they're scoped to Firefox
+ * only via `@-moz-document` below. The `.no-scrollbar` opt-out still hides
+ * scrollbars entirely (tab bar / right sidebar). */
 *::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -344,11 +345,22 @@
   background-clip: padding-box;
 }
 
-.no-scrollbar {
-  scrollbar-width: none;
+/* Firefox — standard props only, isolated so they don't disable the WebKit
+ * pseudo-element styling above. */
+@-moz-document url-prefix() {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
 }
+
 .no-scrollbar::-webkit-scrollbar {
   display: none;
   width: 0;
   height: 0;
+}
+@-moz-document url-prefix() {
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
 }

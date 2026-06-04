@@ -1,0 +1,280 @@
+apps/web/src/hooks/use-mobile.ts
+  5864df79ad7bb654 4,8,15
+  bb0822755b0d3bec 6-7,9-11,13-14,16,18-23
+apps/landing/src/pages/legal.tsx
+  bb0822755b0d3bec 1-164
+apps/web/src/components/ai-elements/environment-variables.tsx
+  bb0822755b0d3bec 12,113,176,192-193,269
+apps/landing/scripts/og-card.html
+  bb0822755b0d3bec 1-213
+apps/landing/src/components/chrome.tsx
+  bb0822755b0d3bec 1-135
+packages/ui/src/components/chart.tsx
+  bb0822755b0d3bec 31,225,314
+apps/web/src/components/inbox/section-builder.tsx
+  bb0822755b0d3bec 520,525,536,556-575,585-588,591-593,596-599,614-615,617,620-622,631-633,671-674,789,799,823,920,924
+apps/web/src/index.css
+  bb0822755b0d3bec 98-108
+apps/web/src/components/ai-elements/inline-citation.tsx
+  bb0822755b0d3bec 21,87
+apps/web/src/lib/gmail-cache.ts
+  bb0822755b0d3bec 3,23-31,56,66-68,79,90
+packages/api/src/routers/gmail.ts
+  bb0822755b0d3bec 8,117,130-162,195,202-205,210,248,253-256,258,263,265-266,269,273,275-276
+packages/ui/src/components/sidebar.tsx
+  bb0822755b0d3bec 48
+apps/web/src/contexts/confirm-dialog-context.tsx
+  bb0822755b0d3bec 1,83
+apps/web/src/components/ai-elements/terminal.tsx
+  bb0822755b0d3bec 11,72,116,169,198
+apps/web/src/contexts/drafts-context.tsx
+  bb0822755b0d3bec 4,381
+apps/landing/src/lib/site.ts
+  bb0822755b0d3bec 1-57
+apps/web/src/components/ai-elements/web-preview.tsx
+  bb0822755b0d3bec 22,37,120,227
+apps/web/src/components/inbox/gmail-thread-detail.tsx
+  bb0822755b0d3bec 779-782,842,844-845,847-850,852-857,859-863,865-868,873,881,893,900,924-927,933,935
+apps/web/src/components/pi/pi-model-picker.tsx
+  bb0822755b0d3bec 24,133-140,144,147,162-171
+apps/landing/package.json
+  bb0822755b0d3bec 17-18,20,22-23,30
+package.json
+  bb0822755b0d3bec 21,33,38-42,46
+apps/web/src/components/chat/chat-branch-select.tsx
+  bb0822755b0d3bec 54-55,212
+apps/web/src/hooks/use-gmail-threads.ts
+  bb0822755b0d3bec 45
+apps/web/src/components/review/markdown.tsx
+  bb0822755b0d3bec 6,36
+apps/web/src/components/ai-elements/commit.tsx
+  bb0822755b0d3bec 160
+apps/web/src/components/chat/slash-command-popover.tsx
+  bb0822755b0d3bec 10,12,41,57-64,66,192,249
+.agents/skills/release-pkg/SKILL.md
+  bb0822755b0d3bec 1-72
+packages/ui/src/hooks/use-mobile.ts
+  4d7ed03bd0317616 4,6-11,13-16,18-23
+apps/web/src/components/ai-elements/transcription.tsx
+  bb0822755b0d3bec 6,24
+apps/web/src/contexts/section-counts-context.tsx
+  bb0822755b0d3bec 1,30
+apps/web/src/components/ai-elements/confirmation.tsx
+  bb0822755b0d3bec 7,23
+apps/web/src/components/ai-elements/mic-selector.tsx
+  5864df79ad7bb654 166-174,179,186,191
+  bb0822755b0d3bec 23,57,59-62,64-67,69-72,74-75,77,79-82,84,86-87,89-101,105,202,243,277,292,341
+apps/web/src/components/inbox/inbox-data-table.tsx
+  bb0822755b0d3bec 266-276,281,284
+  5864df79ad7bb654 333-336,338,342
+packages/types/src/gmail.ts
+  bb0822755b0d3bec 3
+apps/web/src/components/notes/notes-tree.tsx
+  bb0822755b0d3bec 133,137,183,186
+packages/ui/src/components/toggle-group.tsx
+  bb0822755b0d3bec 64
+apps/web/src/components/memory/memory-page.tsx
+  5b43e316880ab662 214-215,217
+  bb0822755b0d3bec 208-210
+apps/web/src/components/projects/sidebar-project-item.tsx
+  bb0822755b0d3bec 80-83
+apps/web/src/components/right-sidebar/changes/index.tsx
+  bb0822755b0d3bec 97,99-100,104,110,112,117,119,157,328,340
+apps/web/src/components/ai-elements/message.tsx
+  bb0822755b0d3bec 27,133
+.github/workflows/desktop-release.yml
+  bb0822755b0d3bec 117,120,123-126,164-204,224,270
+apps/web/src/components/ai-elements/voice-selector.tsx
+  bb0822755b0d3bec 36,50
+apps/landing/src/components/bits.tsx
+  5864df79ad7bb654 8,15,19-30,32-36
+  77225fc1253ebec3 132
+  bb0822755b0d3bec 1-7,9-14,16-18,31,37-131,133-515
+apps/web/src/components/ai-elements/snippet.tsx
+  bb0822755b0d3bec 16,73,101
+apps/web/src/components/ai-elements/context.tsx
+  bb0822755b0d3bec 12,35
+apps/cli/package.json
+  bb0822755b0d3bec 3
+apps/web/src/components/tweakcn-theme-provider.tsx
+  5864df79ad7bb654 248,253
+  bb0822755b0d3bec 3-4,17,38-62,138-149,245-247,249-252,254-261,272,276-281,285,287-312,314-316,353-361,364-365
+apps/landing/src/index.css
+  5864df79ad7bb654 943-1062
+apps/web/src/components/ai-elements/jsx-preview.tsx
+  bb0822755b0d3bec 10,35
+apps/web/src/components/inbox/gmail-mail-view.tsx
+  bb0822755b0d3bec 12,23,34,37-38
+apps/web/src/components/projects/project-settings-page.tsx
+  bb0822755b0d3bec 24,43,61-71,95-96,112-139,142-144,146-148,288,330-332,341,412-414
+apps/web/src/components/ai-elements/code-block.tsx
+  bb0822755b0d3bec 18,468
+apps/web/src/components/mcp/mcp-view.tsx
+  bb0822755b0d3bec 14,54-63,68,70,108,226,228-230
+apps/desktop/electrobun.config.ts
+  bb0822755b0d3bec 81-93,139
+apps/web/src/components/gmail-workflows/gmail-workflow-editor-dialog.tsx
+  bb0822755b0d3bec 18,69
+apps/web/src/routes/notes.tsx
+  5864df79ad7bb654 103-115,117-121,128-131,164-168
+apps/web/src/components/ai-elements/sources.tsx
+  bb0822755b0d3bec 38,72
+apps/web/src/components/files/monaco-theme.ts
+  bb0822755b0d3bec 2,252-253
+apps/web/src/components/notes/tags-panel.tsx
+  bb0822755b0d3bec 21
+apps/web/src/components/ai-elements/open-in-chat.tsx
+  bb0822755b0d3bec 19,190
+apps/web/src/components/files/file-editor.tsx
+  bb0822755b0d3bec 65-76,88-89,91,106,133
+apps/web/src/components/ai-elements/schema-display.tsx
+  bb0822755b0d3bec 12,78,98,124,196,328,355
+apps/web/src/components/skills/skill-editor-dialog.tsx
+  bb0822755b0d3bec 17,42-52,61
+apps/web/src/components/inbox/recipient-input.tsx
+  bb0822755b0d3bec 40-41,129
+apps/web/src/components/tweakcn-theme-picker.tsx
+  bb0822755b0d3bec 87,111,223,232,251,260,289,291,293,307,320,355,373,399,428,443,478
+apps/web/src/components/ai-elements/test-results.tsx
+  bb0822755b0d3bec 18,68,88,166,273,356,372,395
+apps/landing/src/components/logo-3d.tsx
+  bb0822755b0d3bec 1-196
+apps/web/src/components/ai-elements/stack-trace.tsx
+  bb0822755b0d3bec 22,62
+apps/web/src/hooks/use-gmail-actions.ts
+  bb0822755b0d3bec 1,72,74-79,132-137,148,150,174,176,212,214-220,223,228-231
+apps/web/src/components/chat/chat-view.tsx
+  bb0822755b0d3bec 15,129-162,357,385-386,392,394-405,411-417,423,634,1059,1082,1114,1135,1165,1188,1215,1238
+apps/web/src/contexts/pi-credential-flows-context.tsx
+  bb0822755b0d3bec 17,409
+apps/web/src/hooks/use-gmail-options.ts
+  bb0822755b0d3bec 50-55,57,60,62
+apps/web/src/components/mcp/mcp-json-editor.tsx
+  bb0822755b0d3bec 60
+apps/web/src/components/ai-elements/plan.tsx
+  bb0822755b0d3bec 21,32
+apps/web/src/components/inbox/columns/gmail-columns.tsx
+  bb0822755b0d3bec 206-208
+.agents/skills/react-doctor/SKILL.md
+  bb0822755b0d3bec 1-50
+apps/landing/index.html
+  bb0822755b0d3bec 6-7,9-26
+apps/web/src/components/ai-elements/attachments.tsx
+  bb0822755b0d3bec 20,136,139
+apps/web/src/components/ai-elements/conversation.tsx
+  bb0822755b0d3bec 12,29
+apps/web/src/hooks/use-gmail-thread-count.ts
+  bb0822755b0d3bec 20
+apps/web/src/routes/index.tsx
+  77225fc1253ebec3 406-408,421
+  5864df79ad7bb654 270,311-312,319,321-323,325,328,341,343,347,386-387,389-392
+apps/web/src/components/inbox/compose-form.tsx
+  bb0822755b0d3bec 93
+apps/web/src/components/inbox/github-table.tsx
+  bb0822755b0d3bec 14,65
+apps/web/src/components/ai-elements/reasoning.tsx
+  bb0822755b0d3bec 20,40
+apps/web/src/components/ai-elements/file-tree.tsx
+  bb0822755b0d3bec 19,146,232
+apps/web/src/components/ai-elements/chain-of-thought.tsx
+  bb0822755b0d3bec 14,26
+apps/web/src/components/gmail-workflows/gmail-workflows-page.tsx
+  bb0822755b0d3bec 32,88-93,381
+packages/ui/src/components/navigation-menu.tsx
+  bb0822755b0d3bec 153
+apps/landing/src/App.tsx
+  bb0822755b0d3bec 2-4,8,26-28
+packages/ui/src/components/carousel.tsx
+  bb0822755b0d3bec 36
+apps/web/src/components/pi/pi-addon-explorer-dialog.tsx
+  bb0822755b0d3bec 97,102
+apps/web/src/components/skills/skills-page.tsx
+  bb0822755b0d3bec 190
+apps/web/src/components/inbox/gmail-thread-table.tsx
+  bb0822755b0d3bec 15,27,38,55,84,111
+packages/db/src/gmail/search.ts
+  bb0822755b0d3bec 7,25,138-143,145,175,177,179,183,187,198,205,305,307,314,317,346,351,377,379,388,406,410-412,414,425,479,493,504,508-510,515,522-523,545,598,605
+apps/web/src/components/inbox/columns/use-normalized-column-config.ts
+  bb0822755b0d3bec 1-31
+apps/web/src/components/pi/pi-agent-defaults-card.tsx
+  bb0822755b0d3bec 29,49-56,154-156,159,161-177,515,531
+apps/web/src/components/ai-elements/prompt-input.tsx
+  bb0822755b0d3bec 69,215,226,229,239,378,403
+packages/ui/src/components/input-otp.tsx
+  bb0822755b0d3bec 48
+apps/web/src/components/inbox/connected-account-select.tsx
+  bb0822755b0d3bec 60,65,68-69,83,148-150,158,160-163,182-186
+apps/web/src/components/onboarding/sections-step.tsx
+  bb0822755b0d3bec 1,25-26,29,45-46,50,52,55,99,225,239
+apps/web/src/components/desktop-update-button.tsx
+  bb0822755b0d3bec 28,32,69
+apps/web/src/components/ai-elements/package-info.tsx
+  bb0822755b0d3bec 7,44,78,107
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "6b556de4b3791adc2892e8f4a074c0c0ae9b06d7",
+  "prompts": {
+    "4d7ed03bd0317616": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e9361-ce09-7f83-a6b2-99fdcffb945b",
+        "model": "gpt-5.5"
+      },
+      "human_author": "mantrakp04 <mantrakp@gmail.com>",
+      "total_additions": 17,
+      "total_deletions": 12,
+      "accepted_lines": 17,
+      "overriden_lines": 0
+    },
+    "5864df79ad7bb654": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e9357-bd24-7f20-a925-89c4a26d8a81",
+        "model": "gpt-5.5"
+      },
+      "human_author": "mantrakp04 <mantrakp@gmail.com>",
+      "total_additions": 134,
+      "total_deletions": 47,
+      "accepted_lines": 134,
+      "overriden_lines": 0
+    },
+    "5b43e316880ab662": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "17a88898-28c5-467a-994e-7f90cb436f55",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "mantrakp04 <mantrakp@gmail.com>",
+      "total_additions": 162,
+      "total_deletions": 4,
+      "accepted_lines": 162,
+      "overriden_lines": 0
+    },
+    "77225fc1253ebec3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e9367-3bcc-7380-829c-73f01e092f8a",
+        "model": "gpt-5.5"
+      },
+      "human_author": "mantrakp04 <mantrakp@gmail.com>",
+      "total_additions": 5,
+      "total_deletions": 3,
+      "accepted_lines": 5,
+      "overriden_lines": 0
+    },
+    "bb0822755b0d3bec": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "441a8942-92a1-4398-ae8c-2c33758a535a",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "mantrakp04 <mantrakp@gmail.com>",
+      "total_additions": 3750,
+      "total_deletions": 1949,
+      "accepted_lines": 2406,
+      "overriden_lines": 0
+    }
+  }
+}

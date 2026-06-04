@@ -1,0 +1,19 @@
+apps/relay/Dockerfile
+  s_0287b3fb5b28af::t_ef5dd44f81632e 9-10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "c933a7d7b1a1fb0f4930b4a8f13df6c90a38c155",
+  "prompts": {},
+  "sessions": {
+    "s_0287b3fb5b28af": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b48a9d39-1a29-417c-b228-748b53bd58af",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "mantrakp04 <mantrakp@gmail.com>"
+    }
+  }
+}

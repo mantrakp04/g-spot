@@ -175,10 +175,12 @@ jobs:
           $ErrorActionPreference = "Stop"
 
           $artifactsDir = "apps/desktop/artifacts"
-          $zip = Get-ChildItem -Path $artifactsDir -Filter "*-win-x64-g-spot-Setup-*.zip" -File |
+          # stable emits `...-g-spot-Setup.zip`; nightly/canary emit
+          # `...-g-spot-Setup-<channel>.zip`. Match both (no hyphen before `*`).
+          $zip = Get-ChildItem -Path $artifactsDir -Filter "*-win-x64-g-spot-Setup*.zip" -File |
             Select-Object -First 1
           if (-not $zip) {
-            throw "No Windows Setup zip found in $artifactsDir matching *-win-x64-g-spot-Setup-*.zip"
+            throw "No Windows Setup zip found in $artifactsDir matching *-win-x64-g-spot-Setup*.zip"
           }
           Write-Host "Found Windows Setup zip: $($zip.Name)"
 

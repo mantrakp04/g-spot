@@ -91,6 +91,18 @@ const macNativeCopy: Record<string, string> = isMac
     }
   : {};
 
+// sharp ships libvips as a standalone `@img/sharp-libvips-<platform>` package on
+// macOS and Linux, but on Windows the libvips DLLs are bundled *inside*
+// `@img/sharp-win32-x64` (copied via sharpNativeCopyPath above). Requiring a
+// separate libvips package on Windows makes this config throw, which electrobun
+// swallows by silently falling back to its built-in default config (app.name
+// "MyApp") — producing mis-named release artifacts. Only require/copy it where
+// it actually exists.
+const sharpShipsSeparateLibvips = nodePlatform !== "win32";
+const sharpLibvipsCopy: Record<string, string> = sharpShipsSeparateLibvips
+  ? { [sharpLibvipsCopyPath]: `bun/node_modules/@img/sharp-libvips-${sharpSuffix}` }
+  : {};
+
 if (!sqliteVecPath || !existsSync(sqliteVecPath)) {
   throw new Error(
     `Missing sqlite-vec ${sqliteVecSuffix} native extension. Run \`bun install\`.`,
@@ -106,7 +118,10 @@ if (!sharpNativeDir || !existsSync(sharpNativeDir)) {
     `Missing sharp ${sharpSuffix} native files. Run \`bun install\`.`,
   );
 }
-if (!sharpLibvipsDir || !existsSync(sharpLibvipsDir)) {
+if (
+  sharpShipsSeparateLibvips &&
+  (!sharpLibvipsDir || !existsSync(sharpLibvipsDir))
+) {
   throw new Error(
     `Missing sharp libvips ${sharpSuffix} native files. Run \`bun install\`.`,
   );
@@ -134,8 +149,8 @@ export default {
       "../../packages/db/src/migrations": "bun/migrations",
       [onnxRuntimeNativeCopyPath]: `bin/napi-v6/${nodePlatform}/${nodeArch}`,
       [sharpNativeCopyPath]: `bun/node_modules/@img/sharp-${sharpSuffix}`,
-      [sharpLibvipsCopyPath]: `bun/node_modules/@img/sharp-libvips-${sharpSuffix}`,
       [sqliteVecCopyPath]: `native/sqlite-vec/vec0.${sqliteVecExt}`,
+      ...sharpLibvipsCopy,
       ...macNativeCopy,
     },
     watchIgnore: [`${webBuildDir}/**`],

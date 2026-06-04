@@ -1,0 +1,25 @@
+.github/workflows/desktop-release.yml
+  s_0287b3fb5b28af::t_ecc27f693a59b8 178-180,183
+apps/relay/Dockerfile
+  s_0287b3fb5b28af::t_ad7a877e30fdc2 14,20,25-26,32-33
+apps/desktop/electrobun.config.ts
+  s_0287b3fb5b28af::t_6edc0d9f42521b 121-124
+  s_0287b3fb5b28af::t_f244d1626e5922 153
+  s_0287b3fb5b28af::t_324d1a9085ce1a 94-105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "1854b1412a52c56a242d0d3fa6e5c25fb43b97e3",
+  "prompts": {},
+  "sessions": {
+    "s_0287b3fb5b28af": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b48a9d39-1a29-417c-b228-748b53bd58af",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "mantrakp04 <mantrakp@gmail.com>"
+    }
+  }
+}

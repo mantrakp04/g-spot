@@ -11,7 +11,7 @@ import { cn } from "@g-spot/ui/lib/utils";
 import type { LucideIcon } from "lucide-react";
 import { ChevronDownIcon } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
-import { createContext, memo, useContext, useMemo } from "react";
+import { createContext, memo, use, useMemo } from "react";
 
 interface ChainOfThoughtContextValue {
   isOpen: boolean;
@@ -23,7 +23,7 @@ const ChainOfThoughtContext = createContext<ChainOfThoughtContextValue | null>(
 );
 
 const useChainOfThought = () => {
-  const context = useContext(ChainOfThoughtContext);
+  const context = use(ChainOfThoughtContext);
   if (!context) {
     throw new Error(
       "ChainOfThought components must be used within ChainOfThought"

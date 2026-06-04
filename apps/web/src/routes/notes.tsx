@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type SetStateAction } from "react";
 
 import type { Note } from "@g-spot/types";
 import { Button } from "@g-spot/ui/components/button";
@@ -95,17 +95,40 @@ function NotesPage() {
   const deleteNote = useDeleteNoteMutation();
   const confirm = useConfirmDialog();
 
-  const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
+  const routeNoteId = routeSearch.noteId ?? null;
+  const [activeNoteOverride, setActiveNoteOverride] = useState<{
+    routeNoteId: string | null;
+    noteId: string | null;
+  } | null>(null);
+  const requestedActiveNoteId =
+    activeNoteOverride?.routeNoteId === routeNoteId
+      ? activeNoteOverride.noteId
+      : routeNoteId;
+  const activeNoteId =
+    requestedActiveNoteId
+    && notesQuery.data
+    && !notesQuery.data.some((note) => note.id === requestedActiveNoteId)
+      ? null
+      : requestedActiveNoteId;
+  const setActiveNoteId = useCallback((noteId: string | null) => {
+    setActiveNoteOverride({ routeNoteId, noteId });
+  }, [routeNoteId]);
   const [searchQuery, setSearchQuery] = useState("");
-  const [titleDraft, setTitleDraft] = useState("");
-  const [contentDraft, setContentDraft] = useState("");
+  const [draftOverride, setDraftOverride] = useState<{
+    noteId: string;
+    title: string;
+    content: string;
+  } | null>(null);
   const [sidebarView, setSidebarView] = useState<SidebarView>("files");
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [showRightPanel, setShowRightPanel] = useState(false);
   const [searchCaseSensitive, setSearchCaseSensitive] = useState(false);
   const [searchOptionsOpen, setSearchOptionsOpen] = useState(false);
-  const [editingTitle, setEditingTitle] = useState(false);
+  const [editingTitleOverride, setEditingTitleOverride] = useState<{
+    noteId: string | null;
+    value: boolean;
+  } | null>(null);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [renamingTreeId, setRenamingTreeId] = useState<string | null>(null);
   // Folder id (or null for root) where new notes/folders are created from
@@ -138,27 +161,47 @@ function NotesPage() {
     );
   }, [parsedQuery, notesQuery.data, noteByIdMap, searchCaseSensitive]);
 
-  // Sync drafts with active note.
-  const loadedNoteIdRef = useRef<string | null>(null);
-  useEffect(() => {
+  const activeNote = activeNoteQuery.data;
+  const activeDraftOverride =
+    draftOverride?.noteId === activeNote?.id ? draftOverride : null;
+  const titleDraft = activeDraftOverride?.title ?? activeNote?.title ?? "";
+  const contentDraft = activeDraftOverride?.content ?? activeNote?.content ?? "";
+  const setTitleDraft = useCallback((title: string) => {
     const note = activeNoteQuery.data;
     if (!note) return;
-    if (loadedNoteIdRef.current === note.id) return;
-    loadedNoteIdRef.current = note.id;
-    setTitleDraft(note.title);
-    setContentDraft(note.content);
-    setEditingTitle(false);
+    setDraftOverride((current) => ({
+      noteId: note.id,
+      title,
+      content: current?.noteId === note.id ? current.content : note.content,
+    }));
   }, [activeNoteQuery.data]);
+  const setContentDraft = useCallback((content: string) => {
+    const note = activeNoteQuery.data;
+    if (!note) return;
+    setDraftOverride((current) => ({
+      noteId: note.id,
+      title: current?.noteId === note.id ? current.title : note.title,
+      content,
+    }));
+  }, [activeNoteQuery.data]);
+  const editingTitle =
+    editingTitleOverride?.noteId === activeNoteId ? editingTitleOverride.value : false;
+  const setEditingTitle = useCallback((value: SetStateAction<boolean>) => {
+    setEditingTitleOverride((current) => {
+      const currentValue = current?.noteId === activeNoteId ? current.value : false;
+      return {
+        noteId: activeNoteId,
+        value: typeof value === "function" ? value(currentValue) : value,
+      };
+    });
+  }, [activeNoteId]);
 
   // Debounced save.
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     const note = activeNoteQuery.data;
     if (!note) return;
-    if (loadedNoteIdRef.current !== note.id) return;
     if (titleDraft === note.title && contentDraft === note.content) return;
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => {
+    const saveTimer = setTimeout(() => {
       updateNote.mutate({
         id: note.id,
         title: titleDraft.trim() || "Untitled",
@@ -166,7 +209,7 @@ function NotesPage() {
       });
     }, SAVE_DEBOUNCE_MS);
     return () => {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      clearTimeout(saveTimer);
     };
   }, [titleDraft, contentDraft, activeNoteQuery.data, updateNote]);
 
@@ -217,23 +260,9 @@ function NotesPage() {
     return all.filter((n) => n.kind === "note" && n.parentId === folder.id);
   }, [notesQuery.data]);
 
-  useEffect(() => {
-    if (!routeSearch.noteId) return;
-    loadedNoteIdRef.current = null;
-    setActiveNoteId(routeSearch.noteId);
-  }, [routeSearch.noteId]);
-
-  useEffect(() => {
-    if (!activeNoteId || !notesQuery.data) return;
-    if (notesQuery.data.some((note) => note.id === activeNoteId)) return;
-    loadedNoteIdRef.current = null;
-    setActiveNoteId(null);
-  }, [activeNoteId, notesQuery.data]);
-
   // Navigation.
   const navigateTo = useCallback(
     (noteId: string) => {
-      loadedNoteIdRef.current = null;
       setActiveNoteId(noteId);
       setHistory((prev) => {
         const cut = prev.slice(0, historyIndex + 1);
@@ -242,7 +271,7 @@ function NotesPage() {
       });
       setHistoryIndex((i) => i + 1);
     },
-    [historyIndex],
+    [historyIndex, setActiveNoteId],
   );
 
   const handleSelectNote = useCallback(
@@ -257,17 +286,15 @@ function NotesPage() {
     if (historyIndex <= 0) return;
     const next = historyIndex - 1;
     setHistoryIndex(next);
-    loadedNoteIdRef.current = null;
     setActiveNoteId(history[next] ?? null);
-  }, [history, historyIndex]);
+  }, [history, historyIndex, setActiveNoteId]);
 
   const goForward = useCallback(() => {
     if (historyIndex >= history.length - 1) return;
     const next = historyIndex + 1;
     setHistoryIndex(next);
-    loadedNoteIdRef.current = null;
     setActiveNoteId(history[next] ?? null);
-  }, [history, historyIndex]);
+  }, [history, historyIndex, setActiveNoteId]);
 
   const ensureExpanded = useCallback(
     (id: string | null) => {
@@ -326,14 +353,13 @@ function NotesPage() {
         }
       }
       if (activeNoteId && deletedIds.has(activeNoteId)) {
-        loadedNoteIdRef.current = null;
         setActiveNoteId(null);
       }
       if (selectedParentId && deletedIds.has(selectedParentId)) {
         setSelectedParentId(null);
       }
     },
-    [confirm, deleteNote, activeNoteId, selectedParentId, notesQuery.data],
+    [confirm, deleteNote, activeNoteId, selectedParentId, notesQuery.data, setActiveNoteId],
   );
 
   const handleRename = useCallback(
@@ -412,7 +438,7 @@ function NotesPage() {
     const trimmed = titleDraft.trim();
     if (!trimmed || trimmed === note.title) return;
     updateNote.mutate({ id: note.id, title: trimmed });
-  }, [activeNoteQuery.data, titleDraft, updateNote]);
+  }, [activeNoteQuery.data, setEditingTitle, titleDraft, updateNote]);
 
   const wordCount = countWords(contentDraft);
   const charCount = contentDraft.length;
@@ -465,7 +491,7 @@ function NotesPage() {
       disabled={disabled}
       title={title}
       className={cn(
-        "flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground",
+        "flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground",
         active && "bg-muted text-foreground",
         disabled && "opacity-40 hover:bg-transparent",
       )}
@@ -480,22 +506,22 @@ function NotesPage() {
       <>
         <div className="flex shrink-0 items-center gap-0.5 border-b px-2 py-1.5">
           <ToolbarBtn
-            icon={<FilePlus2 className="h-3.5 w-3.5" />}
+            icon={<FilePlus2 className="size-3.5" />}
             title="New note"
             onClick={() => handleCreateNote(selectedParentId)}
           />
           <ToolbarBtn
-            icon={<FolderPlus className="h-3.5 w-3.5" />}
+            icon={<FolderPlus className="size-3.5" />}
             title="New folder"
             onClick={() => handleCreateFolder(selectedParentId)}
           />
           <ToolbarBtn
-            icon={<CalendarDays className="h-3.5 w-3.5" />}
+            icon={<CalendarDays className="size-3.5" />}
             title="Open today's daily note"
             onClick={handleOpenToday}
           />
           <ToolbarBtn
-            icon={<Sparkles className="h-3.5 w-3.5" />}
+            icon={<Sparkles className="size-3.5" />}
             title="New from template"
             onClick={() => setShowTemplatePicker((v) => !v)}
             active={showTemplatePicker}
@@ -503,12 +529,12 @@ function NotesPage() {
           />
           <div className="ml-auto flex items-center gap-0.5">
             <ToolbarBtn
-              icon={<ChevronsDownUp className="h-3.5 w-3.5" />}
+              icon={<ChevronsDownUp className="size-3.5" />}
               title="Collapse all"
               onClick={expansion.collapseAll}
             />
             <ToolbarBtn
-              icon={<ChevronsUpDown className="h-3.5 w-3.5" />}
+              icon={<ChevronsUpDown className="size-3.5" />}
               title="Expand all"
               onClick={expansion.expandAll}
             />
@@ -518,7 +544,7 @@ function NotesPage() {
         {/* View switcher */}
         <div className="flex items-center gap-0.5 border-b px-2 py-1">
           <ToolbarBtn
-            icon={<FolderTree className="h-3.5 w-3.5" />}
+            icon={<FolderTree className="size-3.5" />}
             title="Files"
             onClick={() => {
               setActiveTag(null);
@@ -527,7 +553,7 @@ function NotesPage() {
             active={sidebarView === "files"}
           />
           <ToolbarBtn
-            icon={<Search className="h-3.5 w-3.5" />}
+            icon={<Search className="size-3.5" />}
             title="Search"
             onClick={() =>
               setSidebarView((v) => (v === "search" ? "files" : "search"))
@@ -535,7 +561,7 @@ function NotesPage() {
             active={sidebarView === "search"}
           />
           <ToolbarBtn
-            icon={<Hash className="h-3.5 w-3.5" />}
+            icon={<Hash className="size-3.5" />}
             title="Tags"
             onClick={() => {
               setActiveTag(null);
@@ -550,7 +576,7 @@ function NotesPage() {
           <div className="border-b px-2 py-2">
             <div className="flex items-center gap-1.5">
               <div className="flex flex-1 items-center gap-1.5 rounded-md border bg-input/40 px-2 py-1 focus-within:border-primary/50 focus-within:bg-input/60">
-                <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <Search className="size-3.5 shrink-0 text-muted-foreground" />
                 <input
                   autoFocus
                   value={searchQuery}
@@ -577,18 +603,18 @@ function NotesPage() {
                 onClick={() => setSearchOptionsOpen((v) => !v)}
                 title="Search options"
                 className={cn(
-                  "flex h-7 w-7 shrink-0 items-center justify-center rounded-md border text-muted-foreground hover:text-foreground",
+                  "flex size-7 shrink-0 items-center justify-center rounded-md border text-muted-foreground hover:text-foreground",
                   searchOptionsOpen && "bg-muted text-foreground",
                 )}
               >
-                <SlidersHorizontal className="h-3.5 w-3.5" />
+                <SlidersHorizontal className="size-3.5" />
               </button>
             </div>
             {searchOptionsOpen ? (
               <div className="mt-2 rounded-md border bg-popover p-3 text-popover-foreground">
                 <div className="flex items-center justify-between pb-2">
                   <span className="text-sm font-semibold">Search options</span>
-                  <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                  <Info className="size-3.5 text-muted-foreground" />
                 </div>
                 <ul className="flex flex-col gap-1.5 text-[13px]">
                   {[
@@ -663,7 +689,7 @@ function NotesPage() {
                     onClick={() => setActiveTag(null)}
                     className="hover:text-foreground"
                   >
-                    <X className="h-3 w-3" />
+                    <X className="size-3" />
                   </button>
                 </div>
                 {renderNoteList(tagFilteredNotes, "no notes with this tag")}
@@ -710,13 +736,13 @@ function NotesPage() {
             <div className="relative flex h-10 items-center px-2 border-b">
               <div className="flex items-center gap-0.5">
                 <ToolbarBtn
-                  icon={<ChevronLeft className="h-4 w-4" />}
+                  icon={<ChevronLeft className="size-4" />}
                   title="Back"
                   onClick={goBack}
                   disabled={!canGoBack}
                 />
                 <ToolbarBtn
-                  icon={<ChevronRight className="h-4 w-4" />}
+                  icon={<ChevronRight className="size-4" />}
                   title="Forward"
                   onClick={goForward}
                   disabled={!canGoForward}
@@ -750,17 +776,17 @@ function NotesPage() {
               </div>
               <div className="ml-auto flex items-center gap-0.5">
                 {updateNote.isPending ? (
-                  <Loader2 className="h-3 w-3 animate-spin text-muted-foreground mr-1" />
+                  <Loader2 className="size-3 animate-spin text-muted-foreground mr-1" />
                 ) : null}
                 <ToolbarBtn
-                  icon={<BookOpen className="h-4 w-4" />}
+                  icon={<BookOpen className="size-4" />}
                   title="Toggle backlinks panel"
                   onClick={() => setShowRightPanel((v) => !v)}
                   active={showRightPanel}
                 />
                 <div className="relative">
                   <ToolbarBtn
-                    icon={<MoreHorizontal className="h-4 w-4" />}
+                    icon={<MoreHorizontal className="size-4" />}
                     title="More"
                     onClick={() => setMoreMenuOpen((v) => !v)}
                     active={moreMenuOpen}
@@ -790,7 +816,7 @@ function NotesPage() {
                           }
                         }}
                       >
-                        <Trash2 className="h-3.5 w-3.5" /> Delete note
+                        <Trash2 className="size-3.5" /> Delete note
                       </button>
                     </div>
                   ) : null}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { Badge } from "@g-spot/ui/components/badge";
 import { Button } from "@g-spot/ui/components/button";
@@ -22,9 +22,11 @@ import {
   type SectionTemplate,
 } from "@/components/onboarding/templates";
 
+const EMPTY_ACCOUNTS: ReturnType<NonNullable<ReturnType<typeof useUser>>["useConnectedAccounts"]> = [];
+
 export function SectionsStep() {
   const user = useUser();
-  const accounts = user?.useConnectedAccounts() ?? [];
+  const accounts = user?.useConnectedAccounts() ?? EMPTY_ACCOUNTS;
   const googleAccounts = useMemo(
     () => accounts.filter((account) => account.provider === "google"),
     [accounts],
@@ -40,27 +42,17 @@ export function SectionsStep() {
   const [githubAccountId, setGithubAccountId] = useState<string | null>(null);
   const [githubRepos, setGithubRepos] = useState<string[]>([]);
   const [repoQuery, setRepoQuery] = useState("");
-
-  useEffect(() => {
-    if (!gmailAccountId && googleAccounts[0]) {
-      setGmailAccountId(googleAccounts[0].providerAccountId);
-    }
-  }, [gmailAccountId, googleAccounts]);
-
-  useEffect(() => {
-    if (!githubAccountId && githubAccounts[0]) {
-      setGithubAccountId(githubAccounts[0].providerAccountId);
-    }
-  }, [githubAccountId, githubAccounts]);
+  const effectiveGithubAccountId =
+    githubAccountId ?? githubAccounts[0]?.providerAccountId ?? null;
 
   const githubAccount = useMemo(
     () =>
-      githubAccountId
+      effectiveGithubAccountId
         ? githubAccounts.find(
-            (account) => account.providerAccountId === githubAccountId,
+            (account) => account.providerAccountId === effectiveGithubAccountId,
           ) ?? null
         : null,
-    [githubAccountId, githubAccounts],
+    [effectiveGithubAccountId, githubAccounts],
   );
 
   const {
@@ -104,7 +96,7 @@ export function SectionsStep() {
     for (const template of targets) {
       const isGithub =
         template.source === "github_pr" || template.source === "github_issue";
-      const accountId = isGithub ? githubAccountId : gmailAccountId;
+      const accountId = isGithub ? effectiveGithubAccountId : gmailAccountId;
       const repos = isGithub ? githubRepos : [];
 
       try {
@@ -230,6 +222,7 @@ export function SectionsStep() {
                     value={gmailAccountId}
                     onValueChange={setGmailAccountId}
                     className="h-9"
+                    allOptionLabel="All inboxes"
                   />
                 </div>
               ) : null}
@@ -243,7 +236,7 @@ export function SectionsStep() {
                     <ConnectedAccountSelect
                       accounts={accounts}
                       provider="github"
-                      value={githubAccountId}
+                    value={effectiveGithubAccountId}
                       onValueChange={setGithubAccountId}
                       className="h-9"
                     />

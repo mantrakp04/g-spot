@@ -19,7 +19,7 @@ import type { ComponentProps, ReactNode } from "react";
 import {
   createContext,
   useCallback,
-  useContext,
+  use,
   useMemo,
   useState,
 } from "react";
@@ -34,7 +34,7 @@ export interface WebPreviewContextValue {
 const WebPreviewContext = createContext<WebPreviewContextValue | null>(null);
 
 const useWebPreview = () => {
-  const context = useContext(WebPreviewContext);
+  const context = use(WebPreviewContext);
   if (!context) {
     throw new Error("WebPreview components must be used within a WebPreview");
   }
@@ -117,7 +117,7 @@ export const WebPreviewNavigationButton = ({
 }: WebPreviewNavigationButtonProps) => (
   <TooltipProvider>
     <Tooltip>
-      <TooltipTrigger render={<Button className="h-8 w-8 p-0 hover:text-foreground" disabled={disabled} onClick={onClick} size="sm" variant="ghost" {...props} />}>{children}</TooltipTrigger>
+      <TooltipTrigger render={<Button className="size-8 p-0 hover:text-foreground" disabled={disabled} onClick={onClick} size="sm" variant="ghost" {...props} />}>{children}</TooltipTrigger>
       <TooltipContent>
         <p>{tooltip}</p>
       </TooltipContent>
@@ -224,7 +224,7 @@ export const WebPreviewConsole = ({
       <CollapsibleTrigger render={<Button className="flex w-full items-center justify-between p-4 text-left font-medium hover:bg-muted/50" variant="ghost" />}>Console
                     <ChevronDownIcon
                       className={cn(
-                        "h-4 w-4 transition-transform duration-200",
+                        "size-4 transition-transform duration-200",
                         consoleOpen && "rotate-180"
                       )}
                     /></CollapsibleTrigger>

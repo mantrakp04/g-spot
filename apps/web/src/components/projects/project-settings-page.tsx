@@ -21,7 +21,7 @@ import {
 import { Textarea } from "@g-spot/ui/components/textarea";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ArrowLeft, Loader2, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { PiAgentConfigForm } from "@/components/pi/pi-agent-config-form";
@@ -40,6 +40,7 @@ import {
 import {
   areAgentConfigsEqual,
   normalizeAgentConfig,
+  type PiModelOption,
 } from "@/lib/pi-agent-config";
 
 export type ProjectSettingsTab =
@@ -56,6 +57,17 @@ const TAB_VALUES: ProjectSettingsTab[] = [
   "skills",
   "mcp",
 ];
+
+const EMPTY_PI_MODELS: PiModelOption[] = [];
+const EMPTY_PI_TOOLS: { name: string; description: string }[] = [];
+
+type ProjectSettingsDraft = {
+  key: string;
+  name: string;
+  customInstructions: string;
+  appendPrompt: string;
+  agentConfigDraft: PiAgentConfig | null;
+};
 
 export function isProjectSettingsTab(value: unknown): value is ProjectSettingsTab {
   return typeof value === "string" && (TAB_VALUES as string[]).includes(value);
@@ -80,8 +92,8 @@ export function ProjectSettingsPage({
   const updateProjectAgentConfig = useUpdateProjectAgentConfigMutation();
   const deleteProject = useDeleteProjectMutation();
   const piCatalog = usePiCatalog();
-  const allModels = piCatalog.data?.models ?? [];
-  const tools = piCatalog.data?.tools ?? [];
+  const allModels = piCatalog.data?.models ?? EMPTY_PI_MODELS;
+  const tools = piCatalog.data?.tools ?? EMPTY_PI_TOOLS;
   const configuredProviders = useMemo(
     () =>
       new Set(
@@ -96,24 +108,44 @@ export function ProjectSettingsPage({
     [piCatalog.data?.oauthProviders],
   );
 
-  const [name, setName] = useState("");
-  const [customInstructions, setCustomInstructions] = useState("");
-  const [appendPrompt, setAppendPrompt] = useState("");
   const [deleting, setDeleting] = useState(false);
-  const [agentConfigDraft, setAgentConfigDraft] = useState<PiAgentConfig | null>(
+  const baselineDraft = useMemo<ProjectSettingsDraft>(() => {
+    const project = projectQuery.data;
+    if (!project) {
+      return {
+        agentConfigDraft: null,
+        appendPrompt: "",
+        customInstructions: "",
+        key: `${projectId}:loading`,
+        name: "",
+      };
+    }
+
+    const agentConfigDraft = normalizeAgentConfig(project.agentConfig, allModels);
+    return {
+      agentConfigDraft,
+      appendPrompt: project.appendPrompt ?? "",
+      customInstructions: project.customInstructions ?? "",
+      key: JSON.stringify({
+        agentConfig: agentConfigDraft,
+        appendPrompt: project.appendPrompt ?? "",
+        customInstructions: project.customInstructions ?? "",
+        name: project.name,
+        projectId,
+      }),
+      name: project.name,
+    };
+  }, [allModels, projectId, projectQuery.data]);
+  const [draftOverride, setDraftOverride] = useState<ProjectSettingsDraft | null>(
     null,
   );
+  const draft =
+    draftOverride?.key === baselineDraft.key ? draftOverride : baselineDraft;
+  const { name, customInstructions, appendPrompt, agentConfigDraft } = draft;
 
-  useEffect(() => {
-    if (projectQuery.data) {
-      setName(projectQuery.data.name);
-      setCustomInstructions(projectQuery.data.customInstructions ?? "");
-      setAppendPrompt(projectQuery.data.appendPrompt ?? "");
-      setAgentConfigDraft(
-        normalizeAgentConfig(projectQuery.data.agentConfig, allModels),
-      );
-    }
-  }, [allModels, projectQuery.data]);
+  function updateDraft(patch: Partial<Omit<ProjectSettingsDraft, "key">>) {
+    setDraftOverride({ ...draft, ...patch });
+  }
 
   const isAgentConfigDirty = useMemo(() => {
     if (!projectQuery.data || !agentConfigDraft) return false;
@@ -253,7 +285,7 @@ export function ProjectSettingsPage({
                   <Input
                     id="name"
                     value={name}
-                    onChange={(e) => setName(e.target.value)}
+                    onChange={(e) => updateDraft({ name: e.target.value })}
                   />
                 </div>
                 <div className="space-y-2">
@@ -295,7 +327,9 @@ export function ProjectSettingsPage({
                     id="custom-instructions"
                     rows={8}
                     value={customInstructions}
-                    onChange={(e) => setCustomInstructions(e.target.value)}
+                    onChange={(e) =>
+                      updateDraft({ customInstructions: e.target.value })
+                    }
                   />
                 </div>
                 <div className="space-y-2">
@@ -304,7 +338,7 @@ export function ProjectSettingsPage({
                     id="append-prompt"
                     rows={4}
                     value={appendPrompt}
-                    onChange={(e) => setAppendPrompt(e.target.value)}
+                    onChange={(e) => updateDraft({ appendPrompt: e.target.value })}
                   />
                 </div>
               </CardContent>
@@ -375,7 +409,9 @@ export function ProjectSettingsPage({
                 {agentConfigDraft ? (
                   <PiAgentConfigForm
                     value={agentConfigDraft}
-                    onChange={setAgentConfigDraft}
+                    onChange={(next) =>
+                      updateDraft({ agentConfigDraft: next })
+                    }
                     models={allModels}
                     tools={tools}
                     configuredProviders={configuredProviders}

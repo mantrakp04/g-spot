@@ -5,6 +5,7 @@ import {
   countFilteredThreads,
   getGmailAccount,
   getLabels,
+  listGmailAccounts,
   getThread as getStoredThread,
   getThreadDrafts as getStoredThreadDrafts,
   getThreadMessages,
@@ -113,6 +114,7 @@ function toLabelOption(label: LabelCatalogEntry): FilterSuggestionOption | null 
 function toThreadListItem(t: ThreadListItem) {
   return {
     id: t.id,
+    accountId: t.providerAccountId,
     threadId: t.gmailThreadId,
     subject: t.subject,
     from: { name: t.fromName, email: t.fromEmail },
@@ -123,6 +125,39 @@ function toThreadListItem(t: ThreadListItem) {
     hasAttachment: t.hasAttachment,
     avatarUrl: null,
   };
+}
+
+async function getLabelRows(providerAccountId: string | null) {
+  if (providerAccountId !== null) {
+    const account = await getGmailAccount(providerAccountId);
+    return account ? getLabels(account.id) : [];
+  }
+
+  const accounts = await listGmailAccounts();
+  const labelRows = await Promise.all(
+    accounts.map((account) => getLabels(account.id)),
+  );
+  return labelRows.flat();
+}
+
+function dedupeLabelOptions(
+  labels: FilterSuggestionOption[],
+): FilterSuggestionOption[] {
+  const seen = new Map<string, FilterSuggestionOption>();
+  for (const label of labels) {
+    if (!seen.has(label.value)) seen.set(label.value, label);
+  }
+  return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label));
+}
+
+function dedupeLabelCatalog(
+  labels: LabelCatalogEntry[],
+): LabelCatalogEntry[] {
+  const seen = new Map<string, LabelCatalogEntry>();
+  for (const label of labels) {
+    if (!seen.has(label.id)) seen.set(label.id, label);
+  }
+  return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label));
 }
 
 function mapStoredThreadDetail(thread: GmailThreadRow, messages: GmailMessageRow[]) {
@@ -157,20 +192,22 @@ export const gmailRouter = router({
   getThreads: publicProcedure
     .input(
       z.object({
-        providerAccountId: z.string(),
+        providerAccountId: z.string().nullable(),
         filters: sectionFiltersSchema,
         limit: z.number().int().min(1).max(100).default(50),
         cursor: z.string().nullable().optional(),
       }),
     )
     .query(async ({ input }) => {
-      const account = await getGmailAccount(input.providerAccountId);
-      if (!account) {
+      const account = input.providerAccountId === null
+        ? null
+        : await getGmailAccount(input.providerAccountId);
+      if (input.providerAccountId !== null && !account) {
         return { threads: [], nextPageToken: null, totalMatchingThreads: 0 };
       }
 
       const { threads, hasMore, totalCount } = await queryThreads(
-        account.id,
+        account?.id ?? null,
         input.filters,
         {
           limit: input.limit,
@@ -208,41 +245,35 @@ export const gmailRouter = router({
   getThreadCount: publicProcedure
     .input(
       z.object({
-        providerAccountId: z.string(),
+        providerAccountId: z.string().nullable(),
         filters: sectionFiltersSchema,
       }),
     )
     .query(async ({ input }) => {
-      const account = await getGmailAccount(input.providerAccountId);
-      if (!account) return { count: 0 };
+      const account = input.providerAccountId === null
+        ? null
+        : await getGmailAccount(input.providerAccountId);
+      if (input.providerAccountId !== null && !account) return { count: 0 };
 
-      const count = await countFilteredThreads(account.id, input.filters);
+      const count = await countFilteredThreads(account?.id ?? null, input.filters);
       return { count };
     }),
 
   getLabels: publicProcedure
-    .input(z.object({ providerAccountId: z.string() }))
+    .input(z.object({ providerAccountId: z.string().nullable() }))
     .query(async ({ input }) => {
-      const account = await getGmailAccount(input.providerAccountId);
-      if (!account) return [];
-
-      const labels = await getLabels(account.id);
-      return labels
+      const labels = await getLabelRows(input.providerAccountId);
+      return dedupeLabelOptions(labels
         .map(toLabelCatalogEntry)
         .map(toLabelOption)
-        .filter((label): label is FilterSuggestionOption => label != null);
+        .filter((label): label is FilterSuggestionOption => label != null));
     }),
 
   getLabelCatalog: publicProcedure
-    .input(z.object({ providerAccountId: z.string() }))
+    .input(z.object({ providerAccountId: z.string().nullable() }))
     .query(async ({ input }) => {
-      const account = await getGmailAccount(input.providerAccountId);
-      if (!account) return [];
-
-      const labels = await getLabels(account.id);
-      return labels
-        .map(toLabelCatalogEntry)
-        .sort((a, b) => a.label.localeCompare(b.label));
+      const labels = await getLabelRows(input.providerAccountId);
+      return dedupeLabelCatalog(labels.map(toLabelCatalogEntry));
     }),
 
   getThreadDrafts: publicProcedure

@@ -15,7 +15,7 @@ import { Switch } from "@g-spot/ui/components/switch";
 import { Textarea } from "@g-spot/ui/components/textarea";
 import { cn } from "@g-spot/ui/lib/utils";
 import { Check, Save } from "lucide-react";
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 
 import type { GmailWorkflow, GmailWorkflowTool } from "./gmail-workflows-page";
 
@@ -66,14 +66,8 @@ export function GmailWorkflowEditorDialog({
   isPending,
   onSave,
 }: GmailWorkflowEditorDialogProps) {
-  const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [form, setForm] = useState<FormState>(() => toForm(workflow));
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    setForm(toForm(workflow));
-    setError(null);
-  }, [open, workflow]);
 
   const disabledTools = useMemo(
     () => new Set(form.disabledToolNames),

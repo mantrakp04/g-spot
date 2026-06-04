@@ -776,8 +776,10 @@ export function GmailThreadDetail({
   const composeAnchorRef = useRef<HTMLDivElement>(null);
   const autoOpenedDraftIdRef = useRef<string | null>(null);
   const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null);
-  const [pendingDraftToOpenId, setPendingDraftToOpenId] = useState<string | null>(null);
-  const [expandedMessageIds, setExpandedMessageIds] = useState<Set<string>>(() => new Set());
+  const [expandedMessageOverride, setExpandedMessageOverride] = useState<{
+    ids: Set<string>;
+    messageIdsKey: string;
+  } | null>(null);
   const accountId = googleAccount?.providerAccountId ?? null;
 
   const {
@@ -793,11 +795,6 @@ export function GmailThreadDetail({
   const { data: threadDrafts = [] } = useGmailThreadDrafts(
     thread,
     detail,
-    googleAccount,
-  );
-
-  const { data: draftCompose } = useGmailComposeDraft(
-    selectedDraftId,
     googleAccount,
   );
 
@@ -837,44 +834,43 @@ export function GmailThreadDetail({
     [draftsCtx, thread.threadId],
   );
 
-  // Reset auto-open tracking when thread changes
-  useEffect(() => {
-    autoOpenedDraftIdRef.current = null;
-    setSelectedDraftId(null);
-    setPendingDraftToOpenId(null);
-  }, [thread.threadId]);
-
   const messageIdsKey = useMemo(
     () => (detail?.messages ?? []).map((message) => message.id).join(","),
     [detail?.messages],
   );
 
-  useEffect(() => {
+  const defaultExpandedMessageIds = useMemo(() => {
     const latestMessageId = detail?.messages.at(-1)?.id ?? null;
-    setExpandedMessageIds(latestMessageId ? new Set([latestMessageId]) : new Set());
-  }, [thread.threadId, messageIdsKey]);
+    return latestMessageId ? new Set([latestMessageId]) : new Set<string>();
+  }, [detail?.messages]);
 
-  // Auto-open latest draft for this thread
+  const expandedMessageIds =
+    expandedMessageOverride?.messageIdsKey === messageIdsKey
+      ? expandedMessageOverride.ids
+      : defaultExpandedMessageIds;
+
+  const latestDraftId = orderedThreadDrafts.at(-1)?.draftId ?? null;
+  const autoSelectedDraftId =
+    latestDraftId && !autoOpenedDraftIdRef.current && !inlineDraft
+      ? latestDraftId
+      : null;
+  const draftIdToOpen = selectedDraftId ?? autoSelectedDraftId;
+
   useEffect(() => {
-    if (orderedThreadDrafts.length === 0) return;
-    if (autoOpenedDraftIdRef.current) return;
+    if (autoSelectedDraftId) {
+      autoOpenedDraftIdRef.current = autoSelectedDraftId;
+    }
+  }, [autoSelectedDraftId]);
 
-    // Don't auto-open if there's already an inline draft for this thread
-    if (inlineDraft) return;
-
-    const latestDraftId =
-      orderedThreadDrafts[orderedThreadDrafts.length - 1]?.draftId ?? null;
-    if (!latestDraftId) return;
-
-    autoOpenedDraftIdRef.current = latestDraftId;
-    setSelectedDraftId(latestDraftId);
-    setPendingDraftToOpenId(latestDraftId);
-  }, [orderedThreadDrafts, inlineDraft]);
+  const { data: draftCompose } = useGmailComposeDraft(
+    draftIdToOpen,
+    googleAccount,
+  );
 
   // Open fetched draft in global store
   useEffect(() => {
     if (!draftCompose) return;
-    if (pendingDraftToOpenId !== draftCompose.draftId) return;
+    if (draftIdToOpen !== draftCompose.draftId) return;
 
     // Check if we already have this draft open in the store
     const existing = draftsCtx.drafts.find(
@@ -882,7 +878,7 @@ export function GmailThreadDetail({
     );
     if (existing) {
       draftsCtx.setInlineDraft(existing.id);
-      setPendingDraftToOpenId(null);
+      setSelectedDraftId(null);
       scrollComposerIntoView();
       return;
     }
@@ -894,14 +890,14 @@ export function GmailThreadDetail({
       accountId,
       true, // inline
     );
-    setPendingDraftToOpenId(null);
+    setSelectedDraftId(null);
     scrollComposerIntoView();
 
     // Suppress unused variable warning — id is used by openDraftWithForm to register
     void id;
   }, [
     draftCompose,
-    pendingDraftToOpenId,
+    draftIdToOpen,
     draftsCtx,
     accountId,
     scrollComposerIntoView,
@@ -925,21 +921,22 @@ export function GmailThreadDetail({
   }, [inlineDraft?.gmailDraftId, draftCompose?.messageId, threadDrafts]);
 
   const toggleMessageExpanded = useCallback((messageId: string) => {
-    setExpandedMessageIds((current) => {
-      const next = new Set(current);
+    setExpandedMessageOverride((current) => {
+      const currentIds =
+        current?.messageIdsKey === messageIdsKey ? current.ids : expandedMessageIds;
+      const next = new Set(currentIds);
       if (next.has(messageId)) {
         next.delete(messageId);
       } else {
         next.add(messageId);
       }
-      return next;
+      return { ids: next, messageIdsKey };
     });
-  }, []);
+  }, [expandedMessageIds, messageIdsKey]);
 
   const openComposeFromToolbar = useCallback(
     (mode: ComposeMode) => {
       setSelectedDraftId(null);
-      setPendingDraftToOpenId(null);
 
       const msg = detail?.messages[detail.messages.length - 1];
       const userEmail = ""; // Will be resolved by the panel's useGoogleProfile
@@ -1173,7 +1170,6 @@ export function GmailThreadDetail({
             onToggleExpanded={toggleMessageExpanded}
             onEditDraft={(draftId) => {
               setSelectedDraftId(draftId);
-              setPendingDraftToOpenId(draftId);
             }}
           />
         ))}

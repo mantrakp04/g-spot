@@ -25,13 +25,11 @@ const busyPhases = new Set<DesktopUpdateState["phase"]>([
 ]);
 
 export function DesktopUpdateButton({ compact = false }: { compact?: boolean }) {
-  const [isDesktop, setIsDesktop] = useState(false);
+  const isDesktop = isDesktopRuntime();
   const [state, setState] = useState<DesktopUpdateState>(initialState);
 
   useEffect(() => {
-    const desktop = isDesktopRuntime();
-    setIsDesktop(desktop);
-    if (!desktop) return;
+    if (!isDesktop) return;
 
     let cancelled = false;
 
@@ -68,7 +66,7 @@ export function DesktopUpdateButton({ compact = false }: { compact?: boolean }) 
       cancelled = true;
       window.removeEventListener("desktop-update-state", handleUpdateState);
     };
-  }, []);
+  }, [isDesktop]);
 
   const isBusy = busyPhases.has(state.phase);
   const label = useMemo(() => {

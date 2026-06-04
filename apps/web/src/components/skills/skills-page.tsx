@@ -187,6 +187,7 @@ export function SkillsView({ projectId, description }: SkillsViewProps) {
       )}
 
       <SkillEditorDialog
+        key={editorOpen ? editingSkill?.id ?? "new" : "closed"}
         open={editorOpen}
         onOpenChange={setEditorOpen}
         skill={editingSkill}

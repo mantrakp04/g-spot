@@ -64,6 +64,9 @@ export function DraftPanel({
   const deleteDraftMutation = useDeleteGmailDraftMutation(googleAccount);
   const sendMessageMutation = useSendGmailMessageMutation(googleAccount);
   const closedRef = useRef(false);
+  const markDraftClosed = useCallback(() => {
+    closedRef.current = true;
+  }, []);
 
   const handleDraftIdChange = useCallback(
     (gmailDraftId: string) => {
@@ -83,11 +86,7 @@ export function DraftPanel({
     onDraftIdChange: handleDraftIdChange,
   });
 
-  useEffect(() => {
-    return () => {
-      closedRef.current = true;
-    };
-  }, []);
+  useEffect(() => markDraftClosed, [markDraftClosed]);
 
   const handleDiscard = useCallback(async () => {
     cancelPendingSave();
@@ -167,7 +166,8 @@ export function DraftPanel({
   );
 
   const handleAccountIdChange = useCallback(
-    (accountId: string) => {
+    (accountId: string | null) => {
+      if (accountId === null) return;
       cancelPendingSave();
       onSetAccountId(draft.id, accountId);
     },

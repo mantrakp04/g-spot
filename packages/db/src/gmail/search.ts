@@ -4,6 +4,7 @@ import type { SQL } from "drizzle-orm";
 import { db } from "../index";
 import {
   gmailAttachments,
+  gmailAccounts,
   gmailMessages,
   gmailThreadLabels,
   gmailThreads,
@@ -21,6 +22,7 @@ export type GmailFilterCondition = {
 
 export type ThreadListItem = {
   id: string;
+  providerAccountId: string;
   gmailThreadId: string;
   subject: string;
   snippet: string;
@@ -133,8 +135,14 @@ function labelContainsSql(pattern: string): SQL {
   )`;
 }
 
+function messageAccountSql(accountId: string | null): SQL {
+  return accountId === null
+    ? sql`m.account_id = ${gmailThreads.accountId}`
+    : sql`m.account_id = ${accountId}`;
+}
+
 function messageFieldMatchSql(
-  accountId: string,
+  accountId: string | null,
   column:
     | typeof gmailMessages.fromEmail
     | typeof gmailMessages.fromName
@@ -164,17 +172,19 @@ function messageFieldMatchSql(
   }
 
   const isNegated = operator === "is_not" || operator === "not_contains";
+  const accountMatch = messageAccountSql(accountId);
   if (isNegated) {
-    return sql`NOT EXISTS (SELECT 1 FROM ${gmailMessages} m WHERE m.thread_id = ${gmailThreads.id} AND m.account_id = ${accountId} AND NOT (${cond}))`;
+    return sql`NOT EXISTS (SELECT 1 FROM ${gmailMessages} m WHERE m.thread_id = ${gmailThreads.id} AND ${accountMatch} AND NOT (${cond}))`;
   }
-  return sql`EXISTS (SELECT 1 FROM ${gmailMessages} m WHERE m.thread_id = ${gmailThreads.id} AND m.account_id = ${accountId} AND ${cond})`;
+  return sql`EXISTS (SELECT 1 FROM ${gmailMessages} m WHERE m.thread_id = ${gmailThreads.id} AND ${accountMatch} AND ${cond})`;
 }
 
 function buildFilterConditionSql(
-  accountId: string,
+  accountId: string | null,
   filter: GmailFilterCondition,
 ): SQL | null {
   const { field, operator, value } = filter;
+  const accountMatch = messageAccountSql(accountId);
 
   switch (field) {
     case "from": {
@@ -185,14 +195,14 @@ function buildFilterConditionSql(
           operator === "is"
             ? sql`LOWER(m.from_email) = ${needle}`
             : sql`(LOWER(m.from_email) LIKE ${like} OR LOWER(m.from_name) LIKE ${like})`;
-        return sql`EXISTS (SELECT 1 FROM ${gmailMessages} m WHERE m.thread_id = ${gmailThreads.id} AND m.account_id = ${accountId} AND ${match})`;
+        return sql`EXISTS (SELECT 1 FROM ${gmailMessages} m WHERE m.thread_id = ${gmailThreads.id} AND ${accountMatch} AND ${match})`;
       }
       if (operator === "is_not" || operator === "not_contains") {
         const match =
           operator === "is_not"
             ? sql`LOWER(m.from_email) = ${needle}`
             : sql`(LOWER(m.from_email) LIKE ${like} OR LOWER(m.from_name) LIKE ${like})`;
-        return sql`NOT EXISTS (SELECT 1 FROM ${gmailMessages} m WHERE m.thread_id = ${gmailThreads.id} AND m.account_id = ${accountId} AND ${match})`;
+        return sql`NOT EXISTS (SELECT 1 FROM ${gmailMessages} m WHERE m.thread_id = ${gmailThreads.id} AND ${accountMatch} AND ${match})`;
       }
       return null;
     }
@@ -292,19 +302,19 @@ function buildFilterConditionSql(
       const wantsPositive = booleanFilterWantsPositive(operator, value);
       if (wantsPositive === null) return null;
       if (wantsPositive) {
-        return sql`EXISTS (SELECT 1 FROM ${gmailAttachments} a INNER JOIN ${gmailMessages} m ON a.message_id = m.id WHERE m.thread_id = ${gmailThreads.id} AND m.account_id = ${accountId})`;
+        return sql`EXISTS (SELECT 1 FROM ${gmailAttachments} a INNER JOIN ${gmailMessages} m ON a.message_id = m.id WHERE m.thread_id = ${gmailThreads.id} AND ${accountMatch})`;
       }
-      return sql`NOT EXISTS (SELECT 1 FROM ${gmailAttachments} a INNER JOIN ${gmailMessages} m ON a.message_id = m.id WHERE m.thread_id = ${gmailThreads.id} AND m.account_id = ${accountId})`;
+      return sql`NOT EXISTS (SELECT 1 FROM ${gmailAttachments} a INNER JOIN ${gmailMessages} m ON a.message_id = m.id WHERE m.thread_id = ${gmailThreads.id} AND ${accountMatch})`;
     }
 
     case "filename": {
       const needle = value.trim().toLowerCase();
       const like = "%" + needle + "%";
       if (operator === "is") {
-        return sql`EXISTS (SELECT 1 FROM ${gmailAttachments} a INNER JOIN ${gmailMessages} m ON a.message_id = m.id WHERE m.thread_id = ${gmailThreads.id} AND m.account_id = ${accountId} AND LOWER(a.filename) = ${needle})`;
+        return sql`EXISTS (SELECT 1 FROM ${gmailAttachments} a INNER JOIN ${gmailMessages} m ON a.message_id = m.id WHERE m.thread_id = ${gmailThreads.id} AND ${accountMatch} AND LOWER(a.filename) = ${needle})`;
       }
       if (operator === "contains") {
-        return sql`EXISTS (SELECT 1 FROM ${gmailAttachments} a INNER JOIN ${gmailMessages} m ON a.message_id = m.id WHERE m.thread_id = ${gmailThreads.id} AND m.account_id = ${accountId} AND LOWER(a.filename) LIKE ${like})`;
+        return sql`EXISTS (SELECT 1 FROM ${gmailAttachments} a INNER JOIN ${gmailMessages} m ON a.message_id = m.id WHERE m.thread_id = ${gmailThreads.id} AND ${accountMatch} AND LOWER(a.filename) LIKE ${like})`;
       }
       return null;
     }
@@ -333,12 +343,12 @@ function buildFilterConditionSql(
     case "larger": {
       const bytes = parseSizeBytes(value);
       if (bytes === null) return null;
-      return sql`(SELECT COALESCE(SUM(COALESCE(m.raw_size_estimate, 0)), 0) FROM ${gmailMessages} m WHERE m.thread_id = ${gmailThreads.id} AND m.account_id = ${accountId}) > ${bytes}`;
+      return sql`(SELECT COALESCE(SUM(COALESCE(m.raw_size_estimate, 0)), 0) FROM ${gmailMessages} m WHERE m.thread_id = ${gmailThreads.id} AND ${accountMatch}) > ${bytes}`;
     }
     case "smaller": {
       const bytes = parseSizeBytes(value);
       if (bytes === null) return null;
-      return sql`(SELECT COALESCE(SUM(COALESCE(m.raw_size_estimate, 0)), 0) FROM ${gmailMessages} m WHERE m.thread_id = ${gmailThreads.id} AND m.account_id = ${accountId}) < ${bytes}`;
+      return sql`(SELECT COALESCE(SUM(COALESCE(m.raw_size_estimate, 0)), 0) FROM ${gmailMessages} m WHERE m.thread_id = ${gmailThreads.id} AND ${accountMatch}) < ${bytes}`;
     }
 
     case "has_drive":
@@ -364,9 +374,9 @@ function buildFilterConditionSql(
           ? likeClauses[0]!
           : sql`(${sql.join(likeClauses, sql` OR `)})`;
       if (wantsPositive) {
-        return sql`EXISTS (SELECT 1 FROM ${gmailMessages} m WHERE m.thread_id = ${gmailThreads.id} AND m.account_id = ${accountId} AND ${combined})`;
+        return sql`EXISTS (SELECT 1 FROM ${gmailMessages} m WHERE m.thread_id = ${gmailThreads.id} AND ${accountMatch} AND ${combined})`;
       }
-      return sql`NOT EXISTS (SELECT 1 FROM ${gmailMessages} m WHERE m.thread_id = ${gmailThreads.id} AND m.account_id = ${accountId} AND ${combined})`;
+      return sql`NOT EXISTS (SELECT 1 FROM ${gmailMessages} m WHERE m.thread_id = ${gmailThreads.id} AND ${accountMatch} AND ${combined})`;
     }
 
     default:
@@ -375,7 +385,7 @@ function buildFilterConditionSql(
 }
 
 function buildFilterRuleSql(
-  accountId: string,
+  accountId: string | null,
   rule: FilterRule,
 ): SQL | undefined {
   if (rule.type === "condition") {
@@ -393,12 +403,15 @@ function buildFilterRuleSql(
 }
 
 function buildFilterWhere(
-  accountId: string,
+  accountId: string | null,
   filters: FilterRule,
 ): SQL | undefined {
   const ruleSql = buildFilterRuleSql(accountId, filters);
-  const conditions: SQL[] = [eq(gmailThreads.accountId, accountId)];
+  const conditions: SQL[] = accountId === null
+    ? []
+    : [eq(gmailThreads.accountId, accountId)];
   if (ruleSql) conditions.push(ruleSql);
+  if (conditions.length === 0) return undefined;
   return and(...conditions);
 }
 
@@ -409,6 +422,7 @@ function buildFilterWhere(
 async function hydrateThreads(
   rows: Array<{
     id: string;
+    providerAccountId: string;
     gmailThreadId: string;
     subject: string;
     snippet: string;
@@ -462,6 +476,7 @@ async function hydrateThreads(
     const msg = senderMap.get(row.id);
     return {
       id: row.id,
+      providerAccountId: row.providerAccountId,
       gmailThreadId: row.gmailThreadId,
       subject: row.subject,
       snippet: row.snippet,
@@ -475,7 +490,7 @@ async function hydrateThreads(
 }
 
 export async function queryThreads(
-  accountId: string,
+  accountId: string | null,
   filters: FilterRule,
   options: {
     limit?: number;
@@ -486,23 +501,26 @@ export async function queryThreads(
   const limit = options.limit ?? 7;
   const where = buildFilterWhere(accountId, filters);
 
-  const cursorConditions: SQL[] = where
-    ? [where]
-    : [eq(gmailThreads.accountId, accountId)];
+  const cursorConditions: SQL[] = where ? [where] : [];
   if (options.cursor) {
     cursorConditions.push(lt(gmailThreads.lastMessageAt, options.cursor));
   }
+  const cursorWhere = cursorConditions.length > 0
+    ? and(...cursorConditions)
+    : undefined;
 
   const threadRows = await db
     .select({
       id: gmailThreads.id,
+      providerAccountId: gmailAccounts.providerAccountId,
       gmailThreadId: gmailThreads.gmailThreadId,
       subject: gmailThreads.subject,
       snippet: gmailThreads.snippet,
       lastMessageAt: gmailThreads.lastMessageAt,
     })
     .from(gmailThreads)
-    .where(and(...cursorConditions))
+    .innerJoin(gmailAccounts, eq(gmailThreads.accountId, gmailAccounts.id))
+    .where(cursorWhere)
     .orderBy(
       options.sortAsc
         ? asc(gmailThreads.lastMessageAt)
@@ -524,7 +542,7 @@ export async function queryThreads(
 }
 
 export async function countFilteredThreads(
-  accountId: string,
+  accountId: string | null,
   filters: FilterRule,
 ): Promise<number> {
   const where = buildFilterWhere(accountId, filters);
@@ -577,12 +595,14 @@ export async function searchThreads(
   const rows = await db
     .select({
       id: gmailThreads.id,
+      providerAccountId: gmailAccounts.providerAccountId,
       gmailThreadId: gmailThreads.gmailThreadId,
       subject: gmailThreads.subject,
       snippet: gmailThreads.snippet,
       lastMessageAt: gmailThreads.lastMessageAt,
     })
     .from(gmailThreads)
+    .innerJoin(gmailAccounts, eq(gmailThreads.accountId, gmailAccounts.id))
     .where(inArray(gmailThreads.id, ids))
     .orderBy(desc(gmailThreads.lastMessageAt));
 

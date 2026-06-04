@@ -1,5 +1,6 @@
 export type GmailThread = {
   id: string;
+  accountId: string;
   threadId: string;
   subject: string;
   from: { name: string; email: string };

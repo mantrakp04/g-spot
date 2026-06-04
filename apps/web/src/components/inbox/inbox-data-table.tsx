@@ -13,7 +13,6 @@ import {
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   useCallback,
-  useEffect,
   useMemo,
   useState,
   type CSSProperties,
@@ -262,23 +261,27 @@ export function InboxDataTable<TData>({
     () => columnSizingFromConfig(columnConfig),
     [columnConfig],
   );
-  const [columnSizing, setColumnSizing] = useState<ColumnSizingState>(
-    persistedColumnSizing,
-  );
 
-  // Re-seed local table sizing when optimistic/server config changes.
   const widthKey = useMemo(() => columnWidthKey(columnConfig), [columnConfig]);
-  useEffect(() => {
-    setColumnSizing(persistedColumnSizing);
-  }, [widthKey, persistedColumnSizing]);
+  const [localColumnSizing, setLocalColumnSizing] = useState<{
+    widthKey: string;
+    sizing: ColumnSizingState;
+  }>(() => ({
+    sizing: persistedColumnSizing,
+    widthKey,
+  }));
+  const columnSizing =
+    localColumnSizing.widthKey === widthKey
+      ? localColumnSizing.sizing
+      : persistedColumnSizing;
 
   const handleColumnSizingChange = useCallback(
     (updater: Updater<ColumnSizingState>) => {
       const next = functionalUpdate(updater, columnSizing);
-      setColumnSizing(next);
+      setLocalColumnSizing({ sizing: next, widthKey });
       onColumnConfigChange?.(applyColumnSizing(columnConfig, next));
     },
-    [columnConfig, columnSizing, onColumnConfigChange],
+    [columnConfig, columnSizing, onColumnConfigChange, widthKey],
   );
 
   const table = useReactTable({
@@ -327,14 +330,16 @@ export function InboxDataTable<TData>({
   const resetColumnSize = useCallback(
     (columnId: string, resetSize: () => void) => {
       resetSize();
-      setColumnSizing((current) => {
-        const next = { ...current };
+      setLocalColumnSizing((current) => {
+        const currentSizing =
+          current.widthKey === widthKey ? current.sizing : persistedColumnSizing;
+        const next = { ...currentSizing };
         delete next[columnId];
-        return next;
+        return { sizing: next, widthKey };
       });
       onColumnConfigChange?.(clearColumnWidth(columnConfig, columnId));
     },
-    [columnConfig, onColumnConfigChange],
+    [columnConfig, onColumnConfigChange, persistedColumnSizing, widthKey],
   );
 
   const resizeDeltaOffset = table.getState().columnSizingInfo.deltaOffset ?? 0;

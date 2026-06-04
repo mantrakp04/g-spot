@@ -130,11 +130,11 @@ function TreeRow({
             onActivate(node.note.id);
             onToggle(node.note.id);
           }}
-          className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground"
+          className="flex size-4 shrink-0 items-center justify-center text-muted-foreground"
         >
           <ChevronRight
             className={cn(
-              "h-3 w-3 transition-transform",
+              "size-3 transition-transform",
               isOpen && "rotate-90",
             )}
           />
@@ -180,10 +180,10 @@ function TreeRow({
             e.stopPropagation();
             onDelete(node.note);
           }}
-          className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-muted hover:text-foreground group-hover:opacity-60"
+          className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-muted hover:text-foreground group-hover:opacity-60"
           title="Delete"
         >
-          <Trash2 className="h-3 w-3" />
+          <Trash2 className="size-3" />
         </button>
       ) : null}
     </div>

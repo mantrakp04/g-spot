@@ -62,6 +62,18 @@ export function FileEditor({ projectId, path, active }: FileEditorProps) {
   const [mountedEditor, setMountedEditor] =
     useState<monaco.editor.IStandaloneCodeEditor | null>(null);
 
+  const cancelPendingSave = useCallback(() => {
+    if (debounceRef.current !== null) {
+      window.clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+  }, []);
+
+  const disposeEditorListeners = useCallback(() => {
+    changeDisposableRef.current?.dispose();
+    changeDisposableRef.current = null;
+  }, []);
+
   // Seed both refs once when the file first loads. After that the buffer is
   // owned by Monaco and we never write back into it.
   useEffect(() => {
@@ -73,12 +85,10 @@ export function FileEditor({ projectId, path, active }: FileEditorProps) {
 
   useEffect(() => {
     return () => {
-      if (debounceRef.current !== null) {
-        window.clearTimeout(debounceRef.current);
-      }
-      changeDisposableRef.current?.dispose();
+      cancelPendingSave();
+      disposeEditorListeners();
     };
-  }, []);
+  }, [cancelPendingSave, disposeEditorListeners]);
 
   const setSaveStatus = useCallback((next: SaveStatus) => {
     if (statusRef.current === next) return;
@@ -93,7 +103,7 @@ export function FileEditor({ projectId, path, active }: FileEditorProps) {
       setSaveStatus("dirty");
     }
     if (debounceRef.current !== null) {
-      window.clearTimeout(debounceRef.current);
+      cancelPendingSave();
     }
     debounceRef.current = window.setTimeout(() => {
       const mountedEditor = editorRef.current;
@@ -120,7 +130,7 @@ export function FileEditor({ projectId, path, active }: FileEditorProps) {
         },
       });
     }, AUTOSAVE_DEBOUNCE_MS);
-  }, [path, setSaveStatus, writeMutation]);
+  }, [cancelPendingSave, path, setSaveStatus, writeMutation]);
 
   const handleMount = useCallback(
     (editor: monaco.editor.IStandaloneCodeEditor) => {

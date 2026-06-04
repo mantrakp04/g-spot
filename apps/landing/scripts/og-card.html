@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Montserrat:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+
+      :root {
+        --bg: oklch(0.2178 0 0);
+        --card: oklch(0.2435 0 0);
+        --ink: oklch(0.8853 0 0);
+        --ink-soft: oklch(0.5999 0 0);
+        --line: oklch(0.329 0 0);
+        --primary: oklch(0.7058 0 0);
+        --teal: oklch(0.6714 0.0339 206.3482);
+        --accent: oklch(0.3715 0 0);
+        /* hero rotating-word gradient — the page's only color pop */
+        --grad: linear-gradient(115deg, #059669 0%, #0891b2 48%, #7c3aed 100%);
+      }
+
+      html, body { width: 1200px; height: 630px; }
+
+      body {
+        position: relative;
+        overflow: hidden;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: "Montserrat", sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      /* soft iridescent halo — grayscale with a faint teal tint, like .lp-halo in dark */
+      .halo {
+        position: absolute;
+        inset: -15%;
+        z-index: 0;
+        filter: blur(80px);
+        opacity: 0.55;
+        background:
+          radial-gradient(55% 60% at 28% 32%, color-mix(in oklch, var(--primary) 30%, transparent), transparent 70%),
+          radial-gradient(50% 55% at 72% 64%, color-mix(in oklch, var(--teal) 26%, transparent), transparent 70%),
+          radial-gradient(45% 50% at 60% 28%, color-mix(in oklch, var(--accent) 40%, transparent), transparent 70%);
+      }
+
+      /* fine grid, fades out — matches the muted dotted/line texture on-site */
+      .grid {
+        position: absolute;
+        inset: 0;
+        z-index: 0;
+        opacity: 0.4;
+        background-image:
+          linear-gradient(color-mix(in oklch, var(--ink) 5%, transparent) 1px, transparent 1px),
+          linear-gradient(90deg, color-mix(in oklch, var(--ink) 5%, transparent) 1px, transparent 1px);
+        background-size: 48px 48px;
+        -webkit-mask-image: radial-gradient(120% 120% at 0% 0%, #000 28%, transparent 76%);
+        mask-image: radial-gradient(120% 120% at 0% 0%, #000 28%, transparent 76%);
+      }
+
+      /* film grain — same data URI as .lp-grain */
+      .grain {
+        position: absolute;
+        inset: 0;
+        z-index: 3;
+        pointer-events: none;
+        opacity: 0.035;
+        mix-blend-mode: overlay;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      }
+
+      .frame {
+        position: relative;
+        z-index: 2;
+        width: 100%;
+        height: 100%;
+        padding: 64px 72px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+      }
+
+      /* top bar */
+      .top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+      .brand img {
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        opacity: 0.95;
+      }
+      .brand .name {
+        font-family: "Fira Code", monospace;
+        font-size: 19px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        color: var(--ink);
+      }
+      .eyebrow {
+        font-family: "Fira Code", monospace;
+        font-size: 12px;
+        letter-spacing: 0.22em;
+        text-transform: lowercase;
+        color: var(--ink-soft);
+      }
+
+      /* center */
+      .center { display: flex; flex-direction: column; gap: 30px; }
+
+      /* ASCII wordmark in muted gray — exactly like the on-site hero <pre> */
+      .ascii {
+        font-family: "Fira Code", monospace;
+        font-weight: 700;
+        font-size: 27px;
+        line-height: 1.16;
+        white-space: pre;
+        width: fit-content;
+        color: var(--ink-soft);
+      }
+
+      .tagline {
+        font-size: 38px;
+        font-weight: 500;
+        line-height: 1.16;
+        letter-spacing: -0.02em;
+        max-width: 920px;
+        color: var(--ink);
+      }
+      /* the single color pop, mirroring the rotating hero word */
+      .tagline .accent {
+        background: var(--grad);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+
+      /* bottom */
+      .bottom {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .chips { display: flex; gap: 10px; }
+      .chip {
+        font-family: "Fira Code", monospace;
+        font-size: 14px;
+        color: var(--ink-soft);
+        padding: 8px 14px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: color-mix(in oklch, var(--card) 78%, transparent);
+      }
+      .chip b { color: var(--ink); font-weight: 500; }
+      .url {
+        font-family: "Fira Code", monospace;
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--ink-soft);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="halo"></div>
+    <div class="grid"></div>
+
+    <div class="frame">
+      <div class="top">
+        <div class="brand">
+          <img src="logo.png" alt="" />
+          <span class="name">g-spot</span>
+        </div>
+        <span class="eyebrow">local-first · open source · mit</span>
+      </div>
+
+      <div class="center">
+        <pre class="ascii"> ██████╗       ███████╗██████╗  ██████╗ ████████╗
+██╔════╝       ██╔════╝██╔══██╗██╔═══██╗╚══██╔══╝
+██║  ███╗█████╗███████╗██████╔╝██║   ██║   ██║
+██║   ██║╚════╝╚════██║██╔═══╝ ██║   ██║   ██║
+╚██████╔╝      ███████║██║     ╚██████╔╝   ██║
+ ╚═════╝       ╚══════╝╚═╝      ╚═════╝    ╚═╝</pre>
+        <div class="tagline">
+          Your mail, code, notes &amp; an agent you actually own —
+          <span class="accent">in one quiet window.</span>
+        </div>
+      </div>
+
+      <div class="bottom">
+        <div class="chips">
+          <span class="chip"><b>mail</b> · gmail</span>
+          <span class="chip"><b>code</b> · github prs</span>
+          <span class="chip"><b>notes</b> · linked</span>
+          <span class="chip"><b>memory</b> · local graph</span>
+        </div>
+        <span class="url">g-spot.dev</span>
+      </div>
+    </div>
+
+    <div class="grain"></div>
+  </body>
+</html>

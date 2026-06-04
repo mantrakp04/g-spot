@@ -9,7 +9,7 @@ import {
   createContext,
   isValidElement,
   useCallback,
-  useContext,
+  use,
   useMemo,
 } from "react";
 
@@ -26,7 +26,7 @@ type ConversationCtx = {
 const ConversationContext = createContext<ConversationCtx | null>(null);
 
 function useConversationContext() {
-  const ctx = useContext(ConversationContext);
+  const ctx = use(ConversationContext);
   if (!ctx) {
     throw new Error(
       "Conversation sub-components must be rendered inside <Conversation>",

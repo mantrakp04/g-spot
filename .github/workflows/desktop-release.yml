@@ -114,10 +114,16 @@ jobs:
         include:
           - name: macos-arm64
             runner: macos-15
+            artifact_prefix: macos-arm64
           - name: linux-x64
             runner: ubuntu-latest
+            artifact_prefix: linux-x64
           - name: windows-x64
             runner: windows-latest
+            # electrobun emits Windows artifacts with a `win-x64` prefix, not
+            # `windows-x64`. Without this, the asset-cleanup filter below never
+            # matches Windows assets and stale/renamed zips pile up.
+            artifact_prefix: win-x64
     env:
       DESKTOP_RELEASE_TAG: ${{ needs.resolve.outputs.update_release_tag }}
       # Mac downloads from GitHub must pass Apple's launch checks, otherwise
@@ -155,6 +161,47 @@ jobs:
       - name: Build desktop
         run: bun run --filter desktop ${{ needs.resolve.outputs.build_script }}
 
+      # electrobun only emits a Windows `.zip` that wraps `Setup.exe`; it can't
+      # produce a standalone installer. Extract the inner exe into the artifacts
+      # dir under a `-win-x64-` name so the landing page's `.exe`-preferring
+      # asset matcher links it directly, and so the existing upload glob /
+      # cleanup filter pick it up and dedupe it on re-release.
+      - name: Extract Windows installer exe
+        if: matrix.name == 'windows-x64'
+        shell: pwsh
+        env:
+          CHANNEL: ${{ needs.resolve.outputs.channel }}
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $artifactsDir = "apps/desktop/artifacts"
+          $zip = Get-ChildItem -Path $artifactsDir -Filter "*-win-x64-g-spot-Setup-*.zip" -File |
+            Select-Object -First 1
+          if (-not $zip) {
+            throw "No Windows Setup zip found in $artifactsDir matching *-win-x64-g-spot-Setup-*.zip"
+          }
+          Write-Host "Found Windows Setup zip: $($zip.Name)"
+
+          $tmp = Join-Path $env:RUNNER_TEMP "win-setup-extract"
+          if (Test-Path $tmp) { Remove-Item -Recurse -Force $tmp }
+          New-Item -ItemType Directory -Path $tmp | Out-Null
+
+          Expand-Archive -Path $zip.FullName -DestinationPath $tmp -Force
+
+          $exe = Get-ChildItem -Path $tmp -Filter "*.exe" -File |
+            Select-Object -First 1
+          if (-not $exe) {
+            throw "No .exe found at the root of $($zip.Name)"
+          }
+          Write-Host "Found inner installer exe: $($exe.Name)"
+
+          # Reuse the zip's prefix so the exe sorts/cleans up alongside it.
+          # e.g. <prefix>-win-x64-g-spot-Setup-<channel>.zip -> ...-Setup-<channel>.exe
+          $assetName = ($zip.Name -replace '\.zip$', '.exe')
+          $dest = Join-Path $artifactsDir $assetName
+          Copy-Item -Path $exe.FullName -Destination $dest -Force
+          Write-Host "Wrote release asset: $assetName"
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -174,6 +221,7 @@ jobs:
           PRERELEASE: ${{ needs.resolve.outputs.prerelease }}
           CHANNEL: ${{ needs.resolve.outputs.channel }}
           PLATFORM: ${{ matrix.name }}
+          ARTIFACT_PREFIX: ${{ matrix.artifact_prefix }}
         shell: bash
         run: |
           set -euo pipefail
@@ -219,7 +267,7 @@ jobs:
               gh release create "${create_args[@]}" || gh release view "$release_tag" >/dev/null
             fi
 
-            gh release view "$release_tag" --json assets --jq '.assets[].name | select(test(env.PLATFORM))' \
+            gh release view "$release_tag" --json assets --jq '.assets[].name | select(test("-" + env.ARTIFACT_PREFIX + "-"))' \
               | while IFS= read -r asset_name; do
                   gh release delete-asset "$release_tag" "$asset_name" --yes
                 done

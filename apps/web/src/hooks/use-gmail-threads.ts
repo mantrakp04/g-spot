@@ -42,13 +42,12 @@ export function useGmailThreads(
       pageParam: string | null;
     }): Promise<GmailThreadPage> =>
       trpcClient.gmail.getThreads.query({
-        providerAccountId: providerAccountId!,
+        providerAccountId,
         filters,
         cursor: pageParam,
       }),
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage: GmailThreadPage) => lastPage.nextPageToken,
-    enabled: providerAccountId != null,
     ...sharedOptions,
     persister: infinitePersister,
     // Infinite queries refetch every accumulated page on invalidation/focus,

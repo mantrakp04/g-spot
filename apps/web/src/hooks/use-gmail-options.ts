@@ -47,14 +47,19 @@ export async function fetchGoogleProfileForConnection(
   return fetchGoogleProfileByAccessToken(accessToken);
 }
 
-export function useGmailLabels(account: OAuthConnection | null) {
+export function useGmailLabels(
+  account: OAuthConnection | null,
+  includeAllAccounts = false,
+) {
+  const providerAccountId = account?.providerAccountId ?? null;
+
   return useQuery({
-    queryKey: gmailKeys.labels(account?.providerAccountId),
+    queryKey: gmailKeys.labels(providerAccountId),
     queryFn: () =>
       trpcClient.gmail.getLabels.query({
-        providerAccountId: account!.providerAccountId,
+        providerAccountId,
       }),
-    enabled: !!account,
+    enabled: !!account || includeAllAccounts,
     ...persistedStaleWhileRevalidateQueryOptions,
   });
 }

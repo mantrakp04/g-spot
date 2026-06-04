@@ -16,7 +16,7 @@ import {
   MessageCircleIcon,
 } from "lucide-react";
 import type { ComponentProps } from "react";
-import { createContext, useContext, useMemo } from "react";
+import { createContext, use, useMemo } from "react";
 
 const providers = {
   chatgpt: {
@@ -187,7 +187,7 @@ const providers = {
 const OpenInContext = createContext<{ query: string } | undefined>(undefined);
 
 const useOpenInContext = () => {
-  const context = useContext(OpenInContext);
+  const context = use(OpenInContext);
   if (!context) {
     throw new Error("OpenIn components must be used within an OpenIn provider");
   }

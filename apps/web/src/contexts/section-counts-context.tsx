@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
+import { createContext, useCallback, use, useState, type ReactNode } from "react";
 
 type SectionCountsState = Record<string, number>;
 
@@ -27,7 +27,7 @@ export function SectionCountsProvider({ children }: { children: ReactNode }) {
 }
 
 export function useSectionCounts() {
-  const ctx = useContext(SectionCountsContext);
+  const ctx = use(SectionCountsContext);
   if (!ctx) throw new Error("useSectionCounts must be used within SectionCountsProvider");
   return ctx;
 }

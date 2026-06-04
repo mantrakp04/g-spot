@@ -1,6 +1,7 @@
 
 import * as React from "react"
-import type { Theme } from "@/lib/tweakcn"
+import { env } from "@g-spot/env/web"
+import { fetchThemes, type Theme } from "@/lib/tweakcn"
 
 type ThemeMode = "light" | "dark" | "system"
 
@@ -13,7 +14,7 @@ interface ThemeContextValue {
 const ThemeContext = React.createContext<ThemeContextValue | undefined>(undefined)
 
 export function useTheme() {
-  const context = React.useContext(ThemeContext)
+  const context = React.use(ThemeContext)
   if (!context) {
     throw new Error("useTheme must be used within a ThemeProvider")
   }
@@ -34,6 +35,31 @@ interface ThemeProviderProps {
 
 const THEME_STORAGE_KEY = "theme-config"
 const APPLIED_PROPS_KEY = "tweakcn-applied-props"
+const TWEAKCN_THEME_CHANGE_EVENT = "tweakcn-theme-change"
+const DEMO_THEME_MODE_INTERVAL_MS = 10_000
+const THEME_MODES: ThemeMode[] = ["light", "dark", "system"]
+
+function isThemeMode(value: string | null): value is ThemeMode {
+  return value === "light" || value === "dark" || value === "system"
+}
+
+function getInitialThemeMode(storageKey: string, defaultTheme: ThemeMode): ThemeMode {
+  if (typeof window === "undefined") return defaultTheme
+  const stored = localStorage.getItem(storageKey)
+  return isThemeMode(stored) ? stored : defaultTheme
+}
+
+function getSystemThemeSnapshot(): "light" | "dark" {
+  if (typeof window === "undefined") return "light"
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
+}
+
+function subscribeToSystemTheme(onStoreChange: () => void): () => void {
+  if (typeof window === "undefined") return () => {}
+  const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)")
+  mediaQuery.addEventListener("change", onStoreChange)
+  return () => mediaQuery.removeEventListener("change", onStoreChange)
+}
 
 function getStoredTheme(): Theme | null {
   if (typeof window === "undefined") return null
@@ -107,6 +133,18 @@ function applyInlineVars(theme: Theme) {
   }
 
   sessionStorage.setItem(APPLIED_PROPS_KEY, JSON.stringify(props))
+}
+
+function storeTweakCNTheme(theme: Theme | null) {
+  if (theme) {
+    applyInlineVars(theme)
+    localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify(theme))
+  } else {
+    clearInlineVars()
+    localStorage.removeItem(THEME_STORAGE_KEY)
+  }
+
+  window.dispatchEvent(new CustomEvent<Theme | null>(TWEAKCN_THEME_CHANGE_EVENT, { detail: theme }))
 }
 
 // ── FOUC-prevention inline script ───────────────────────────────────
@@ -204,13 +242,23 @@ export function ThemeProvider({
   attribute = "class",
   enableSystem = true,
 }: ThemeProviderProps) {
-  const [theme, setThemeState] = React.useState<ThemeMode>(defaultTheme)
-  const [resolvedTheme, setResolvedTheme] = React.useState<"light" | "dark">("dark")
-
-  const getSystemTheme = React.useCallback((): "light" | "dark" => {
-    if (typeof window === "undefined") return "light"
-    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
-  }, [])
+  const [theme, setThemeState] = React.useState<ThemeMode>(() =>
+    getInitialThemeMode(storageKey, defaultTheme)
+  )
+  const systemTheme = React.useSyncExternalStore<"light" | "dark">(
+    subscribeToSystemTheme,
+    getSystemThemeSnapshot,
+    () => "light",
+  )
+  const resolvedTheme: "light" | "dark" =
+    theme === "system"
+      ? enableSystem
+        ? systemTheme
+        : defaultTheme === "dark"
+          ? "dark"
+          : "light"
+      : theme
+  const demoThemesRef = React.useRef<Theme[]>([])
 
   const applyTheme = React.useCallback((resolved: "light" | "dark") => {
     if (typeof document === "undefined") return
@@ -221,38 +269,52 @@ export function ThemeProvider({
     } else {
       root.setAttribute(attribute, resolved)
     }
+    root.style.colorScheme = resolved
   }, [attribute])
 
   React.useEffect(() => {
-    const stored = localStorage.getItem(storageKey) as ThemeMode | null
-    if (stored && ["light", "dark", "system"].includes(stored)) {
-      setThemeState(stored)
-    }
-  }, [storageKey])
-
-  React.useEffect(() => {
-    const resolved = theme === "system" ? getSystemTheme() : theme
-    setResolvedTheme(resolved)
-    applyTheme(resolved)
-  }, [theme, getSystemTheme, applyTheme])
-
-  React.useEffect(() => {
-    if (!enableSystem || theme !== "system") return
-
-    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)")
-    const handleChange = () => {
-      const resolved = getSystemTheme()
-      setResolvedTheme(resolved)
-      applyTheme(resolved)
-    }
-
-    mediaQuery.addEventListener("change", handleChange)
-    return () => mediaQuery.removeEventListener("change", handleChange)
-  }, [theme, enableSystem, getSystemTheme, applyTheme])
+    applyTheme(resolvedTheme)
+  }, [applyTheme, resolvedTheme])
 
   const setTheme = React.useCallback((newTheme: ThemeMode) => {
     setThemeState(newTheme)
     localStorage.setItem(storageKey, newTheme)
+  }, [storageKey])
+
+  React.useEffect(() => {
+    if (!env.VITE_DEMO_MODE) return
+
+    let isMounted = true
+    void fetchThemes()
+      .then((themes) => {
+        if (isMounted) {
+          demoThemesRef.current = themes
+        }
+      })
+      .catch((error) => {
+        console.error("Failed to load demo themes:", error)
+      })
+
+    const intervalId = window.setInterval(() => {
+      setThemeState((currentTheme) => {
+        const nextThemes = THEME_MODES.filter((candidate) => candidate !== currentTheme)
+        const nextTheme = nextThemes[Math.floor(Math.random() * nextThemes.length)] ?? "system"
+        localStorage.setItem(storageKey, nextTheme)
+        return nextTheme
+      })
+
+      const storedTheme = getStoredTheme()
+      const nextThemes = demoThemesRef.current.filter((candidate) => candidate.name !== storedTheme?.name)
+      const nextTheme = nextThemes[Math.floor(Math.random() * nextThemes.length)]
+      if (nextTheme) {
+        storeTweakCNTheme(nextTheme)
+      }
+    }, DEMO_THEME_MODE_INTERVAL_MS)
+
+    return () => {
+      isMounted = false
+      window.clearInterval(intervalId)
+    }
   }, [storageKey])
 
   const value = React.useMemo(() => ({
@@ -288,18 +350,19 @@ export function ThemeProvider({
 export function useTweakCNThemes() {
   const [currentTheme, setCurrentTheme] = React.useState<Theme | null>(getStoredTheme)
 
+  React.useEffect(() => {
+    const handleThemeChange = (event: Event) => {
+      setCurrentTheme((event as CustomEvent<Theme | null>).detail)
+    }
+
+    window.addEventListener(TWEAKCN_THEME_CHANGE_EVENT, handleThemeChange)
+    return () => window.removeEventListener(TWEAKCN_THEME_CHANGE_EVENT, handleThemeChange)
+  }, [])
+
   const applyTheme = React.useCallback((theme: Theme | null) => {
     if (typeof window === "undefined") return
-
-    if (theme) {
-      applyInlineVars(theme)
-      localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify(theme))
-      setCurrentTheme(theme)
-    } else {
-      clearInlineVars()
-      localStorage.removeItem(THEME_STORAGE_KEY)
-      setCurrentTheme(null)
-    }
+    storeTweakCNTheme(theme)
+    setCurrentTheme(theme)
   }, [])
 
   return {

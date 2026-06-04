@@ -9,7 +9,7 @@ import type { OAuthConnection } from "@hexclave/react";
 import { useUser } from "@hexclave/react";
 import { useHotkeys } from "@tanstack/react-hotkeys";
 import { useQueryClient } from "@tanstack/react-query";
-import { Link, createFileRoute } from "@tanstack/react-router";
+import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   Bot,
   Inbox,
@@ -78,8 +78,9 @@ function dedupeThreadsByThreadId(threads: GmailThread[]): GmailThread[] {
   const uniqueThreads: GmailThread[] = [];
 
   for (const thread of threads) {
-    if (seen.has(thread.threadId)) continue;
-    seen.add(thread.threadId);
+    const key = `${thread.accountId}:${thread.threadId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
     uniqueThreads.push(thread);
   }
 
@@ -93,7 +94,7 @@ type SectionRowProps = {
   itemCount: number;
   countTotalPending: boolean;
   isRefreshing: boolean;
-  selectedThreadId: string | null;
+  selectedThreadKey: string | null;
   onToggle: Dispatch<SetStateAction<Record<string, boolean>>>;
   onToggleSort: Dispatch<SetStateAction<Record<string, boolean>>>;
   onRefresh: (sectionId: string, source: string) => void;
@@ -119,7 +120,7 @@ const SectionRow = memo(function SectionRow({
   itemCount,
   countTotalPending,
   isRefreshing,
-  selectedThreadId,
+  selectedThreadKey,
   onToggle,
   onToggleSort,
   onRefresh,
@@ -205,7 +206,7 @@ const SectionRow = memo(function SectionRow({
             onCountChange={(count, countTotalPending) =>
               onCountChange(section.id, count, countTotalPending)
             }
-            selectedThreadId={selectedThreadId}
+            selectedThreadKey={selectedThreadKey}
             onSelectThread={onSelectThread}
             columns={columns}
           />
@@ -220,7 +221,7 @@ const SectionRow = memo(function SectionRow({
   && prev.itemCount === next.itemCount
   && prev.countTotalPending === next.countTotalPending
   && prev.isRefreshing === next.isRefreshing
-  && prev.selectedThreadId === next.selectedThreadId
+  && prev.selectedThreadKey === next.selectedThreadKey
   && prev.accounts === next.accounts,
 );
 
@@ -266,6 +267,7 @@ function InboxPageContent({
   accounts: OAuthConnection[] | undefined;
   routeSearch: InboxSearch;
 }) {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: sections, isLoading } = useSections();
   const [refreshing, setRefreshing] = useState<Record<string, boolean>>({});
@@ -306,21 +308,24 @@ function InboxPageContent({
     [setCount],
   );
 
-  // Lifted selected thread state for the right detail panel
-  const [selectedThread, setSelectedThread] = useState<SelectedThreadState>(null);
+  // Lifted selected thread state for direct table selections.
+  const [selectedThreadOverride, setSelectedThreadOverride] = useState<SelectedThreadState>(null);
   const markThreadReadMutation = useMarkGmailThreadReadMutation();
   const searchedThread = useGmailThread(
     routeSearch.gmailThreadId ?? null,
     routeSearch.providerAccountId ?? null,
   );
 
-  useEffect(() => {
+  const routeSelectedThread = useMemo<SelectedThreadState>(() => {
     const detail = searchedThread.data as GmailThreadDetailData | null | undefined;
-    if (!detail || !routeSearch.gmailThreadId || !routeSearch.providerAccountId) return;
+    if (!detail || !routeSearch.gmailThreadId || !routeSearch.providerAccountId) {
+      return null;
+    }
     const firstMessage = detail.messages[0];
-    setSelectedThread({
+    return {
       thread: {
         id: detail.id,
+        accountId: routeSearch.providerAccountId,
         threadId: routeSearch.gmailThreadId,
         subject: detail.subject,
         from: firstMessage?.from ?? { name: "", email: "" },
@@ -333,12 +338,13 @@ function InboxPageContent({
       },
       accountId: routeSearch.providerAccountId,
       threads: [],
-    });
+    };
   }, [routeSearch.gmailThreadId, routeSearch.providerAccountId, searchedThread.data]);
+  const selectedThread = selectedThreadOverride ?? routeSelectedThread;
 
   const handleSelectThread = useCallback((thread: GmailThread, accountId: string | null, threads: GmailThread[]) => {
     reactStartTransition(() => {
-      setSelectedThread({
+      setSelectedThreadOverride({
         thread: { ...thread, isUnread: false },
         accountId,
         threads: dedupeThreadsByThreadId(threads),
@@ -377,11 +383,16 @@ function InboxPageContent({
     }
   }, [queryClient]);
 
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
   const handleCloseThread = useCallback(() => {
-    reactStartTransition(() => {
-      setSelectedThread(null);
+    setSelectedThreadOverride(null);
+    void navigateRef.current({
+      to: "/",
+      search: ({ q }: InboxSearch) => ({ q }),
+      replace: true,
     });
-  }, []);
+  }, [setSelectedThreadOverride]);
   const googleAccount = selectedThread?.accountId
     ? accounts?.find((a) => a.providerAccountId === selectedThread.accountId) ?? null
     : selectedThread
@@ -392,7 +403,9 @@ function InboxPageContent({
   const currentIndex = useMemo(() => {
     if (!selectedThread) return -1;
     return selectedThread.threads.findIndex(
-      (t) => t.threadId === selectedThread.thread.threadId,
+      (t) =>
+        t.threadId === selectedThread.thread.threadId
+        && t.accountId === selectedThread.thread.accountId,
     );
   }, [selectedThread]);
 
@@ -405,7 +418,7 @@ function InboxPageContent({
       const nextIdx = currentIndex + direction;
       const nextThread = selectedThread.threads[nextIdx];
       if (!nextThread) return;
-      handleSelectThread(nextThread, selectedThread.accountId, selectedThread.threads);
+      handleSelectThread(nextThread, nextThread.accountId, selectedThread.threads);
     },
     [selectedThread, currentIndex, handleSelectThread],
   );
@@ -458,7 +471,7 @@ function InboxPageContent({
       el.addEventListener("pointermove", onPointerMove);
       el.addEventListener("pointerup", onPointerUp);
     },
-    [],
+    [setDrawerWidth],
   );
 
   // Keep stale content ref so the drawer doesn't flash empty during close animation
@@ -598,9 +611,11 @@ function InboxPageContent({
               itemCount={sectionCounts[section.id] ?? 0}
               countTotalPending={sectionCountTotalPending[section.id] ?? false}
               isRefreshing={refreshing[section.id] ?? false}
-              selectedThreadId={
+              selectedThreadKey={
                 section.source === "gmail"
-                  ? (selectedThread?.thread.threadId ?? null)
+                  ? selectedThread
+                    ? `${selectedThread.thread.accountId}:${selectedThread.thread.threadId}`
+                    : null
                   : null
               }
               onToggle={setCollapseState}
@@ -648,7 +663,7 @@ function InboxPageContent({
           />
           {(selectedThread ?? drawerThreadRef.current) && (
             <GmailThreadDetail
-              key={(selectedThread ?? drawerThreadRef.current)!.thread.threadId}
+              key={`${(selectedThread ?? drawerThreadRef.current)!.thread.accountId}:${(selectedThread ?? drawerThreadRef.current)!.thread.threadId}`}
               thread={(selectedThread ?? drawerThreadRef.current)!.thread}
               detail={threadDetail ?? undefined}
               isLoading={isDetailLoading}

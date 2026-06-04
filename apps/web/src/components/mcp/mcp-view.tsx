@@ -11,7 +11,7 @@ import {
 import { Skeleton } from "@g-spot/ui/components/skeleton";
 import { cn } from "@g-spot/ui/lib/utils";
 import { Loader2, RefreshCw, Save, Undo2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { McpJsonEditor } from "@/components/mcp/mcp-json-editor";
@@ -51,20 +51,23 @@ export function McpView({ projectId, projectPath, description }: McpViewProps) {
   const saveRaw = useSaveRawConfigMutation();
 
   const baseline = config.data?.raw ?? "";
-  const [draft, setDraft] = useState<string>("");
+  const baselineDoc = baseline.length > 0 ? baseline : EMPTY_DOC;
+  const [draftOverride, setDraftOverride] = useState<{
+    baselineDoc: string;
+    scopeKey: string;
+    value: string;
+  } | null>(null);
+  const draft =
+    draftOverride?.scopeKey === scopeKey && draftOverride.baselineDoc === baselineDoc
+      ? draftOverride.value
+      : baselineDoc;
   // Force a fresh CodeMirror mount when switching scopes or when the disk
   // file is reloaded externally — keeps undo history scoped to a single
   // editing session per file.
   const [editorEpoch, setEditorEpoch] = useState(0);
+  const editorKey = `${scopeKey}:${baselineDoc}:${editorEpoch}`;
 
-  useEffect(() => {
-    if (config.data === undefined) return;
-    const next = baseline.length > 0 ? baseline : EMPTY_DOC;
-    setDraft(next);
-    setEditorEpoch((value) => value + 1);
-  }, [config.data, baseline]);
-
-  const isDirty = draft !== (baseline.length > 0 ? baseline : EMPTY_DOC);
+  const isDirty = draft !== baselineDoc;
 
   const servers = useMemo(() => {
     const all = list.data ?? [];
@@ -102,7 +105,7 @@ export function McpView({ projectId, projectPath, description }: McpViewProps) {
   };
 
   const handleRevert = () => {
-    setDraft(baseline.length > 0 ? baseline : EMPTY_DOC);
+    setDraftOverride(null);
     setEditorEpoch((value) => value + 1);
   };
 
@@ -220,9 +223,11 @@ export function McpView({ projectId, projectPath, description }: McpViewProps) {
           ) : (
             <div className="h-[480px] overflow-hidden rounded-lg border border-border/60 bg-background">
               <McpJsonEditor
-                key={`${scopeKey}:${editorEpoch}`}
+                key={editorKey}
                 initialDoc={draft}
-                onChange={setDraft}
+                onChange={(value) =>
+                  setDraftOverride({ baselineDoc, scopeKey, value })
+                }
               />
             </div>
           )}

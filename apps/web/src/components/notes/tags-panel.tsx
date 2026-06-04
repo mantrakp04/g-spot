@@ -18,7 +18,7 @@ export function TagsPanel({ activeTag, onSelectTag }: TagsPanelProps) {
   if (tagsQuery.isLoading) {
     return (
       <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
-        <Loader2 className="h-3 w-3 animate-spin" /> loading tags…
+        <Loader2 className="size-3 animate-spin" /> loading tags…
       </div>
     );
   }

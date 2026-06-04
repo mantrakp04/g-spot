@@ -77,7 +77,10 @@ export function SidebarProjectItem({
     isFetchingNextPage,
   } = useChats(isOpen ? project.id : null);
 
-  const chats = chatsData?.pages.flatMap((page) => page.chats) ?? [];
+  const chats = useMemo(
+    () => chatsData?.pages.flatMap((page) => page.chats) ?? [],
+    [chatsData],
+  );
   const collapsedVisibleChats = useMemo(
     () =>
       chats.filter(

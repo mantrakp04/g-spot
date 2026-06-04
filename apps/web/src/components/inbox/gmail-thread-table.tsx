@@ -1,7 +1,6 @@
 import { useEffect, useMemo, type HTMLAttributes, type ReactElement } from "react";
 
 import type { ColumnConfig, FilterRule } from "@g-spot/types/filters";
-import { getDefaultColumns, normalizeColumns } from "@g-spot/types/filters";
 import { useQuery } from "@tanstack/react-query";
 
 import type { GmailThread } from "@/lib/gmail/types";
@@ -13,6 +12,7 @@ import { gmailKeys } from "@/lib/query-keys";
 import { persistedStaleWhileRevalidateQueryOptions } from "@/utils/query-defaults";
 import { trpcClient } from "@/utils/trpc";
 import { buildGmailColumns } from "./columns/gmail-columns";
+import { useNormalizedColumnConfig } from "./columns/use-normalized-column-config";
 import { InboxDataTable } from "./inbox-data-table";
 import { GmailThreadPreview, RowPreviewPopover } from "./row-preview";
 import { SectionEmpty } from "./section-empty";
@@ -24,7 +24,7 @@ type GmailThreadTableProps = {
   sortAsc?: boolean;
   /** Second arg: show "+" on the count badge while the total-count query is still loading. */
   onCountChange?: (count: number, countTotalPending: boolean) => void;
-  selectedThreadId?: string | null;
+  selectedThreadKey?: string | null;
   onSelectThread?: (thread: GmailThread, threads: GmailThread[]) => void;
   columns?: ColumnConfig[];
 };
@@ -35,7 +35,7 @@ export function GmailThreadTable({
   accountId,
   sortAsc,
   onCountChange,
-  selectedThreadId,
+  selectedThreadKey,
   onSelectThread,
   columns: columnsProp,
 }: GmailThreadTableProps) {
@@ -52,9 +52,8 @@ export function GmailThreadTable({
     queryKey: gmailKeys.labelsCatalog(providerAccountId),
     queryFn: () =>
       trpcClient.gmail.getLabelCatalog.query({
-        providerAccountId: providerAccountId!,
+        providerAccountId,
       }),
-    enabled: providerAccountId != null,
     ...persistedStaleWhileRevalidateQueryOptions,
   });
 
@@ -82,19 +81,7 @@ export function GmailThreadTable({
     [labelCatalog],
   );
 
-  // Key the memo on the *content* of columnsProp, not its reference — the
-  // parent re-creates this array on every render (parseJson), so relying on
-  // reference equality would thrash every child memo each render.
-  const columnsPropKey = columnsProp ? JSON.stringify(columnsProp) : "";
-  const columnConfig = useMemo<ColumnConfig[]>(
-    () =>
-      normalizeColumns(
-        "gmail",
-        columnsProp && columnsProp.length > 0 ? columnsProp : getDefaultColumns("gmail"),
-      ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [columnsPropKey],
-  );
+  const columnConfig = useNormalizedColumnConfig("gmail", columnsProp);
 
   const tableColumns = useMemo(
     () =>
@@ -110,11 +97,6 @@ export function GmailThreadTable({
     [columnConfig, labelCatalogById],
   );
 
-  if (!providerAccountId)
-    return (
-      <SectionEmpty source="gmail" message="No Google account linked to this section" />
-    );
-
   return (
     <InboxDataTable
       columns={tableColumns}
@@ -126,7 +108,7 @@ export function GmailThreadTable({
         updateSectionMutation.mutate({ id: sectionId, columns: next })
       }
       rowClassName={(thread) =>
-        selectedThreadId === thread.threadId ? "bg-accent" : undefined
+        selectedThreadKey === `${thread.accountId}:${thread.threadId}` ? "bg-accent" : undefined
       }
       onRowClick={onSelectThread ? (thread) => onSelectThread(thread, threads) : undefined}
       rowWrapper={(thread, element) => (

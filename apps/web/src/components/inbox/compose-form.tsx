@@ -90,6 +90,7 @@ export function ComposeForm({
               provider="google"
               value={accountId ?? googleAccount?.providerAccountId ?? null}
               onValueChange={(nextAccountId) => {
+                if (nextAccountId === null) return;
                 setPreferredAccountId(nextAccountId);
                 onAccountIdChange?.(nextAccountId);
               }}

@@ -84,7 +84,7 @@ function useHunkActionWidgets(
       queueMicrotask(() => root.unmount());
     }
     widgetsRef.current.clear();
-  }, []);
+  }, [editorRef]);
 
   const runAction = useCallback(
     async (
@@ -152,7 +152,7 @@ function useHunkActionWidgets(
         toast.error(msg);
       }
     },
-    [queryClient],
+    [editorRef, queryClient],
   );
 
   const rebuildWidgets = useCallback(() => {
@@ -233,10 +233,9 @@ function useHunkActionWidgets(
         widgetsRef.current.delete(key);
       }
     }
-  }, [cleanupWidgets, projectId, runAction]);
+  }, [cleanupWidgets, editorRef, projectId, runAction]);
 
-  // Wire up Monaco listeners after mount, and rebuild whenever the diff data
-  // changes (new file/mode swaps the underlying models).
+  // Wire up Monaco listeners after mount.
   useEffect(() => {
     const editor = editorRef.current;
     if (!editor) return;
@@ -252,14 +251,19 @@ function useHunkActionWidgets(
       }),
     );
 
-    // Initial pass — diff may already be computed.
-    rebuildWidgets();
-
     return () => {
       if (selRaf) cancelAnimationFrame(selRaf);
       for (const d of disposables) d.dispose();
     };
-  }, [rebuildWidgets, diffData]);
+  }, [editorRef, rebuildWidgets]);
+
+  useEffect(() => {
+    if (!diffData) {
+      cleanupWidgets();
+      return;
+    }
+    rebuildWidgets();
+  }, [cleanupWidgets, diffData, rebuildWidgets]);
 
   useEffect(() => {
     return () => cleanupWidgets();

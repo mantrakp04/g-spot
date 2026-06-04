@@ -86,7 +86,6 @@ export function PiAddonExplorerDialog({
   const install = useInstallPiAddonMutation();
 
   const activeQuery = isEmptyQuery ? popularQuery : searchQuery;
-  const allResults = activeQuery.data ?? [];
   const isLoading = activeQuery.isFetching;
   const errorMessage = activeQuery.error
     ? activeQuery.error instanceof Error
@@ -95,11 +94,12 @@ export function PiAddonExplorerDialog({
     : null;
 
   const results = useMemo(() => {
+    const allResults = activeQuery.data ?? [];
     if (activeTypes.size === 0) return allResults;
     return allResults.filter((pkg) =>
       pkg.types.some((t) => activeTypes.has(t as CatalogType)),
     );
-  }, [allResults, activeTypes]);
+  }, [activeQuery.data, activeTypes]);
 
   const targetLabel = useMemo(
     () => (projectId ? "this project" : "your global scope"),

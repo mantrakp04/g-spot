@@ -17,7 +17,7 @@ export function useGmailThreadCount(
     }),
     queryFn: () =>
       trpcClient.gmail.getThreadCount.query({
-        providerAccountId: providerAccountId!,
+        providerAccountId,
         filters,
       }),
     enabled: providerAccountId != null,

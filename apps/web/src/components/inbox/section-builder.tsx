@@ -517,10 +517,12 @@ export function SectionBuilder({
   section,
 }: SectionBuilderProps) {
   const user = useUser();
+  const formKey = open ? section?.id ?? "new" : "closed";
 
   if (!user) {
     return (
       <SectionBuilderContent
+        key={formKey}
         open={open}
         onOpenChange={onOpenChange}
         section={section}
@@ -531,6 +533,7 @@ export function SectionBuilder({
 
   return (
     <SignedInSectionBuilder
+      key={formKey}
       open={open}
       onOpenChange={onOpenChange}
       section={section}
@@ -550,6 +553,26 @@ function SignedInSectionBuilder({
   return <SectionBuilderContent {...props} accounts={accounts} />;
 }
 
+function getInitialSectionBuilderState(section: SectionData | null | undefined) {
+  const source = section?.source ?? "github_pr";
+  const filters = withFilterNodeIds(
+    section
+      ? normalizeFilterRule(parseJson(section.filters, null))
+      : createBuilderGroup("and", source),
+  );
+  const savedColumns = section ? parseJson<ColumnConfig[]>(section.columns, []) : [];
+
+  return {
+    accountId: section?.accountId ?? null,
+    columns: normalizeColumns(source, savedColumns),
+    filters,
+    name: section?.name ?? "",
+    repos: section ? parseJson(section.repos, []) : [],
+    showBadge: section?.showBadge ?? true,
+    source,
+  };
+}
+
 function SectionBuilderContent({
   open,
   onOpenChange,
@@ -559,17 +582,21 @@ function SectionBuilderContent({
   accounts: OAuthConnection[];
 }) {
   const isEdit = !!section;
+  const initialState = useMemo(
+    () => getInitialSectionBuilderState(section),
+    [section],
+  );
 
   // Form state
-  const [name, setName] = useState("");
-  const [source, setSource] = useState<SectionSource>("github_pr");
-  const [filters, setFilters] = useState<FilterRule>(() => createBuilderGroup("and", "github_pr"));
+  const [name, setName] = useState(initialState.name);
+  const [source, setSource] = useState<SectionSource>(initialState.source);
+  const [filters, setFilters] = useState<FilterRule>(initialState.filters);
   const filtersRef = useRef(filters);
   const [filterSearchQueries, setFilterSearchQueries] = useState<Record<string, string>>({});
-  const [repos, setRepos] = useState<string[]>([]);
-  const [accountId, setAccountId] = useState<string | null>(null);
-  const [showBadge, setShowBadge] = useState(true);
-  const [columns, setColumns] = useState<ColumnConfig[]>([]);
+  const [repos, setRepos] = useState<string[]>(initialState.repos);
+  const [accountId, setAccountId] = useState<string | null>(initialState.accountId);
+  const [showBadge, setShowBadge] = useState(initialState.showBadge);
+  const [columns, setColumns] = useState<ColumnConfig[]>(initialState.columns);
   const [openColumnIds, setOpenColumnIds] = useState<string[]>([]);
   const isGitHubSource = source === "github_pr" || source === "github_issue";
   const columnSensors = useSensors(
@@ -582,47 +609,17 @@ function SectionBuilderContent({
     filtersRef.current = filters;
   }, [filters]);
 
-  // Reset form when dialog opens
-  useEffect(() => {
-    if (open) {
-      const nextSource = section?.source ?? "github_pr";
-      const nextFilters = withFilterNodeIds(
-        section ? normalizeFilterRule(parseJson(section.filters, null)) : createBuilderGroup("and", nextSource),
-      );
-      setName(section?.name ?? "");
-      setSource(nextSource);
-      filtersRef.current = nextFilters;
-      setFilters(nextFilters);
-      setFilterSearchQueries({});
-      setRepos(section ? parseJson(section.repos, []) : []);
-      setAccountId(section?.accountId ?? null);
-      setShowBadge(section?.showBadge ?? true);
-      const savedColumns = section ? parseJson<ColumnConfig[]>(section.columns, []) : [];
-      setColumns(normalizeColumns(nextSource, savedColumns));
-      setOpenColumnIds([]);
-    }
-  }, [open, section]);
-
   // Connected accounts by provider
   const githubAccounts = accounts.filter((a) => a.provider === "github");
-  const googleAccounts = accounts.filter((a) => a.provider === "google");
+  const effectiveAccountId =
+    accountId ?? (isGitHubSource ? githubAccounts[0]?.providerAccountId ?? null : null);
 
-  // Auto-select the first account if none selected
-  useEffect(() => {
-    if (!accountId) {
-      if (isGitHubSource && githubAccounts.length > 0) {
-        setAccountId(githubAccounts[0].providerAccountId);
-      } else if (source === "gmail" && googleAccounts.length > 0) {
-        setAccountId(googleAccounts[0].providerAccountId);
-      }
-    }
-  }, [source, githubAccounts, googleAccounts, accountId, isGitHubSource]);
-
+  // GitHub queries need an account; Gmail sections can intentionally span all inboxes.
   // Get the selected connected account object
   const selectedAccount = useMemo(() => {
-    if (!accountId) return null;
-    return accounts.find((a) => a.providerAccountId === accountId) ?? null;
-  }, [accounts, accountId]);
+    if (!effectiveAccountId) return null;
+    return accounts.find((a) => a.providerAccountId === effectiveAccountId) ?? null;
+  }, [accounts, effectiveAccountId]);
   const { data: githubProfile } = useGitHubProfile(
     isGitHubSource ? selectedAccount : null,
   ) as { data: GitHubProfile | undefined };
@@ -631,7 +628,9 @@ function SectionBuilderContent({
   ) as { data: GoogleProfile | undefined };
   const selectedAccountLabel = isGitHubSource
     ? githubProfile?.login ?? null
-    : googleProfile?.email ?? null;
+    : effectiveAccountId === null
+      ? "All inboxes"
+      : googleProfile?.email ?? null;
 
   // Repo search with dynamic query + infinite pagination
   const [repoQuery, setRepoQuery] = useState("");
@@ -669,7 +668,10 @@ function SectionBuilderContent({
       isLoading: boolean;
     };
   const { data: gmailLabelOptions, isLoading: loadingGmailLabels } =
-    useGmailLabels(source === "gmail" ? selectedAccount : null) as {
+    useGmailLabels(
+      source === "gmail" ? selectedAccount : null,
+      source === "gmail" && effectiveAccountId === null,
+    ) as {
       data: FilterSuggestionOption[] | undefined;
       isLoading: boolean;
     };
@@ -784,7 +786,7 @@ function SectionBuilderContent({
         name: trimmedName,
         filters: validFilters,
         repos,
-        accountId,
+        accountId: effectiveAccountId,
         showBadge,
         columns: normalizeColumns(source, columns),
       });
@@ -794,7 +796,7 @@ function SectionBuilderContent({
         source,
         filters: validFilters,
         repos,
-        accountId,
+        accountId: effectiveAccountId,
         showBadge,
         columns: normalizeColumns(source, columns),
       });
@@ -818,7 +820,7 @@ function SectionBuilderContent({
       source,
       currentFilters: stripFilterRuleIds(pruneEmptyFilterRule(filters)),
       repos,
-      accountId,
+      accountId: effectiveAccountId,
       accountLabel: selectedAccountLabel,
       queryableValues: queryableFilterValues,
     });
@@ -915,10 +917,11 @@ function SectionBuilderContent({
               <ConnectedAccountSelect
                 accounts={accounts}
                 provider={isGitHubSource ? "github" : "google"}
-                value={accountId}
+                value={effectiveAccountId}
                 onValueChange={setAccountId}
                 className="h-9"
                 emptyMessage="No account connected."
+                allOptionLabel={isGitHubSource ? undefined : "All inboxes"}
               />
             </div>
           </div>

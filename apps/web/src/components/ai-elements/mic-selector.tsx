@@ -20,7 +20,7 @@ import type { ComponentProps, ReactNode } from "react";
 import {
   createContext,
   useCallback,
-  useContext,
+  use,
   useEffect,
   useMemo,
   useRef,
@@ -54,57 +54,55 @@ export const useAudioDevices = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hasPermission, setHasPermission] = useState(false);
+  const loadingRef = useRef(false);
 
-  const loadDevices = useCallback(
-    async (requestPermission = false) => {
-      if (requestPermission && loading) {
-        return;
+  const loadDevices = useCallback(async (requestPermission = false) => {
+    if (requestPermission && loadingRef.current) {
+      return;
+    }
+
+    try {
+      loadingRef.current = true;
+      setLoading(true);
+      setError(null);
+
+      if (requestPermission) {
+        const tempStream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+        });
+
+        for (const track of tempStream.getTracks()) {
+          track.stop();
+        }
       }
 
-      try {
-        setLoading(true);
-        setError(null);
+      const deviceList = await navigator.mediaDevices.enumerateDevices();
+      const audioInputs = deviceList.filter(
+        (device) => device.kind === "audioinput"
+      );
 
-        if (requestPermission) {
-          const tempStream = await navigator.mediaDevices.getUserMedia({
-            audio: true,
-          });
+      setDevices(audioInputs);
 
-          for (const track of tempStream.getTracks()) {
-            track.stop();
-          }
-        }
-
-        const deviceList = await navigator.mediaDevices.enumerateDevices();
-        const audioInputs = deviceList.filter(
-          (device) => device.kind === "audioinput"
-        );
-
-        setDevices(audioInputs);
-
-        if (requestPermission) {
-          setHasPermission(true);
-        }
-      } catch (caughtError) {
-        const message =
-          caughtError instanceof Error
-            ? caughtError.message
-            : "Failed to get audio devices";
-
-        setError(message);
-        console.error("Error getting audio devices:", message);
-      } finally {
-        setLoading(false);
+      if (requestPermission) {
+        setHasPermission(true);
       }
-    },
-    [loading]
-  );
+    } catch (caughtError) {
+      const message =
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Failed to get audio devices";
+
+      setError(message);
+      console.error("Error getting audio devices:", message);
+    } finally {
+      loadingRef.current = false;
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     loadDevices();
-    // Only run on mount; loadDevices identity changes with `loading`.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [loadDevices]);
 
   useEffect(() => {
     const handleDeviceChange = () => {
@@ -165,28 +163,32 @@ export const MicSelector = ({
   const [width, setWidth] = useState(200);
   const { devices, loading, hasPermission, loadDevices } = useAudioDevices();
 
-  useEffect(() => {
-    if (open && !hasPermission && !loading) {
-      loadDevices();
-    }
-  }, [open, hasPermission, loading, loadDevices]);
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      onOpenChange(nextOpen);
+      if (nextOpen && !hasPermission && !loading) {
+        loadDevices();
+      }
+    },
+    [hasPermission, loadDevices, loading, onOpenChange],
+  );
 
   const contextValue = useMemo(
     () => ({
       data: devices,
-      onOpenChange,
+      onOpenChange: handleOpenChange,
       onValueChange,
       open,
       setWidth,
       value,
       width,
     }),
-    [devices, onOpenChange, onValueChange, open, setWidth, value, width]
+    [devices, handleOpenChange, onValueChange, open, setWidth, value, width]
   );
 
   return (
     <MicSelectorContext.Provider value={contextValue}>
-      <Popover {...props} onOpenChange={onOpenChange} open={open} />
+      <Popover {...props} onOpenChange={handleOpenChange} open={open} />
     </MicSelectorContext.Provider>
   );
 };
@@ -197,7 +199,7 @@ export const MicSelectorTrigger = ({
   children,
   ...props
 }: MicSelectorTriggerProps) => {
-  const { setWidth } = useContext(MicSelectorContext);
+  const { setWidth } = use(MicSelectorContext);
   const ref = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -238,7 +240,7 @@ export const MicSelectorContent = ({
   popoverOptions,
   ...props
 }: MicSelectorContentProps) => {
-  const { width, onValueChange, value } = useContext(MicSelectorContext);
+  const { width, onValueChange, value } = use(MicSelectorContext);
 
   return (
     <PopoverContent
@@ -272,7 +274,7 @@ export const MicSelectorList = ({
   children,
   ...props
 }: MicSelectorListProps) => {
-  const { data } = useContext(MicSelectorContext);
+  const { data } = use(MicSelectorContext);
 
   return <CommandList {...props}>{children(data)}</CommandList>;
 };
@@ -287,7 +289,7 @@ export const MicSelectorEmpty = ({
 export type MicSelectorItemProps = ComponentProps<typeof CommandItem>;
 
 export const MicSelectorItem = (props: MicSelectorItemProps) => {
-  const { onValueChange, onOpenChange } = useContext(MicSelectorContext);
+  const { onValueChange, onOpenChange } = use(MicSelectorContext);
 
   const handleSelect = useCallback(
     (currentValue: string) => {
@@ -336,7 +338,7 @@ export const MicSelectorValue = ({
   className,
   ...props
 }: MicSelectorValueProps) => {
-  const { data, value } = useContext(MicSelectorContext);
+  const { data, value } = use(MicSelectorContext);
   const currentDevice = data.find((d) => d.deviceId === value);
 
   if (!currentDevice) {

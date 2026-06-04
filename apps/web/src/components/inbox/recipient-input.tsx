@@ -37,6 +37,8 @@ import {
 
 type Recipient = { name: string; email: string };
 
+const EMPTY_CONTACTS: KnownContact[] = [];
+
 type RecipientInputProps = {
   value: string;
   onChange: (value: string) => void;
@@ -124,7 +126,7 @@ export function RecipientInput({
   googleAccount,
 }: RecipientInputProps) {
   const { data } = useKnownContacts(googleAccount);
-  const contacts = (data ?? []) as KnownContact[];
+  const contacts = (data ?? EMPTY_CONTACTS) as KnownContact[];
   const [isOpen, setIsOpen] = useState(false);
   const [highlightIndex, setHighlightIndex] = useState(0);
   const [inputValue, setInputValue] = useState("");

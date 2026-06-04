@@ -14,7 +14,7 @@ import { ArrowUpRight, Check, CircleAlert, Loader2 } from "lucide-react";
 import {
   createContext,
   useCallback,
-  useContext,
+  use,
   useEffect,
   useMemo,
   useRef,
@@ -406,7 +406,7 @@ export function PiCredentialFlowsProvider({
 }
 
 export function usePiCredentialFlows() {
-  const value = useContext(PiCredentialFlowsContext);
+  const value = use(PiCredentialFlowsContext);
   if (!value) {
     throw new Error(
       "usePiCredentialFlows must be used within PiCredentialFlowsProvider",

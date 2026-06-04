@@ -18,6 +18,7 @@
       "elysia": "^1.4.21",
       "@trpc/server": "^11.13.4",
       "lucide-react": "^0.546.0",
+      "motion": "^12.38.0",
       "next-themes": "^0.4.6",
       "react": "^19.2.3",
       "react-dom": "^19.2.3",
@@ -29,15 +30,20 @@
       "unique-names-generator": "^4.7.1",
       "sqlite-vec": "^0.1.9",
       "jotai": "^2.10.3",
-      "@pierre/diffs": "^1.1.16",
+      "@pierre/diffs": "^1.2.3",
       "@pierre/trees": "^1.0.0-beta.1",
       "@xterm/xterm": "^5.5.0",
       "@xterm/addon-fit": "^0.10.0",
       "@xterm/addon-webgl": "^0.18.0",
-      "@xterm/addon-unicode11": "^0.9.0"
+      "@xterm/addon-unicode11": "^0.9.0",
+      "three": "^0.184.0",
+      "@types/three": "^0.184.1",
+      "@react-three/fiber": "^9.6.1",
+      "@react-three/drei": "^10.7.7"
     }
   },
   "overrides": {
+    "@types/three": "0.184.1",
     "d3-shape": "^3.2.0",
     "@earendil-works/pi-agent-core": "^0.75.3",
     "@earendil-works/pi-ai": "^0.75.3",

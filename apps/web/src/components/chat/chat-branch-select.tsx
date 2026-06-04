@@ -51,6 +51,8 @@ type Workspace = Awaited<
   ReturnType<typeof trpcClient.git.listWorkspaces.query>
 >["workspaces"][number];
 
+const EMPTY_WORKSPACES: Workspace[] = [];
+
 type BranchWorkspace = Extract<Workspace, { kind: "branch" }>;
 type WorktreeWorkspace = Extract<Workspace, { kind: "worktree" }>;
 
@@ -207,7 +209,7 @@ export function ChatBranchSelect({
   );
 
   const data = workspacesQuery.data;
-  const workspaces = data?.workspaces ?? [];
+  const workspaces = data?.workspaces ?? EMPTY_WORKSPACES;
   const branches = useMemo(
     () => workspaces.filter((w) => w.kind === "branch"),
     [workspaces],

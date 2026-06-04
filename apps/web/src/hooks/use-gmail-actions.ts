@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import type { OAuthConnection } from "@hexclave/react";
 import { env } from "@g-spot/env/web";
@@ -69,9 +69,14 @@ export function useMarkGmailThreadReadMutation() {
         removeLabelIds: ["UNREAD"],
       });
     },
-    onMutate: async ({ threadId }) => {
+    onMutate: async ({ account, threadId }) => {
       const snapshot = getGmailThreadsSnapshot(queryClient);
-      setGmailThreadUnreadState(queryClient, threadId, false);
+      setGmailThreadUnreadState(
+        queryClient,
+        threadId,
+        false,
+        account.providerAccountId,
+      );
       return { snapshot };
     },
     onError: (_error, _variables, context) => {
@@ -124,11 +129,12 @@ export function useGmailThreadActions(
 ) {
   const queryClient = useQueryClient();
   const accountId = googleAccount?.providerAccountId ?? null;
-  const [isRead, setIsRead] = useState(!thread.isUnread);
-
-  useEffect(() => {
-    setIsRead(!thread.isUnread);
-  }, [thread.threadId, thread.isUnread]);
+  const [readOverride, setReadOverride] = useState<{
+    threadId: string;
+    isRead: boolean;
+  } | null>(null);
+  const isRead =
+    readOverride?.threadId === thread.threadId ? readOverride.isRead : !thread.isUnread;
 
   const archiveMutation = useMutation({
     mutationFn: async ({ account, threadId, markRead }: ThreadMutationInput) => {
@@ -139,9 +145,9 @@ export function useGmailThreadActions(
         removeLabelIds: markRead ? ["INBOX", "UNREAD"] : ["INBOX"],
       });
     },
-    onMutate: async ({ threadId }) => {
+    onMutate: async ({ account, threadId }) => {
       const snapshot = getGmailThreadsSnapshot(queryClient);
-      removeGmailThreadFromLists(queryClient, threadId);
+      removeGmailThreadFromLists(queryClient, threadId, account.providerAccountId);
       return { snapshot };
     },
     onError: (_error, _variables, context) => {
@@ -165,9 +171,9 @@ export function useGmailThreadActions(
       assertDemoCanMutateGmail();
       await trashGmailThread(account, threadId);
     },
-    onMutate: async ({ threadId }) => {
+    onMutate: async ({ account, threadId }) => {
       const snapshot = getGmailThreadsSnapshot(queryClient);
-      removeGmailThreadFromLists(queryClient, threadId);
+      removeGmailThreadFromLists(queryClient, threadId, account.providerAccountId);
       return { snapshot };
     },
     onError: (_error, _variables, context) => {
@@ -203,18 +209,26 @@ export function useGmailThreadActions(
         });
       }
     },
-    onMutate: async ({ threadId, isUnread }) => {
+    onMutate: async ({ account, threadId, isUnread }) => {
       const snapshot = getGmailThreadsSnapshot(queryClient);
-      setGmailThreadUnreadState(queryClient, threadId, isUnread);
-      setIsRead(!isUnread);
+      setGmailThreadUnreadState(
+        queryClient,
+        threadId,
+        isUnread,
+        account.providerAccountId,
+      );
+      setReadOverride({ threadId, isRead: !isUnread });
       return { snapshot, previousIsRead: isRead };
     },
-    onError: (_error, _variables, context) => {
+    onError: (_error, variables, context) => {
       if (context?.snapshot) {
         restoreGmailThreadsSnapshot(queryClient, context.snapshot);
       }
       if (context?.previousIsRead !== undefined) {
-        setIsRead(context.previousIsRead);
+        setReadOverride({
+          threadId: variables.threadId,
+          isRead: context.previousIsRead,
+        });
       }
     },
     onSettled: (_data, _error, variables) => {

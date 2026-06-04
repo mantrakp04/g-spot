@@ -9,7 +9,7 @@ type GmailMailViewProps = {
   accountId?: string | null;
   sortAsc?: boolean;
   onCountChange?: (count: number, countTotalPending: boolean) => void;
-  selectedThreadId?: string | null;
+  selectedThreadKey?: string | null;
   onSelectThread?: (thread: GmailThread, accountId: string | null, threads: GmailThread[]) => void;
   columns?: ColumnConfig[];
 };
@@ -20,7 +20,7 @@ export function GmailMailView({
   accountId,
   sortAsc,
   onCountChange,
-  selectedThreadId,
+  selectedThreadKey,
   onSelectThread,
   columns,
 }: GmailMailViewProps) {
@@ -31,10 +31,11 @@ export function GmailMailView({
       accountId={accountId}
       sortAsc={sortAsc}
       onCountChange={onCountChange}
-      selectedThreadId={selectedThreadId}
+      selectedThreadKey={selectedThreadKey}
       onSelectThread={
         onSelectThread
-          ? (thread, threads) => onSelectThread(thread, accountId ?? null, threads)
+          ? (thread, threads) =>
+            onSelectThread(thread, thread.accountId ?? accountId ?? null, threads)
           : undefined
       }
       columns={columns}

@@ -84,7 +84,7 @@ function ThemeColorDots({ theme }: { theme: Theme }) {
       {colors.map((color) => (
         <div
           key={color.key}
-          className="h-3 w-3 rounded-full border border-border/50"
+          className="size-3 rounded-full border border-border/50"
           style={{ background: color.value }}
         />
       ))}
@@ -103,20 +103,16 @@ export function ThemePicker({
   const { currentTheme, setTheme: setTweakCNTheme } = useTweakCNThemes()
   const { theme: themeMode, setTheme: setThemeMode } = useTheme()
   const [isOpen, setIsOpen] = React.useState(false)
-  const [mounted, setMounted] = React.useState(false)
   const [searchQuery, setSearchQuery] = React.useState("")
   const [showImport, setShowImport] = React.useState(false)
   const [importUrl, setImportUrl] = React.useState("")
   const [isImporting, setIsImporting] = React.useState(false)
   const [importError, setImportError] = React.useState<string | null>(null)
-  const [savedThemes, setSavedThemes] = React.useState<SavedThemeEntry[]>([])
+  const [savedThemes, setSavedThemes] = React.useState<SavedThemeEntry[]>(getSavedThemes)
   const [fetchedThemes, setFetchedThemes] = React.useState<Theme[]>([])
   const [isLoadingThemes, setIsLoadingThemes] = React.useState(true)
 
   React.useEffect(() => {
-    setMounted(true)
-    setSavedThemes(getSavedThemes())
-
     // Fetch themes internally
     fetchThemes()
       .then(setFetchedThemes)
@@ -224,7 +220,7 @@ export function ThemePicker({
         ? "Light"
         : "Dark"
 
-  if (!mounted || isLoadingThemes) {
+  if (isLoadingThemes) {
     return (
       <Button
         variant={compact ? "ghost" : "outline"}
@@ -233,7 +229,7 @@ export function ThemePicker({
         disabled
         aria-label={compact ? "Theme" : undefined}
       >
-        <Palette className="h-4 w-4" />
+        <Palette className="size-4" />
         {!compact && "Loading..."}
       </Button>
     )
@@ -252,7 +248,7 @@ export function ThemePicker({
           />
         }
       >
-        <Palette className="h-4 w-4 shrink-0" />
+        <Palette className="size-4 shrink-0" />
         {!compact && (
           <span className="truncate">{currentTheme ? formatThemeName(currentTheme.name) : "Choose TweakCN Theme"}</span>
         )}
@@ -261,7 +257,7 @@ export function ThemePicker({
         {/* Search Input */}
         <div className="p-2 border-b border-border">
           <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
             <Input
               placeholder="Search themes..."
               value={searchQuery}
@@ -290,11 +286,11 @@ export function ThemePicker({
               type="button"
             >
               {normalizedThemeMode === "dark" ? (
-                <Moon className="h-4 w-4" />
+                <Moon className="size-4" />
               ) : normalizedThemeMode === "light" ? (
-                <Sun className="h-4 w-4" />
+                <Sun className="size-4" />
               ) : (
-                <Laptop className="h-4 w-4" />
+                <Laptop className="size-4" />
               )}
             </button>
             {currentTheme && (
@@ -308,7 +304,7 @@ export function ThemePicker({
                 aria-label="Clear current theme"
                 type="button"
               >
-                <X className="h-4 w-4" />
+                <X className="size-4" />
               </button>
             )}
             <button
@@ -321,7 +317,7 @@ export function ThemePicker({
               aria-label="Randomize theme"
               type="button"
             >
-              <Shuffle className="h-4 w-4" />
+              <Shuffle className="size-4" />
             </button>
           </div>
         </div>
@@ -356,7 +352,7 @@ export function ThemePicker({
                 }}
                 className="flex items-center gap-1 px-2 py-1 text-xs rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
               >
-                <Import className="h-3 w-3" />
+                <Import className="size-3" />
                 Import
               </button>
             </div>
@@ -374,7 +370,7 @@ export function ThemePicker({
                   }}
                   className="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
                 >
-                  <X className="h-3.5 w-3.5" />
+                  <X className="size-3.5" />
                 </button>
               </div>
               <Input
@@ -400,7 +396,7 @@ export function ThemePicker({
               >
                 {isImporting ? (
                   <>
-                    <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                    <Loader2 className="size-3 mr-1 animate-spin" />
                     Importing...
                   </>
                 ) : (
@@ -429,7 +425,7 @@ export function ThemePicker({
                     <ThemeColorDots theme={entry.theme} />
                     <span className="flex-1 truncate text-xs">{formatThemeName(entry.theme.name)}</span>
                     {isSelected ? (
-                      <Check className="h-3.5 w-3.5 shrink-0" />
+                      <Check className="size-3.5 shrink-0" />
                     ) : (
                       <span
                         role="button"
@@ -444,7 +440,7 @@ export function ThemePicker({
                         className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition-all"
                         title="Remove theme"
                       >
-                        <Trash2 className="h-3 w-3" />
+                        <Trash2 className="size-3" />
                       </span>
                     )}
                   </button>
@@ -479,7 +475,7 @@ export function ThemePicker({
                   <ThemeColorDots theme={theme} />
                   <span className="flex-1 truncate">{formatThemeName(theme.name)}</span>
                   {isSelected && (
-                    <Check className="h-4 w-4 shrink-0" />
+                    <Check className="size-4 shrink-0" />
                   )}
                 </button>
               )

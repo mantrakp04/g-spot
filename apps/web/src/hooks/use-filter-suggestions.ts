@@ -202,7 +202,6 @@ export function useSectionFilterSuggestions({
       githubLabelOptions,
       gmailLabelOptions,
       repoOptions,
-      searchQueries,
       source,
     ],
   );

@@ -1,7 +1,7 @@
 import {
   createContext,
   useCallback,
-  useContext,
+  use,
   useMemo,
   useReducer,
   type ReactNode,
@@ -378,7 +378,7 @@ export function DraftsProvider({ children }: { children: ReactNode }) {
 }
 
 export function useDrafts(): DraftsContextValue {
-  const ctx = useContext(DraftsContext);
+  const ctx = use(DraftsContext);
   if (!ctx) throw new Error("useDrafts must be used within DraftsProvider");
   return ctx;
 }

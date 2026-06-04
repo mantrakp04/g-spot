@@ -14,7 +14,7 @@ import { Input } from "@g-spot/ui/components/input";
 import { Label } from "@g-spot/ui/components/label";
 import { Textarea } from "@g-spot/ui/components/textarea";
 import { Loader2 } from "lucide-react";
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
 
 import {
@@ -39,6 +39,17 @@ const EMPTY_FORM = {
   disableModelInvocation: false,
 };
 
+function toForm(skill: Skill | null) {
+  if (!skill) return EMPTY_FORM;
+  return {
+    name: skill.name,
+    description: skill.description,
+    content: skill.content,
+    triggerKeywords: skill.triggerKeywords.join(", "),
+    disableModelInvocation: skill.disableModelInvocation,
+  };
+}
+
 export function SkillEditorDialog({
   open,
   onOpenChange,
@@ -47,24 +58,8 @@ export function SkillEditorDialog({
 }: SkillEditorDialogProps) {
   const createSkill = useCreateSkillMutation();
   const updateSkill = useUpdateSkillMutation(projectId);
-  const [form, setForm] = useState(EMPTY_FORM);
+  const [form, setForm] = useState(() => toForm(skill));
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    if (skill) {
-      setForm({
-        name: skill.name,
-        description: skill.description,
-        content: skill.content,
-        triggerKeywords: skill.triggerKeywords.join(", "),
-        disableModelInvocation: skill.disableModelInvocation,
-      });
-    } else {
-      setForm(EMPTY_FORM);
-    }
-    setError(null);
-  }, [open, skill]);
 
   const isEditing = skill !== null;
   const isPending = createSkill.isPending || updateSkill.isPending;

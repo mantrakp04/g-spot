@@ -1,6 +1,5 @@
 import { cn } from "@g-spot/ui/lib/utils";
 import {
-  forwardRef,
   useCallback,
   useEffect,
   useImperativeHandle,
@@ -8,7 +7,9 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type KeyboardEvent,
+  type Ref,
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
@@ -37,6 +38,7 @@ interface SlashCommandPopoverProps {
    * ref's bounding rect to position itself.
    */
   anchorRef: RefObject<HTMLElement | null>;
+  ref?: Ref<SlashCommandPopoverHandle>;
 }
 
 export interface SlashCommandPopoverHandle {
@@ -52,13 +54,16 @@ export interface SlashCommandPopoverHandle {
 
 type AnchorRect = { left: number; top: number; width: number };
 
-export const SlashCommandPopover = forwardRef<
-  SlashCommandPopoverHandle,
-  SlashCommandPopoverProps
->(function SlashCommandPopover(
-  { value, setValue, clearValue, projectId, chatId, handlers, anchorRef },
+export function SlashCommandPopover({
+  value,
+  setValue,
+  clearValue,
+  projectId,
+  chatId,
+  handlers,
+  anchorRef,
   ref,
-) {
+}: SlashCommandPopoverProps) {
   const skillsQuery = useSkillsForChat(projectId);
   const skills = useMemo(() => skillsQuery.data ?? [], [skillsQuery.data]);
 
@@ -184,7 +189,7 @@ export const SlashCommandPopover = forwardRef<
   }
 
   // Anchor the popover so its bottom edge sits 8px above the prompt input.
-  const style: React.CSSProperties = {
+  const style: CSSProperties = {
     position: "fixed",
     left: anchorRect.left,
     bottom: `${window.innerHeight - anchorRect.top + 8}px`,
@@ -241,4 +246,4 @@ export const SlashCommandPopover = forwardRef<
     </div>,
     document.body,
   );
-});
+}

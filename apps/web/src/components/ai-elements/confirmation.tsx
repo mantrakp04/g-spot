@@ -4,7 +4,7 @@ import { Alert, AlertDescription } from "@g-spot/ui/components/alert";
 import { Button } from "@g-spot/ui/components/button";
 import { cn } from "@g-spot/ui/lib/utils";
 import type { ComponentProps, ReactNode } from "react";
-import { createContext, useContext, useMemo } from "react";
+import { createContext, use, useMemo } from "react";
 
 import type { ToolUIPart } from "@/lib/chat-ui";
 
@@ -20,7 +20,7 @@ const ConfirmationContext = createContext<ConfirmationContextValue | null>(
 );
 
 const useConfirmation = () => {
-  const context = useContext(ConfirmationContext);
+  const context = use(ConfirmationContext);
 
   if (!context) {
     throw new Error("Confirmation components must be used within Confirmation");

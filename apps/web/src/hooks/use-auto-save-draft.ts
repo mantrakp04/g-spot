@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 
 import type { OAuthConnection } from "@hexclave/react";
 
@@ -22,10 +22,6 @@ type UseAutoSaveDraftReturn = {
   cancelPendingSave: () => void;
 };
 
-function serializeForm(form: ComposeFormState): string {
-  return `${form.to}|${form.cc}|${form.bcc}|${form.subject}|${form.body}`;
-}
-
 export function useAutoSaveDraft({
   form,
   fromEmail,
@@ -34,7 +30,17 @@ export function useAutoSaveDraft({
   enabled,
   onDraftIdChange,
 }: UseAutoSaveDraftOptions): UseAutoSaveDraftReturn {
-  const [draftId, setDraftId] = useState<string | null>(initialDraftId);
+  const [draftIdOverride, setDraftIdOverride] = useState<{
+    initialDraftId: string | null;
+    draftId: string | null;
+  } | null>(null);
+  const draftId =
+    draftIdOverride?.initialDraftId === initialDraftId
+      ? draftIdOverride.draftId
+      : initialDraftId;
+  const setDraftId = useCallback((nextDraftId: string | null) => {
+    setDraftIdOverride({ initialDraftId, draftId: nextDraftId });
+  }, [initialDraftId]);
   const [isSaving, setIsSaving] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
 
@@ -45,52 +51,54 @@ export function useAutoSaveDraft({
   const dirtyRef = useRef(false);
   const prevInitialDraftIdRef = useRef<string | null>(initialDraftId);
   const saveDraftMutation = useSaveGmailDraftMutation(googleAccount);
+  const serializedForm = useMemo(
+    () => `${form.to}|${form.cc}|${form.bcc}|${form.subject}|${form.body}`,
+    [form.to, form.cc, form.bcc, form.subject, form.body],
+  );
 
-  // Keep draftIdRef in sync
-  useEffect(() => {
-    draftIdRef.current = draftId;
-  }, [draftId]);
+  draftIdRef.current = draftId;
 
   useEffect(() => {
     if (prevInitialDraftIdRef.current === initialDraftId) return;
 
     prevInitialDraftIdRef.current = initialDraftId;
-    setDraftId(initialDraftId);
     draftIdRef.current = initialDraftId;
     dirtyRef.current = false;
-    lastSavedRef.current = serializeForm(form);
-  }, [initialDraftId, form]);
+    lastSavedRef.current = serializedForm;
+  }, [initialDraftId, serializedForm]);
 
-  const cancelPendingSave = useCallback(() => {
+  const clearPendingSave = useCallback(() => {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
       timerRef.current = null;
     }
     abortRef.current?.abort();
-    setIsSaving(false);
   }, []);
+
+  const cancelPendingSave = useCallback(() => {
+    clearPendingSave();
+    setIsSaving(false);
+  }, [clearPendingSave]);
 
   useEffect(() => {
     if (enabled) return;
 
     dirtyRef.current = false;
-    lastSavedRef.current = serializeForm(form);
-  }, [enabled, form]);
+    lastSavedRef.current = serializedForm;
+  }, [enabled, serializedForm]);
 
   useEffect(() => {
     if (!enabled || !fromEmail) return;
 
-    const serialized = serializeForm(form);
-
     // Mark dirty on first real change
     if (!dirtyRef.current) {
-      lastSavedRef.current = serialized;
+      lastSavedRef.current = serializedForm;
       dirtyRef.current = true;
       return;
     }
 
     // Skip if nothing changed since last save
-    if (serialized === lastSavedRef.current) return;
+    if (serializedForm === lastSavedRef.current) return;
 
     // Clear previous timer
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -126,7 +134,7 @@ export function useAutoSaveDraft({
 
         setDraftId(result.id);
         draftIdRef.current = result.id;
-        lastSavedRef.current = serialized;
+        lastSavedRef.current = serializedForm;
         setLastSavedAt(new Date());
         onDraftIdChange?.(result.id);
       } catch {
@@ -139,17 +147,17 @@ export function useAutoSaveDraft({
     }, 3000);
 
     return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
     };
-  }, [form.to, form.cc, form.bcc, form.subject, form.body, enabled, fromEmail, saveDraftMutation, form.inReplyTo, form.references, form.threadId]);
+  }, [form.to, form.cc, form.bcc, form.subject, form.body, enabled, fromEmail, saveDraftMutation, form.inReplyTo, form.references, form.threadId, serializedForm, setDraftId, onDraftIdChange]);
 
   // Cleanup on unmount
   useEffect(() => {
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-      abortRef.current?.abort();
-    };
-  }, []);
+    return clearPendingSave;
+  }, [clearPendingSave]);
 
   return { draftId, isSaving, lastSavedAt, cancelPendingSave };
 }

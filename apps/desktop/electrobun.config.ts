@@ -78,6 +78,19 @@ const onnxRuntimeNativeCopyPath = path.relative(desktopRoot, onnxRuntimeNativeDi
 const sharpNativeCopyPath = path.relative(desktopRoot, sharpNativeDir);
 const sharpLibvipsCopyPath = path.relative(desktopRoot, sharpLibvipsDir);
 
+// The window-tabs shim is a Cocoa dylib built only on macOS (see
+// scripts/build-native-tabs.js, which no-ops on win/linux). Referencing it in
+// `copy` on a non-darwin runner makes electrobun fail to resolve the copy
+// source, which silently falls back to its built-in default config
+// (app.name "MyApp"). Only ship it on macOS.
+const isMac = nodePlatform === "darwin";
+const macNativeCopy: Record<string, string> = isMac
+  ? {
+      "native/libgspot_window_tabs.dylib":
+        "bun/native/libgspot_window_tabs.dylib",
+    }
+  : {};
+
 if (!sqliteVecPath || !existsSync(sqliteVecPath)) {
   throw new Error(
     `Missing sqlite-vec ${sqliteVecSuffix} native extension. Run \`bun install\`.`,
@@ -123,7 +136,7 @@ export default {
       [sharpNativeCopyPath]: `bun/node_modules/@img/sharp-${sharpSuffix}`,
       [sharpLibvipsCopyPath]: `bun/node_modules/@img/sharp-libvips-${sharpSuffix}`,
       [sqliteVecCopyPath]: `native/sqlite-vec/vec0.${sqliteVecExt}`,
-      "native/libgspot_window_tabs.dylib": "bun/native/libgspot_window_tabs.dylib",
+      ...macNativeCopy,
     },
     watchIgnore: [`${webBuildDir}/**`],
     mac: {

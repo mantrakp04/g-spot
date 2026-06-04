@@ -38,6 +38,19 @@ export function NoteEditor({
 }: NoteEditorProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
+  const initialStateRef = useRef({
+    noteId,
+    initialDoc,
+    knownTitles,
+  });
+
+  if (initialStateRef.current.noteId !== noteId) {
+    initialStateRef.current = {
+      noteId,
+      initialDoc,
+      knownTitles,
+    };
+  }
 
   // Stash the latest callbacks in refs so the EditorView can read fresh
   // versions without us having to recreate the editor on every prop change.
@@ -48,9 +61,10 @@ export function NoteEditor({
 
   useEffect(() => {
     if (!containerRef.current) return;
+    const initialState = initialStateRef.current;
     const state = createInitialState({
-      doc: initialDoc,
-      knownTitles,
+      doc: initialState.initialDoc,
+      knownTitles: initialState.knownTitles,
       onChange: (v) => onChangeRef.current(v),
       onWikilinkClick: (title, alias) =>
         onWikilinkClickRef.current(title, alias),
@@ -71,8 +85,7 @@ export function NoteEditor({
       viewRef.current = null;
     };
     // Recreate per noteId so each note has its own undo history + state.
-    // initialDoc/knownTitles/handler updates handled separately below.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // initialDoc is intentionally seeded once per note; knownTitles updates below.
   }, [noteId]);
 
   // Live-update the known titles set without rebuilding the editor.

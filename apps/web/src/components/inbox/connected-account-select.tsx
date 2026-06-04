@@ -57,12 +57,15 @@ type ConnectedAccountSelectProps = {
   accounts: OAuthConnection[];
   provider: SupportedProvider;
   value: string | null;
-  onValueChange: (value: string) => void;
+  onValueChange: (value: string | null) => void;
   className?: string;
   placeholder?: string;
   emptyMessage?: string;
   connectHref?: string;
+  allOptionLabel?: string;
 };
+
+const ALL_ACCOUNTS_VALUE = "__all_accounts__";
 
 function getProviderLabel(provider: SupportedProvider): string {
   return provider === "github" ? "GitHub" : "Google";
@@ -77,6 +80,7 @@ export function ConnectedAccountSelect({
   placeholder = "Select account",
   emptyMessage,
   connectHref = "/settings/connections",
+  allOptionLabel,
 }: ConnectedAccountSelectProps) {
   const relevantAccounts = useMemo(
     () => accounts.filter((account) => account.provider === provider),
@@ -141,7 +145,9 @@ export function ConnectedAccountSelect({
     );
   }
 
-  const selectedLabel = value ? getAccountLabel(value) : placeholder;
+  const selectedLabel = value
+    ? getAccountLabel(value)
+    : allOptionLabel ?? placeholder;
   const selectedProfile = value ? profileByAccountId.get(value) : undefined;
   const avatarSrc = selectedProfile
     ? adapter.toAvatarUrl(selectedProfile)
@@ -149,8 +155,12 @@ export function ConnectedAccountSelect({
 
   return (
     <Select
-      value={value ?? ""}
+      value={value ?? (allOptionLabel ? ALL_ACCOUNTS_VALUE : "")}
       onValueChange={(nextValue) => {
+        if (nextValue === ALL_ACCOUNTS_VALUE) {
+          onValueChange(null);
+          return;
+        }
         if (!nextValue) return;
         onValueChange(nextValue);
       }}
@@ -169,6 +179,11 @@ export function ConnectedAccountSelect({
         </div>
       </SelectTrigger>
       <SelectContent>
+        {allOptionLabel ? (
+          <SelectItem value={ALL_ACCOUNTS_VALUE}>
+            {allOptionLabel}
+          </SelectItem>
+        ) : null}
         {relevantAccounts.map((account) => (
           <SelectItem
             key={account.providerAccountId}

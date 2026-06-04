@@ -14,15 +14,20 @@
   "dependencies": {
     "@g-spot/env": "workspace:*",
     "@g-spot/ui": "workspace:*",
+    "@react-three/drei": "catalog:",
+    "@react-three/fiber": "catalog:",
     "lucide-react": "catalog:",
+    "motion": "catalog:",
     "react": "catalog:",
-    "react-dom": "catalog:"
+    "react-dom": "catalog:",
+    "three": "catalog:"
   },
   "devDependencies": {
     "@g-spot/config": "workspace:*",
     "@tailwindcss/vite": "^4.2.2",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
+    "@types/three": "catalog:",
     "@vitejs/plugin-react": "^6.0.1",
     "tailwindcss": "catalog:",
     "typescript": "^6",

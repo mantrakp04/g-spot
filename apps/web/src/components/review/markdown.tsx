@@ -3,7 +3,7 @@ import {
   createContext,
   isValidElement,
   memo,
-  useContext,
+  use,
   useState,
 } from "react";
 import { Streamdown } from "streamdown";
@@ -33,7 +33,7 @@ export type SuggestionAnchor = {
 export const SuggestionContext = createContext<SuggestionAnchor | null>(null);
 
 function SuggestionBlock({ code }: { code: string }) {
-  const anchor = useContext(SuggestionContext);
+  const anchor = use(SuggestionContext);
   const [owner, repo] = (anchor?.baseRepoFull ?? "").split("/");
   const mutate = useApplySuggestionMutation(
     owner && repo ? { owner, repo } : { owner: "", repo: "" },

@@ -205,14 +205,16 @@ function EmptyState() {
 export function MemoryPage({ selectedMemoryId }: { selectedMemoryId?: string }) {
   const graphQuery = useMemoryGraph();
   const statsQuery = useMemoryStats();
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(
+    selectedMemoryId ?? null,
+  );
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [hiddenTypes, setHiddenTypes] = useState<Set<string>>(new Set());
 
+  // Sync selection when the route's memoryId changes without remounting,
+  // so graph simulation + hidden-type filters are preserved.
   useEffect(() => {
-    if (selectedMemoryId) {
-      setSelectedNodeId(selectedMemoryId);
-    }
+    setSelectedNodeId(selectedMemoryId ?? null);
   }, [selectedMemoryId]);
 
   const data = graphQuery.data;

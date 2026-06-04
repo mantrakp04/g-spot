@@ -1,6 +1,6 @@
 import type { InfiniteData, QueryClient, QueryKey } from "@tanstack/react-query";
 
-import type { GmailThreadPage } from "@/lib/gmail/types";
+import type { GmailThread, GmailThreadPage } from "@/lib/gmail/types";
 import { gmailKeys } from "@/lib/query-keys";
 
 type GmailThreadsSnapshot = Array<
@@ -18,6 +18,15 @@ function isGmailThreadsInfiniteData(
   };
 
   return Array.isArray(candidate.pages) && Array.isArray(candidate.pageParams);
+}
+
+function isMatchingThread(
+  thread: GmailThread,
+  threadId: string,
+  accountId?: string | null,
+): boolean {
+  return thread.threadId === threadId
+    && (accountId == null || thread.accountId === accountId);
 }
 
 export function getGmailThreadsSnapshot(
@@ -44,6 +53,7 @@ export function restoreGmailThreadsSnapshot(
 export function removeGmailThreadFromLists(
   queryClient: QueryClient,
   threadId: string,
+  accountId?: string | null,
 ) {
   queryClient.setQueriesData<InfiniteData<GmailThreadPage>>(
     { queryKey: gmailKeys.threadsRoot() },
@@ -53,7 +63,9 @@ export function removeGmailThreadFromLists(
         ...old,
         pages: old.pages.map((page) => ({
           ...page,
-          threads: page.threads.filter((thread) => thread.threadId !== threadId),
+          threads: page.threads.filter((thread) =>
+            !isMatchingThread(thread, threadId, accountId),
+          ),
         })),
       };
     },
@@ -64,6 +76,7 @@ export function setGmailThreadUnreadState(
   queryClient: QueryClient,
   threadId: string,
   isUnread: boolean,
+  accountId?: string | null,
 ) {
   queryClient.setQueriesData<InfiniteData<GmailThreadPage>>(
     { queryKey: gmailKeys.threadsRoot() },
@@ -74,7 +87,7 @@ export function setGmailThreadUnreadState(
         pages: old.pages.map((page) => ({
           ...page,
           threads: page.threads.map((thread) =>
-            thread.threadId === threadId
+            isMatchingThread(thread, threadId, accountId)
               ? {
                   ...thread,
                   isUnread,

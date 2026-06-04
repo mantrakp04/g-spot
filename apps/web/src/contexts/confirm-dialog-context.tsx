@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, use, useMemo, useState, type ReactNode } from "react";
 
 import {
   AlertDialog,
@@ -80,7 +80,7 @@ export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
 }
 
 export function useConfirmDialog() {
-  const confirm = useContext(ConfirmDialogContext);
+  const confirm = use(ConfirmDialogContext);
   if (!confirm) {
     throw new Error("useConfirmDialog must be used within ConfirmDialogProvider");
   }

@@ -1,5 +1,5 @@
 import { monaco } from "./monaco-bootstrap";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useReducer, useSyncExternalStore } from "react";
 
 const LIGHT_THEME = "g-spot-light";
 const DARK_THEME = "g-spot-dark";
@@ -249,7 +249,8 @@ export function useMonacoTheme(resolved: "light" | "dark", active = true): strin
     active ? getThemeVarsSnapshot : () => "",
     () => "",
   );
-  const [themeName, setThemeName] = useState(() =>
+  const [themeName, setThemeName] = useReducer(
+    (_current: string, next: string) => next,
     resolved === "dark" ? "vs-dark" : "vs",
   );
 

@@ -29,7 +29,7 @@ import {
   Trash2,
   Workflow,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { GmailWorkflowEditorDialog } from "./gmail-workflow-editor-dialog";
@@ -85,16 +85,12 @@ function useGoogleAccounts() {
 }
 
 function useSelectedGoogleAccount(accounts: OAuthConnection[]) {
-  const [providerAccountId, setProviderAccountId] = useState<string | null>(
-    accounts[0]?.providerAccountId ?? null,
-  );
-
-  useEffect(() => {
-    if (providerAccountId && accounts.some((account) => account.providerAccountId === providerAccountId)) {
-      return;
-    }
-    setProviderAccountId(accounts[0]?.providerAccountId ?? null);
-  }, [accounts, providerAccountId]);
+  const [selectedProviderAccountId, setProviderAccountId] = useState<string | null>(null);
+  const providerAccountId =
+    selectedProviderAccountId &&
+    accounts.some((account) => account.providerAccountId === selectedProviderAccountId)
+      ? selectedProviderAccountId
+      : accounts[0]?.providerAccountId ?? null;
 
   return {
     account:
@@ -382,6 +378,7 @@ export function GmailWorkflowsPage() {
       </div>
 
       <GmailWorkflowEditorDialog
+        key={editorOpen ? editingWorkflow?.id ?? "new" : "closed"}
         open={editorOpen}
         onOpenChange={setEditorOpen}
         workflow={editingWorkflow}

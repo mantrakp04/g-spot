@@ -26,7 +26,7 @@ import { Separator } from "@g-spot/ui/components/separator";
 import { Skeleton } from "@g-spot/ui/components/skeleton";
 import { cn } from "@g-spot/ui/lib/utils";
 import { Loader2 } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode, type SetStateAction } from "react";
 import { toast } from "sonner";
 
 import { PiModelPicker } from "@/components/pi/pi-model-picker";
@@ -45,6 +45,14 @@ import {
   SANDBOX_MODE_OPTIONS,
   updateAgentConfigModel,
 } from "@/lib/pi-agent-config";
+
+const EMPTY_PI_MODELS: PiModelOption[] = [];
+const EMPTY_PI_TOOLS: { name: string; description: string }[] = [];
+
+type PiAgentDrafts = {
+  chat: PiAgentConfig;
+  worker: PiAgentConfig;
+};
 
 function SettingsField({
   label,
@@ -143,21 +151,30 @@ function PiAgentDefaultsCardInner({
 }: PiAgentDefaultsCardInnerProps) {
   const piDefaults = usePiDefaults();
   const updateDefaults = useUpdatePiDefaultsMutation();
-  const [drafts, setDrafts] = useState<{
-    chat: PiAgentConfig;
-    worker: PiAgentConfig;
-  } | null>(null);
-
-  useEffect(() => {
-    if (!piDefaults.data) {
-      return;
-    }
-
-    setDrafts({
+  const baselineDrafts = useMemo<PiAgentDrafts | null>(() => {
+    if (!piDefaults.data) return null;
+    return {
       chat: normalizeAgentConfig(piDefaults.data.chat, allModels),
       worker: normalizeAgentConfig(piDefaults.data.worker, allModels),
-    });
+    };
   }, [allModels, piDefaults.data]);
+  const baselineKey = baselineDrafts ? JSON.stringify(baselineDrafts) : "loading";
+  const [draftOverride, setDraftOverride] = useState<{
+    drafts: PiAgentDrafts;
+    key: string;
+  } | null>(null);
+  const drafts =
+    draftOverride?.key === baselineKey ? draftOverride.drafts : baselineDrafts;
+
+  function setDrafts(updater: SetStateAction<PiAgentDrafts | null>) {
+    setDraftOverride((current) => {
+      const currentDrafts =
+        current?.key === baselineKey ? current.drafts : baselineDrafts;
+      const next =
+        typeof updater === "function" ? updater(currentDrafts) : updater;
+      return next ? { drafts: next, key: baselineKey } : null;
+    });
+  }
 
   const sharedConfig = useMemo(
     () => (drafts ? getSharedDraftConfig(drafts.chat, drafts.worker) : null),
@@ -495,7 +512,7 @@ export function PiAgentDefaultsCard() {
   const piCatalog = usePiCatalog();
   const piDefaults = usePiDefaults();
 
-  const allModels = piCatalog.data?.models ?? [];
+  const allModels = piCatalog.data?.models ?? EMPTY_PI_MODELS;
   const configuredProviders = useMemo(
     () =>
       new Set(
@@ -511,7 +528,7 @@ export function PiAgentDefaultsCard() {
   );
   const tools = useMemo(
     () =>
-      (piCatalog.data?.tools ?? []).map((tool) => ({
+      (piCatalog.data?.tools ?? EMPTY_PI_TOOLS).map((tool) => ({
         name: tool.name,
         description: tool.description,
       })),

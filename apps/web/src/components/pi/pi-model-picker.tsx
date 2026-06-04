@@ -21,7 +21,7 @@ import {
   LinkIcon,
   Minus,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type ComponentProps } from "react";
+import { useMemo, useState, type ComponentProps } from "react";
 
 import { ModelSelectorLogo } from "@/components/ai-elements/model-selector";
 import { usePiCredentialFlows } from "@/contexts/pi-credential-flows-context";
@@ -130,29 +130,21 @@ export function PiModelPicker({
       });
   }, [configuredProviders, models, oauthProviders]);
 
-  useEffect(() => {
-    if (!open) {
-      setQuery("");
-      return;
-    }
-
-    if (
-      selectedModel &&
-      groups.some((group) => group.provider === selectedModel.provider)
-    ) {
-      setSelectedProvider(selectedModel.provider);
-      return;
-    }
-
-    setSelectedProvider(groups[0]?.provider ?? null);
-  }, [groups, open, selectedModel]);
+  const defaultProvider =
+    selectedModel && groups.some((group) => group.provider === selectedModel.provider)
+      ? selectedModel.provider
+      : groups[0]?.provider ?? null;
+  const activeProvider =
+    selectedProvider && groups.some((group) => group.provider === selectedProvider)
+      ? selectedProvider
+      : defaultProvider;
 
   const activeGroup = useMemo(
     () =>
-      groups.find((group) => group.provider === selectedProvider) ??
+      groups.find((group) => group.provider === activeProvider) ??
       groups[0] ??
       null,
-    [groups, selectedProvider],
+    [activeProvider, groups],
   );
 
   const visibleModels = useMemo(() => {
@@ -167,7 +159,16 @@ export function PiModelPicker({
   }, [activeGroup, query]);
 
   return (
-    <Popover onOpenChange={setOpen} open={open}>
+    <Popover
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen) {
+          setQuery("");
+          setSelectedProvider(null);
+        }
+      }}
+      open={open}
+    >
       <PopoverTrigger
         render={
           <Button

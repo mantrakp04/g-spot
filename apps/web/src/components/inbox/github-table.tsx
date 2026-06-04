@@ -1,7 +1,6 @@
 import { useEffect, useMemo, type HTMLAttributes, type ReactElement } from "react";
 
 import type { ColumnConfig, FilterRule } from "@g-spot/types/filters";
-import { getDefaultColumns, normalizeColumns } from "@g-spot/types/filters";
 import { env } from "@g-spot/env/web";
 import type { OAuthConnection } from "@hexclave/react";
 import { useNavigate } from "@tanstack/react-router";
@@ -12,6 +11,7 @@ import { useReadState } from "@/hooks/use-read-state";
 import { useUpdateSectionMutation } from "@/hooks/use-sections";
 import { buildIssueColumns } from "./columns/github-issue-columns";
 import { buildPrColumns } from "./columns/github-pr-columns";
+import { useNormalizedColumnConfig } from "./columns/use-normalized-column-config";
 import { InboxDataTable } from "./inbox-data-table";
 import {
   GitHubIssuePreview,
@@ -62,19 +62,7 @@ export function GitHubTable({
 
   const updateSectionMutation = useUpdateSectionMutation({ refetchOnSettled: false });
 
-  // Key the memo on the *content* of columnsProp, not its reference — the
-  // parent re-creates this array on every render (parseJson), so relying on
-  // reference equality would thrash every child memo each render.
-  const columnsPropKey = columnsProp ? JSON.stringify(columnsProp) : "";
-  const columnConfig = useMemo<ColumnConfig[]>(
-    () =>
-      normalizeColumns(
-        source,
-        columnsProp && columnsProp.length > 0 ? columnsProp : getDefaultColumns(source),
-      ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [columnsPropKey, source],
-  );
+  const columnConfig = useNormalizedColumnConfig(source, columnsProp);
 
   const items = useMemo(() => pages?.flatMap((page) => page.items) ?? [], [pages]);
 

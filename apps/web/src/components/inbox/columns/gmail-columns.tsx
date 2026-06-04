@@ -148,10 +148,6 @@ function LabelsCell({
   const [visibleCount, setVisibleCount] = useState(resolvedLabels.length);
 
   useEffect(() => {
-    setVisibleCount(resolvedLabels.length);
-  }, [resolvedLabels.length]);
-
-  useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
@@ -207,8 +203,9 @@ function LabelsCell({
 
   if (resolvedLabels.length === 0) return null;
 
-  const shownLabels = resolvedLabels.slice(0, visibleCount);
-  const hiddenLabels = resolvedLabels.slice(visibleCount);
+  const effectiveVisibleCount = Math.min(visibleCount, resolvedLabels.length);
+  const shownLabels = resolvedLabels.slice(0, effectiveVisibleCount);
+  const hiddenLabels = resolvedLabels.slice(effectiveVisibleCount);
 
   return (
     <>

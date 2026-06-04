@@ -8,7 +8,7 @@ import type { ComponentProps, HTMLAttributes } from "react";
 import {
   createContext,
   useCallback,
-  useContext,
+  use,
   useEffect,
   useMemo,
   useRef,
@@ -69,7 +69,7 @@ export const TerminalStatus = ({
   children,
   ...props
 }: TerminalStatusProps) => {
-  const { isStreaming } = useContext(TerminalContext);
+  const { isStreaming } = use(TerminalContext);
 
   if (!isStreaming) {
     return null;
@@ -113,7 +113,7 @@ export const TerminalCopyButton = ({
 }: TerminalCopyButtonProps) => {
   const [isCopied, setIsCopied] = useState(false);
   const timeoutRef = useRef<number>(0);
-  const { output } = useContext(TerminalContext);
+  const { output } = use(TerminalContext);
 
   const copyToClipboard = useCallback(async () => {
     if (typeof window === "undefined" || !navigator?.clipboard?.writeText) {
@@ -166,7 +166,7 @@ export const TerminalClearButton = ({
   className,
   ...props
 }: TerminalClearButtonProps) => {
-  const { onClear } = useContext(TerminalContext);
+  const { onClear } = use(TerminalContext);
 
   if (!onClear) {
     return null;
@@ -195,7 +195,7 @@ export const TerminalContent = ({
   children,
   ...props
 }: TerminalContentProps) => {
-  const { output, isStreaming, autoScroll } = useContext(TerminalContext);
+  const { output, isStreaming, autoScroll } = use(TerminalContext);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {

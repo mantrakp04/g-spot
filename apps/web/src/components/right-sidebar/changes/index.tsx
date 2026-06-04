@@ -94,35 +94,29 @@ export function ChangesPanel({ projectId, onChangeClick }: Props) {
   const [expanded, setExpanded] = useExpandedGroups();
   const [selection, setSelection] = useSelection();
 
-  const [message, setMessage] = useState("");
-  const seededDraftRef = useRef(false);
+  const [messageOverride, setMessageOverride] = useState<string | null>(null);
   const draftSavedValueRef = useRef<string>("");
-  const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const draftBaseline = draft.data?.draft ?? "";
+  const message = messageOverride ?? draftBaseline;
 
-  // Seed message from server-side draft (once).
   useEffect(() => {
-    if (seededDraftRef.current) return;
     if (draft.data) {
-      const initial = draft.data.draft ?? "";
-      if (initial) setMessage(initial);
-      draftSavedValueRef.current = initial;
-      seededDraftRef.current = true;
+      draftSavedValueRef.current = draft.data.draft ?? "";
     }
   }, [draft.data]);
 
   // Debounced draft auto-save.
   useEffect(() => {
-    if (!seededDraftRef.current) return;
+    if (!draft.data) return;
     if (message === draftSavedValueRef.current) return;
-    if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
-    draftTimerRef.current = setTimeout(() => {
+    const draftTimer = setTimeout(() => {
       draftSavedValueRef.current = message;
       mutations.setDraft.mutate(message);
     }, 500);
     return () => {
-      if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+      clearTimeout(draftTimer);
     };
-  }, [message, mutations.setDraft]);
+  }, [draft.data, message, mutations.setDraft]);
 
   const groups = useMemo(
     () => classifyGroups(changesQuery.data?.changes ?? []),
@@ -160,7 +154,7 @@ export function ChangesPanel({ projectId, onChangeClick }: Props) {
       { message: trimmed },
       {
         onSuccess: () => {
-          setMessage("");
+          setMessageOverride("");
           draftSavedValueRef.current = "";
           mutations.setDraft.mutate("");
         },
@@ -331,7 +325,7 @@ export function ChangesPanel({ projectId, onChangeClick }: Props) {
         <div className="min-w-0 border-b border-border p-2">
           <CommitBox
             value={message}
-            onChange={setMessage}
+            onChange={setMessageOverride}
             onSubmit={handleCommit}
             branch={branch.data?.branch}
             disabled={mutations.commit.isPending}
@@ -343,7 +337,7 @@ export function ChangesPanel({ projectId, onChangeClick }: Props) {
               repoState={repoState.data}
               mutations={mutations}
               onCommitted={() => {
-                setMessage("");
+                setMessageOverride("");
                 draftSavedValueRef.current = "";
                 mutations.setDraft.mutate("");
               }}

@@ -56,7 +56,6 @@ export function ReviewShell({
       const hidden = header.getBoundingClientRect().bottom < 48;
       setCondensed((prev) => (prev !== hidden ? hidden : prev));
     };
-    onScroll();
     root.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", onScroll);
     return () => {

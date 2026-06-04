@@ -12,7 +12,7 @@ import {
   MicIcon,
 } from "lucide-react";
 import { nanoid } from "nanoid";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -125,6 +125,40 @@ import { chatKeys } from "@/lib/query-keys";
 import { consumePendingChatSubmission, setPendingChatSubmission } from "@/lib/pending-chat-submissions";
 import { useChatRuntimeStatus } from "@/lib/chat-runtime-statuses";
 import { trpc } from "@/utils/trpc";
+
+const EMPTY_PI_MODELS: PiModelOption[] = [];
+
+type AgentConfigAction =
+  | {
+      type: "sync";
+      isDraft: boolean;
+      draftProjectConfig: PiAgentConfig;
+      persistedAgentConfig: PiAgentConfig;
+      lastAppliedDraftConfig: PiAgentConfig | null;
+    }
+  | {
+      type: "replace";
+      agentConfig: PiAgentConfig;
+    };
+
+function agentConfigReducer(
+  current: PiAgentConfig,
+  action: AgentConfigAction,
+): PiAgentConfig {
+  if (action.type === "replace") {
+    return action.agentConfig;
+  }
+
+  if (!action.isDraft) {
+    return action.persistedAgentConfig;
+  }
+
+  const shouldSync =
+    action.lastAppliedDraftConfig === null ||
+    areAgentConfigsEqual(current, action.lastAppliedDraftConfig);
+
+  return shouldSync ? action.draftProjectConfig : current;
+}
 
 /** Attach files button — must be a child of PromptInput to access attachments context */
 function AttachFilesButton() {
@@ -320,7 +354,7 @@ function ChatViewInner({
   const handleNewChat = useCallback(() => {
     void newChat(projectId);
   }, [newChat, projectId]);
-  const allModels = piCatalog.data?.models ?? [];
+  const allModels = piCatalog.data?.models ?? EMPTY_PI_MODELS;
   const configuredProviders = useMemo(
     () =>
       new Set(
@@ -348,43 +382,45 @@ function ChatViewInner({
       ),
     [allModels, chatAgentConfig],
   );
-  const [agentConfig, setAgentConfig] = useState<PiAgentConfig>(
+  const [agentConfig, dispatchAgentConfig] = useReducer(
+    agentConfigReducer,
     isDraft ? draftProjectConfig : persistedAgentConfig,
   );
   const lastAppliedDraftConfigRef = useRef<PiAgentConfig | null>(null);
 
   useEffect(() => {
+    const lastAppliedDraftConfig = lastAppliedDraftConfigRef.current;
     if (isDraft) {
-      setAgentConfig((current) => {
-        const shouldSync =
-          lastAppliedDraftConfigRef.current === null ||
-          areAgentConfigsEqual(current, lastAppliedDraftConfigRef.current);
-
-        lastAppliedDraftConfigRef.current = draftProjectConfig;
-
-        if (!shouldSync) {
-          return current;
-        }
-
-        logChatDebug("agent-config-sync", {
-          source: "draft-project",
-          chatId,
-          agentConfig: draftProjectConfig,
-        });
-
-        return draftProjectConfig;
+      lastAppliedDraftConfigRef.current = draftProjectConfig;
+      dispatchAgentConfig({
+        type: "sync",
+        isDraft,
+        draftProjectConfig,
+        persistedAgentConfig,
+        lastAppliedDraftConfig,
+      });
+      logChatDebug("agent-config-sync", {
+        source: "draft-project",
+        chatId,
+        agentConfig: draftProjectConfig,
       });
       return;
     }
 
     lastAppliedDraftConfigRef.current = null;
-    setAgentConfig(persistedAgentConfig);
+    dispatchAgentConfig({
+      type: "sync",
+      isDraft,
+      draftProjectConfig,
+      persistedAgentConfig,
+      lastAppliedDraftConfig,
+    });
     logChatDebug("agent-config-sync", {
       source: "persisted-chat",
       chatId,
       agentConfig: persistedAgentConfig,
     });
-  }, [draftProjectConfig, isDraft, persistedAgentConfig]);
+  }, [chatId, draftProjectConfig, isDraft, persistedAgentConfig]);
 
   const persistDraftProjectAgentConfig = useCallback(
     async (nextAgentConfig: PiAgentConfig) => {
@@ -595,8 +631,7 @@ function ChatViewInner({
       dbMessageCount: dbMessages.length,
       initialMessages: initialMessages.map(summarizeUiMessage),
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialMessages]);
+  }, [chatId, dbMessages.length, initialMessages]);
 
   useEffect(() => {
     if (!focusMessageId) return;
@@ -1021,7 +1056,7 @@ function ChatViewInner({
         modelId: nextModel.id,
       };
       const previousAgentConfig = agentConfig;
-      setAgentConfig(nextAgentConfig);
+      dispatchAgentConfig({ type: "replace", agentConfig: nextAgentConfig });
       logChatDebug("model-change", {
         chatId,
         previousAgentConfig,
@@ -1044,7 +1079,7 @@ function ChatViewInner({
           agentConfig: nextAgentConfig,
         });
       } catch (error) {
-        setAgentConfig(previousAgentConfig);
+        dispatchAgentConfig({ type: "replace", agentConfig: previousAgentConfig });
         toast.error(
           error instanceof Error
             ? error.message
@@ -1076,7 +1111,7 @@ function ChatViewInner({
       const nextAgentConfig = { ...agentConfig, branch };
       const previousAgentConfig = agentConfig;
 
-      setAgentConfig(nextAgentConfig);
+      dispatchAgentConfig({ type: "replace", agentConfig: nextAgentConfig });
       logChatDebug("branch-change", {
         chatId,
         previousAgentConfig,
@@ -1097,7 +1132,7 @@ function ChatViewInner({
           agentConfig: nextAgentConfig,
         });
       } catch (error) {
-        setAgentConfig(previousAgentConfig);
+        dispatchAgentConfig({ type: "replace", agentConfig: previousAgentConfig });
         toast.error(
           error instanceof Error
             ? error.message
@@ -1127,7 +1162,7 @@ function ChatViewInner({
       const nextAgentConfig = applyPermissionModePreset(agentConfig, presetId);
       const previousAgentConfig = agentConfig;
 
-      setAgentConfig(nextAgentConfig);
+      dispatchAgentConfig({ type: "replace", agentConfig: nextAgentConfig });
       logChatDebug("permission-mode-change", {
         chatId,
         previousAgentConfig,
@@ -1150,7 +1185,7 @@ function ChatViewInner({
           agentConfig: nextAgentConfig,
         });
       } catch (error) {
-        setAgentConfig(previousAgentConfig);
+        dispatchAgentConfig({ type: "replace", agentConfig: previousAgentConfig });
         toast.error(
           error instanceof Error
             ? error.message
@@ -1177,7 +1212,7 @@ function ChatViewInner({
       };
       const previousAgentConfig = agentConfig;
 
-      setAgentConfig(nextAgentConfig);
+      dispatchAgentConfig({ type: "replace", agentConfig: nextAgentConfig });
       logChatDebug("thinking-level-change", {
         chatId,
         previousAgentConfig,
@@ -1200,7 +1235,7 @@ function ChatViewInner({
           agentConfig: nextAgentConfig,
         });
       } catch (error) {
-        setAgentConfig(previousAgentConfig);
+        dispatchAgentConfig({ type: "replace", agentConfig: previousAgentConfig });
         toast.error(
           error instanceof Error
             ? error.message

@@ -9,7 +9,7 @@ import {
 import { Progress } from "@g-spot/ui/components/progress";
 import { cn } from "@g-spot/ui/lib/utils";
 import type { ComponentProps } from "react";
-import { createContext, useContext, useMemo } from "react";
+import { createContext, use, useMemo } from "react";
 import { getUsage } from "tokenlens";
 
 import type { LanguageModelUsage } from "@/lib/chat-ui";
@@ -32,7 +32,7 @@ interface ContextSchema {
 const ContextContext = createContext<ContextSchema | null>(null);
 
 const useContextValue = () => {
-  const context = useContext(ContextContext);
+  const context = use(ContextContext);
 
   if (!context) {
     throw new Error("Context components must be used within Context");

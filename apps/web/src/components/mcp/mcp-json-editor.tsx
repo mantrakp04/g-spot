@@ -57,11 +57,7 @@ export function McpJsonEditor({ initialDoc, onChange }: McpJsonEditorProps) {
       view.destroy();
       viewRef.current = null;
     };
-    // We deliberately ignore changes to `initialDoc` after mount — the editor
-    // is the source of truth once it's open. To reset, remount with a new
-    // React `key`.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [initialDoc]);
 
   return <div ref={containerRef} className="h-full w-full overflow-auto" />;
 }

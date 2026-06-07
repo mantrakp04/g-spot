@@ -38,39 +38,41 @@ const isUnderline = (fontStyle: number | undefined) =>
   // oxlint-disable-next-line eslint(no-bitwise)
   fontStyle && fontStyle & 4;
 
-// Transform tokens to include pre-computed keys to avoid noArrayIndexKey lint
-interface KeyedToken {
-  token: ThemedToken;
+const TOKEN_CACHE_LIMIT = 200;
+
+interface RenderToken {
+  content: string;
   key: string;
+  style?: CSSProperties;
 }
-interface KeyedLine {
-  tokens: KeyedToken[];
+interface RenderLine {
   key: string;
+  tokens: RenderToken[];
 }
 
-const addKeysToTokens = (lines: ThemedToken[][]): KeyedLine[] =>
+// Pre-compute render data once per cache entry so React render only maps nodes.
+const createRenderLines = (lines: ThemedToken[][]): RenderLine[] =>
   lines.map((line, lineIdx) => ({
     key: `line-${lineIdx}`,
     tokens: line.map((token, tokenIdx) => ({
+      content: token.content,
       key: `line-${lineIdx}-${tokenIdx}`,
-      token,
-    })),
-  }));
-
-// Token rendering component
-const TokenSpan = ({ token }: { token: ThemedToken }) => (
-  <span
-    className="dark:!bg-[var(--shiki-dark-bg)] dark:!text-[var(--shiki-dark)]"
-    style={
-      {
+      style: {
         backgroundColor: token.bgColor,
         color: token.color,
         fontStyle: isItalic(token.fontStyle) ? "italic" : undefined,
         fontWeight: isBold(token.fontStyle) ? "bold" : undefined,
         textDecoration: isUnderline(token.fontStyle) ? "underline" : undefined,
         ...token.htmlStyle,
-      } as CSSProperties
-    }
+      },
+    })),
+  }));
+
+// Token rendering component
+const TokenSpan = ({ token }: { token: RenderToken }) => (
+  <span
+    className="dark:!bg-[var(--shiki-dark-bg)] dark:!text-[var(--shiki-dark)]"
+    style={token.style}
   >
     {token.content}
   </span>
@@ -92,18 +94,16 @@ const LINE_NUMBER_CLASSES = cn(
 
 // Line rendering component
 const LineSpan = ({
-  keyedLine,
+  line,
   showLineNumbers,
 }: {
-  keyedLine: KeyedLine;
+  line: RenderLine;
   showLineNumbers: boolean;
 }) => (
   <span className={showLineNumbers ? LINE_NUMBER_CLASSES : "block"}>
-    {keyedLine.tokens.length === 0
+    {line.tokens.length === 0
       ? "\n"
-      : keyedLine.tokens.map(({ token, key }) => (
-          <TokenSpan key={key} token={token} />
-        ))}
+      : line.tokens.map((token) => <TokenSpan key={token.key} token={token} />)}
   </span>
 );
 
@@ -115,9 +115,9 @@ type CodeBlockProps = HTMLAttributes<HTMLDivElement> & {
 };
 
 interface TokenizedCode {
-  tokens: ThemedToken[][];
   fg: string;
   bg: string;
+  lines: RenderLine[];
 }
 
 interface CodeBlockContextType {
@@ -129,56 +129,77 @@ const CodeBlockContext = createContext<CodeBlockContextType>({
   code: "",
 });
 
-// Highlighter cache (singleton per language)
-const highlighterCache = new Map<
-  string,
-  Promise<HighlighterGeneric<BundledLanguage, BundledTheme>>
->();
+const highlighterPromise: Promise<
+  HighlighterGeneric<BundledLanguage, BundledTheme>
+> = createHighlighter({
+  langs: [],
+  themes: ["github-light", "github-dark"],
+});
+
+const languageLoadCache = new Map<BundledLanguage, Promise<void>>();
 
 // Token cache
 const tokensCache = new Map<string, TokenizedCode>();
+const rawTokensCache = new Map<string, TokenizedCode>();
+const inFlightHighlights = new Set<string>();
 
 // Subscribers for async token updates
 const subscribers = new Map<string, Set<(result: TokenizedCode) => void>>();
 
-const getTokensCacheKey = (code: string, language: BundledLanguage) => {
-  const start = code.slice(0, 100);
-  const end = code.length > 100 ? code.slice(-100) : "";
-  return `${language}:${code.length}:${start}:${end}`;
-};
+const getTokensCacheKey = (code: string, language: BundledLanguage) =>
+  `${language}\0${code}`;
 
 const getHighlighter = (
   language: BundledLanguage
 ): Promise<HighlighterGeneric<BundledLanguage, BundledTheme>> => {
-  const cached = highlighterCache.get(language);
-  if (cached) {
-    return cached;
-  }
+  const cachedLoad = languageLoadCache.get(language);
+  if (cachedLoad) return cachedLoad.then(() => highlighterPromise);
 
-  const highlighterPromise = createHighlighter({
-    langs: [language],
-    themes: ["github-light", "github-dark"],
+  const loadPromise = highlighterPromise.then(async (highlighter) => {
+    if (!highlighter.getLoadedLanguages().includes(language)) {
+      await highlighter.loadLanguage(language);
+    }
   });
+  languageLoadCache.set(language, loadPromise);
+  return loadPromise.then(() => highlighterPromise);
+};
 
-  highlighterCache.set(language, highlighterPromise);
-  return highlighterPromise;
+const setBoundedCache = <T,>(cache: Map<string, T>, key: string, value: T) => {
+  if (cache.size >= TOKEN_CACHE_LIMIT) {
+    const oldestKey = cache.keys().next().value;
+    if (oldestKey !== undefined) {
+      cache.delete(oldestKey);
+    }
+  }
+  cache.set(key, value);
 };
 
 // Create raw tokens for immediate display while highlighting loads
-const createRawTokens = (code: string): TokenizedCode => ({
-  bg: "transparent",
-  fg: "inherit",
-  tokens: code.split("\n").map((line) =>
-    line === ""
-      ? []
-      : [
-          {
-            color: "inherit",
-            content: line,
-          } as ThemedToken,
-        ]
-  ),
-});
+const createRawTokens = (code: string, language: BundledLanguage): TokenizedCode => {
+  const cacheKey = getTokensCacheKey(code, language);
+  const cached = rawTokensCache.get(cacheKey);
+  if (cached) return cached;
+
+  const rawTokens: TokenizedCode = {
+    bg: "transparent",
+    fg: "inherit",
+    lines: code.split("\n").map((line, lineIdx) => ({
+      key: `line-${lineIdx}`,
+      tokens:
+        line === ""
+          ? []
+          : [
+              {
+                content: line,
+                key: `line-${lineIdx}-0`,
+                style: { color: "inherit" },
+              },
+            ],
+    })),
+  };
+  setBoundedCache(rawTokensCache, cacheKey, rawTokens);
+  return rawTokens;
+};
 
 // Synchronous highlight with callback for async results
 export const highlightCode = (
@@ -203,15 +224,17 @@ export const highlightCode = (
     subscribers.get(tokensCacheKey)?.add(callback);
   }
 
+  if (inFlightHighlights.has(tokensCacheKey)) {
+    return null;
+  }
+  inFlightHighlights.add(tokensCacheKey);
+
   // Start highlighting in background - fire-and-forget async pattern
   getHighlighter(language)
     // oxlint-disable-next-line eslint-plugin-promise(prefer-await-to-then)
     .then((highlighter) => {
-      const availableLangs = highlighter.getLoadedLanguages();
-      const langToUse = availableLangs.includes(language) ? language : "text";
-
       const result = highlighter.codeToTokens(code, {
-        lang: langToUse,
+        lang: language,
         themes: {
           dark: "github-dark",
           light: "github-light",
@@ -221,11 +244,12 @@ export const highlightCode = (
       const tokenized: TokenizedCode = {
         bg: result.bg ?? "transparent",
         fg: result.fg ?? "inherit",
-        tokens: result.tokens,
+        lines: createRenderLines(result.tokens),
       };
 
       // Cache the result
-      tokensCache.set(tokensCacheKey, tokenized);
+      setBoundedCache(tokensCache, tokensCacheKey, tokenized);
+      inFlightHighlights.delete(tokensCacheKey);
 
       // Notify all subscribers
       const subs = subscribers.get(tokensCacheKey);
@@ -239,6 +263,7 @@ export const highlightCode = (
     // oxlint-disable-next-line eslint-plugin-promise(prefer-await-to-then), eslint-plugin-promise(prefer-await-to-callbacks)
     .catch((error) => {
       console.error("Failed to highlight code:", error);
+      inFlightHighlights.delete(tokensCacheKey);
       subscribers.delete(tokensCacheKey);
     });
 
@@ -263,11 +288,6 @@ const CodeBlockBody = memo(
       [tokenized.bg, tokenized.fg]
     );
 
-    const keyedLines = useMemo(
-      () => addKeysToTokens(tokenized.tokens),
-      [tokenized.tokens]
-    );
-
     return (
       <pre
         className={cn(
@@ -282,10 +302,10 @@ const CodeBlockBody = memo(
             showLineNumbers && "[counter-increment:line_0] [counter-reset:line]"
           )}
         >
-          {keyedLines.map((keyedLine) => (
+          {tokenized.lines.map((line) => (
             <LineSpan
-              key={keyedLine.key}
-              keyedLine={keyedLine}
+              key={line.key}
+              line={line}
               showLineNumbers={showLineNumbers}
             />
           ))}
@@ -381,7 +401,10 @@ export const CodeBlockContent = ({
   showLineNumbers?: boolean;
 }) => {
   // Memoized raw tokens for immediate display
-  const rawTokens = useMemo(() => createRawTokens(code), [code]);
+  const rawTokens = useMemo(
+    () => createRawTokens(code, language),
+    [code, language]
+  );
 
   // Synchronous cache lookup — avoids setState in effect for cached results
   const syncTokens = useMemo(
@@ -390,24 +413,19 @@ export const CodeBlockContent = ({
   );
 
   // Async highlighting result (populated after shiki loads)
-  const [asyncTokens, setAsyncTokens] = useState<TokenizedCode | null>(null);
-  const asyncKeyRef = useRef({ code, language });
-
-  // Invalidate stale async tokens synchronously during render
-  if (
-    asyncKeyRef.current.code !== code ||
-    asyncKeyRef.current.language !== language
-  ) {
-    asyncKeyRef.current = { code, language };
-    setAsyncTokens(null);
-  }
+  const [asyncTokens, setAsyncTokens] = useState<{
+    key: string;
+    tokenized: TokenizedCode;
+  } | null>(null);
+  const cacheKey = getTokensCacheKey(code, language);
 
   useEffect(() => {
     let cancelled = false;
+    const effectCacheKey = getTokensCacheKey(code, language);
 
     highlightCode(code, language, (result) => {
       if (!cancelled) {
-        setAsyncTokens(result);
+        setAsyncTokens({ key: effectCacheKey, tokenized: result });
       }
     });
 
@@ -416,7 +434,8 @@ export const CodeBlockContent = ({
     };
   }, [code, language]);
 
-  const tokenized = asyncTokens ?? syncTokens;
+  const tokenized =
+    asyncTokens?.key === cacheKey ? asyncTokens.tokenized : syncTokens;
 
   return (
     <div className="relative overflow-auto" data-chat-nested-scroll>

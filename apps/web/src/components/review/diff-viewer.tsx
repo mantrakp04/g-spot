@@ -1,8 +1,11 @@
 import {
   useCallback,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
+  type RefObject,
 } from "react";
 import {
   ChevronDown,
@@ -16,8 +19,16 @@ import {
 } from "react-files-icons";
 import type { OAuthConnection } from "@hexclave/react";
 
-import { MultiFileDiff, PatchDiff } from "@pierre/diffs/react";
-import type { DiffLineAnnotation, FileContents } from "@pierre/diffs";
+import { CodeView, type CodeViewHandle } from "@pierre/diffs/react";
+import {
+  getSingularPatch,
+  processPatch,
+  type CodeView as CodeViewInstance,
+  type CodeViewItem,
+  type CodeViewOptions,
+  type DiffLineAnnotation,
+  type LineAnnotation,
+} from "@pierre/diffs";
 
 import { Button } from "@g-spot/ui/components/button";
 import { Input } from "@g-spot/ui/components/input";
@@ -26,15 +37,12 @@ import { ToggleGroup, ToggleGroupItem } from "@g-spot/ui/components/toggle-group
 import { cn } from "@g-spot/ui/lib/utils";
 
 import type { ReviewComment, ReviewTarget } from "@/hooks/use-github-detail";
-import { useGitHubFileContents } from "@/hooks/use-github-detail";
 import {
-  useActiveCompose,
-  usePendingComments,
-  type PendingCommentsKey,
+  type ActiveCompose,
 } from "@/hooks/use-pending-comments";
 
 import { useDiffCustomization } from "./diff-customizer";
-import { useFileCollapse } from "./diff-collapse-state";
+import { useCollapsedFiles } from "./diff-collapse-state";
 import { InlineComposer } from "./inline-composer";
 import { InlineThread } from "./inline-thread";
 import {
@@ -221,118 +229,308 @@ export function ReviewAnnotationContent({
   );
 }
 
-export function FileDiffCard({
-  file,
-  isActive,
+type ReviewCodeViewOptions = CodeViewOptions<ReviewAnnotationPayload>;
+type ReviewCodeViewItem = CodeViewItem<ReviewAnnotationPayload>;
+type ReviewSelectionRange = {
+  start: number;
+  end: number;
+  side?: "deletions" | "additions";
+  endSide?: "deletions" | "additions";
+} | null;
+type ReviewSelectionContext = {
+  item: ReviewCodeViewItem;
+};
+type ReviewRenderableAnnotation =
+  | DiffLineAnnotation<ReviewAnnotationPayload>
+  | LineAnnotation<ReviewAnnotationPayload>;
+
+function patchCacheKey(cachePrefix: string, file: PRFile) {
+  return `${cachePrefix}:${file.filename}:patch:${file.sha}:${file.patch?.length ?? 0}`;
+}
+
+function noPatchCacheKey(cachePrefix: string, file: PRFile) {
+  return `${cachePrefix}:${file.filename}:nopatch:${file.status}:${file.sha}`;
+}
+
+function hashParts(parts: readonly (number | string | boolean | null | undefined)[]) {
+  let hash = 2166136261;
+  for (const part of parts) {
+    const value = String(part ?? "");
+    for (let i = 0; i < value.length; i++) {
+      hash ^= value.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+  }
+  return hash >>> 0;
+}
+
+function annotationsVersion(
+  annotations: readonly DiffLineAnnotation<ReviewAnnotationPayload>[],
+) {
+  return annotations
+    .map((annotation) => {
+      const payload = annotation.metadata;
+      if (payload.kind === "compose") {
+        return `compose:${annotation.side}:${annotation.lineNumber}:${payload.startLine ?? ""}`;
+      }
+      const replies = payload.replies.map((reply) => reply.id).join(",");
+      return `thread:${payload.root.id}:${annotation.side}:${annotation.lineNumber}:${payload.root.isResolved}:${replies}`;
+    })
+    .join("|");
+}
+
+function buildPatchDiffMap(files: PRFile[], cachePrefix: string) {
+  const filesWithPatch = files.filter((file) => file.patch);
+  const byFilename = new Map<string, ReturnType<typeof getSingularPatch>>();
+  if (filesWithPatch.length === 0) return byFilename;
+
+  try {
+    const parsed = processPatch(
+      filesWithPatch.map(buildUnifiedPatch).join("\n"),
+      cachePrefix,
+      true,
+    );
+    if (parsed.files.length === filesWithPatch.length) {
+      for (let i = 0; i < filesWithPatch.length; i++) {
+        const file = filesWithPatch[i]!;
+        const fileDiff = parsed.files[i]!;
+        fileDiff.cacheKey = patchCacheKey(cachePrefix, file);
+        byFilename.set(file.filename, fileDiff);
+      }
+      return byFilename;
+    }
+  } catch {
+    // Fall back to per-file parsing below. Some GitHub patches omit metadata
+    // that the whole-patch parser expects.
+  }
+
+  for (const file of filesWithPatch) {
+    const fileDiff = getSingularPatch(buildUnifiedPatch(file));
+    fileDiff.cacheKey = patchCacheKey(cachePrefix, file);
+    byFilename.set(file.filename, fileDiff);
+  }
+  return byFilename;
+}
+
+function getCodeViewItemFilename(item: ReviewCodeViewItem) {
+  return item.type === "diff" ? item.fileDiff.name : item.file.name;
+}
+
+function toDiffLineAnnotation(
+  annotation: ReviewRenderableAnnotation,
+): DiffLineAnnotation<ReviewAnnotationPayload> {
+  if ("side" in annotation) return annotation;
+  return { ...annotation, side: "additions" };
+}
+
+export function ReviewCodeView({
+  files,
   mode = "split",
-  comments = EMPTY_FILE_COMMENTS,
+  commentsByFile,
   target,
   account,
-  baseSha,
-  headSha,
   headRef,
-  pendingKey,
+  baseRepoFull,
+  activeCompose,
+  pendingDraftPaths,
+  onStartCompose,
+  onSubmitCompose,
+  onCancelCompose,
   annotationPlacement = "inline",
   focusedCommentId,
+  viewerRef,
+  containerRef,
+  cacheKey,
+  onActiveFileChange,
 }: {
-  file: PRFile;
-  isActive?: boolean;
+  files: PRFile[];
   mode?: DiffMode;
-  comments?: ReviewComment[];
+  commentsByFile: Record<string, ReviewComment[]>;
   target: ReviewTarget;
   account: OAuthConnection | null;
-  baseSha?: string;
-  headSha?: string;
   headRef?: string;
-  pendingKey: PendingCommentsKey;
+  baseRepoFull: string;
+  activeCompose: ActiveCompose | null;
+  pendingDraftPaths: Set<string>;
+  onStartCompose: (args: ActiveCompose) => void;
+  onSubmitCompose: (body: string) => void;
+  onCancelCompose: () => void;
   annotationPlacement?: AnnotationPlacement;
   focusedCommentId?: number | null;
+  viewerRef: RefObject<CodeViewHandle<ReviewAnnotationPayload> | null>;
+  containerRef: RefObject<HTMLDivElement | null>;
+  cacheKey: string;
+  onActiveFileChange: (filename: string) => void;
 }) {
-  const { collapsed, toggle: toggleCollapsed } = useFileCollapse(file.filename);
   const customization = useDiffCustomization();
+  const { collapsedSet, toggleFile } = useCollapsedFiles();
+  const useSideRail = annotationPlacement === "side";
+  const activeUpdateFrameRef = useRef<number | null>(null);
 
-  const pendingForPR = usePendingComments(pendingKey);
-  const hasExistingDraft = useMemo(
-    () => pendingForPR.some((p) => p.path === file.filename),
-    [pendingForPR, file.filename],
+  useEffect(
+    () => () => {
+      if (activeUpdateFrameRef.current != null) {
+        window.cancelAnimationFrame(activeUpdateFrameRef.current);
+        activeUpdateFrameRef.current = null;
+      }
+    },
+    [],
   );
 
-  const {
-    active,
-    start: rawStartCompose,
-    cancel: cancelCompose,
-    submit: submitCompose,
-  } = useActiveCompose(pendingKey);
+  const filesByName = useMemo(() => {
+    const next = new Map<string, PRFile>();
+    for (const file of files) next.set(file.filename, file);
+    return next;
+  }, [files]);
 
-  const composeForFile =
-    active && active.path === file.filename ? active : null;
+  const patchDiffsByName = useMemo(
+    () => buildPatchDiffMap(files, cacheKey),
+    [files, cacheKey],
+  );
+
+  const items = useMemo<ReviewCodeViewItem[]>(() => {
+    return files.map((file) => {
+      const collapsed = collapsedSet.has(file.filename);
+      const composeForFile =
+        activeCompose && activeCompose.path === file.filename
+          ? activeCompose
+          : null;
+      const annotations = buildReviewAnnotations(
+        commentsByFile[file.filename] ?? EMPTY_FILE_COMMENTS,
+        composeForFile,
+      );
+      const version = hashParts([
+        file.filename,
+        file.status,
+        file.sha,
+        file.additions,
+        file.deletions,
+        file.patch?.length ?? 0,
+        collapsed,
+        annotationsVersion(annotations),
+      ]);
+      const fileDiff = patchDiffsByName.get(file.filename);
+      if (fileDiff) {
+        return {
+          id: file.filename,
+          type: "diff",
+          fileDiff,
+          annotations,
+          collapsed,
+          version,
+        };
+      }
+      return {
+        id: file.filename,
+        type: "file",
+        file: {
+          name: file.filename,
+          contents: "Binary file or no patch available\n",
+          cacheKey: noPatchCacheKey(cacheKey, file),
+        },
+        collapsed,
+        version,
+      };
+    });
+  }, [
+    activeCompose,
+    cacheKey,
+    collapsedSet,
+    commentsByFile,
+    files,
+    patchDiffsByName,
+  ]);
 
   const onLineSelectionEnd = useCallback(
-    (range: {
-      start: number;
-      end: number;
-      side?: "deletions" | "additions";
-      endSide?: "deletions" | "additions";
-    } | null) => {
+    (range: ReviewSelectionRange, context: ReviewSelectionContext) => {
       if (!range) return;
       const side = sideToGithub(range.endSide ?? range.side ?? "additions");
-      const line = range.end;
-      const startLine = range.start !== range.end ? range.start : undefined;
-      rawStartCompose({
-        path: file.filename,
+      onStartCompose({
+        path: getCodeViewItemFilename(context.item),
         side,
-        line,
-        startLine,
+        line: range.end,
+        startLine: range.start !== range.end ? range.start : undefined,
       });
     },
-    [rawStartCompose, file.filename],
+    [onStartCompose],
   );
 
-  const lineAnnotations = useMemo(
-    () => buildReviewAnnotations(comments, composeForFile),
-    [comments, composeForFile],
+  const options = useMemo<ReviewCodeViewOptions>(
+    () => ({
+      diffStyle: mode,
+      enableLineSelection: true,
+      onLineSelectionEnd,
+      hunkSeparators: "line-info",
+      expansionLineCount: 20,
+      lineDiffType: customization.lineDiffType,
+      disableBackground: !customization.backgrounds,
+      overflow: customization.wrapping ? "wrap" : "scroll",
+      disableLineNumbers: !customization.lineNumbers,
+      unsafeCSS: useSideRail ? SIDE_ANNOTATION_UNSAFE_CSS : undefined,
+      stickyHeaders: true,
+      itemMetrics: {
+        lineHeight: REVIEW_DIFF_LINE_HEIGHT_PX,
+        diffHeaderHeight: 44,
+        spacing: 8,
+      },
+      layout: {
+        paddingTop: 8,
+        paddingBottom: 8,
+        gap: 8,
+      },
+    }),
+    [
+      customization.backgrounds,
+      customization.lineDiffType,
+      customization.lineNumbers,
+      customization.wrapping,
+      mode,
+      onLineSelectionEnd,
+      useSideRail,
+    ],
   );
-  const useSideRail = annotationPlacement === "side";
-
-  const baseRepoFull = `${target.owner}/${target.repo}`;
 
   const annotationContentProps = useMemo<
-    Omit<ReviewAnnotationContentProps, "annotation" | "placement">
+    Omit<
+      ReviewAnnotationContentProps,
+      "annotation" | "placement" | "hasExistingDraft"
+    >
   >(
     () => ({
-      hasExistingDraft,
-      onSubmit: submitCompose,
-      onCancel: cancelCompose,
+      onSubmit: onSubmitCompose,
+      onCancel: onCancelCompose,
       target,
       account,
       headRef,
       baseRepoFull,
     }),
     [
-      hasExistingDraft,
-      submitCompose,
-      cancelCompose,
-      target,
       account,
-      headRef,
       baseRepoFull,
+      headRef,
+      onCancelCompose,
+      onSubmitCompose,
+      target,
     ],
   );
 
   const renderAnnotation = useCallback(
-    (annotation: DiffLineAnnotation<ReviewAnnotationPayload>) => {
+    (rawAnnotation: ReviewRenderableAnnotation, item: ReviewCodeViewItem) => {
+      const annotation = toDiffLineAnnotation(rawAnnotation);
+      const filename = getCodeViewItemFilename(item);
       if (!useSideRail) {
         return (
           <ReviewAnnotationContent
             annotation={annotation}
             placement="inline"
+            hasExistingDraft={pendingDraftPaths.has(filename)}
             {...annotationContentProps}
           />
         );
       }
       return (
         <SideAnnotationAnchor
-          id={reviewAnnotationKey(file.filename, annotation)}
+          id={reviewAnnotationKey(filename, annotation)}
           active={
             annotation.metadata.kind === "thread" &&
             annotation.metadata.root.id === focusedCommentId
@@ -348,128 +546,105 @@ export function FileDiffCard({
     },
     [
       annotationContentProps,
-      file.filename,
       focusedCommentId,
+      pendingDraftPaths,
       useSideRail,
     ],
   );
 
   const renderHeaderPrefix = useCallback(
-    () => (
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-sm"
-        aria-label={collapsed ? "Expand file" : "Collapse file"}
-        aria-pressed={collapsed}
-        title="Click to toggle · Option/Alt-click to toggle all"
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          toggleCollapsed(e.altKey);
-        }}
-        className="-ml-1"
-      >
-        <ChevronDown
-          className="transition-transform"
-          style={{ transform: collapsed ? "rotate(-90deg)" : undefined }}
-        />
-      </Button>
-    ),
-    [collapsed, toggleCollapsed],
+    (item: ReviewCodeViewItem) => {
+      const filename = getCodeViewItemFilename(item);
+      const collapsed = collapsedSet.has(filename);
+      return (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label={collapsed ? "Expand file" : "Collapse file"}
+          aria-pressed={collapsed}
+          title="Click to toggle · Option/Alt-click to toggle all"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            toggleFile(filename, e.altKey);
+          }}
+          className="-ml-1"
+        >
+          <ChevronDown
+            className="transition-transform"
+            style={{ transform: collapsed ? "rotate(-90deg)" : undefined }}
+          />
+        </Button>
+      );
+    },
+    [collapsedSet, toggleFile],
   );
 
-  // Pierre's context-expansion controls need full file contents — the
-  // patch-only path produces a "partial" FileDiff which pierre marks
-  // non-expandable. Lazy-load both sides (skipped entirely for added/deleted
-  // files since one side has no prior/next state) and switch to MultiFileDiff
-  // once they resolve. While loading, render PatchDiff so the diff shows
-  // immediately.
-  const isAdded = file.status === "added";
-  const isDeleted = file.status === "removed" || file.status === "deleted";
-
-  const oldContents = useGitHubFileContents(
-    target,
-    account,
-    file.filename,
-    baseSha ?? null,
-    !collapsed && !!baseSha && !isAdded,
-  );
-  const newContents = useGitHubFileContents(
-    target,
-    account,
-    file.filename,
-    headSha ?? null,
-    !collapsed && !!headSha && !isDeleted,
+  const renderHeaderMetadata = useCallback(
+    (item: ReviewCodeViewItem) => {
+      const file = filesByName.get(getCodeViewItemFilename(item));
+      if (!file) return null;
+      return (
+        <span className="inline-flex items-center gap-1.5 font-mono text-[11px]">
+          {file.patch ? null : (
+            <span className="text-muted-foreground/70">No patch</span>
+          )}
+          <span className="text-emerald-500">+{file.additions}</span>
+          <span className="text-rose-500">-{file.deletions}</span>
+        </span>
+      );
+    },
+    [filesByName],
   );
 
-  const oldFile = useMemo<FileContents | null>(() => {
-    if (isAdded) return { name: file.filename, contents: "" };
-    if (typeof oldContents.data !== "string") return null;
-    return { name: file.filename, contents: oldContents.data };
-  }, [isAdded, oldContents.data, file.filename]);
+  const handleScroll = useCallback(
+    (
+      _scrollTop: number,
+      viewer: CodeViewInstance<ReviewAnnotationPayload>,
+    ) => {
+      if (
+        typeof window === "undefined" ||
+        activeUpdateFrameRef.current != null
+      ) {
+        return;
+      }
+      activeUpdateFrameRef.current = window.requestAnimationFrame(() => {
+        activeUpdateFrameRef.current = null;
+        const firstRendered = viewer.getRenderedItems()[0];
+        if (!firstRendered) return;
+        onActiveFileChange(getCodeViewItemFilename(firstRendered.item));
+      });
+    },
+    [onActiveFileChange],
+  );
 
-  const newFile = useMemo<FileContents | null>(() => {
-    if (isDeleted) return { name: file.filename, contents: "" };
-    if (typeof newContents.data !== "string") return null;
-    return { name: file.filename, contents: newContents.data };
-  }, [isDeleted, newContents.data, file.filename]);
-
-  const canUseMultiFile = oldFile != null && newFile != null;
-
-  if (!file.patch) {
-    return (
-      <div
-        data-active={isActive ? "true" : "false"}
-        className="rounded-md border border-border/50 bg-card px-4 py-6 text-center text-[12px] text-muted-foreground/70 data-[active=true]:border-primary/50"
-      >
-        Binary file or no patch available · {file.filename}
-      </div>
-    );
-  }
-
-  const sharedOptions = {
-    diffStyle: mode,
-    enableLineSelection: true,
-    onLineSelectionEnd,
-    collapsed,
-    hunkSeparators: "line-info" as const,
-    expansionLineCount: 20,
-    lineDiffType: customization.lineDiffType,
-    disableBackground: !customization.backgrounds,
-    overflow: (customization.wrapping ? "wrap" : "scroll") as "wrap" | "scroll",
-    disableLineNumbers: !customization.lineNumbers,
-    unsafeCSS: useSideRail ? SIDE_ANNOTATION_UNSAFE_CSS : undefined,
-  };
-
-  const diffView = canUseMultiFile ? (
-    <MultiFileDiff<ReviewAnnotationPayload>
-      oldFile={oldFile}
-      newFile={newFile}
-      options={sharedOptions}
-      style={DIFF_HOST_STYLE}
-      lineAnnotations={lineAnnotations}
-      renderAnnotation={renderAnnotation}
-      renderHeaderPrefix={renderHeaderPrefix}
-    />
-  ) : (
-    <PatchDiff<ReviewAnnotationPayload>
-      patch={buildUnifiedPatch(file)}
-      options={sharedOptions}
-      style={DIFF_HOST_STYLE}
-      lineAnnotations={lineAnnotations}
-      renderAnnotation={renderAnnotation}
-      renderHeaderPrefix={renderHeaderPrefix}
-    />
+  const codeViewStyle = useMemo<CSSProperties>(
+    () => ({
+      ...DIFF_HOST_STYLE,
+      height: "calc(100vh - 92px)",
+      minHeight: 360,
+      overflowY: "auto",
+      overflowX: "hidden",
+      contain: "layout style size",
+      background: "var(--card)",
+    }),
+    [],
   );
 
   return (
-    <div
-      data-active={isActive ? "true" : "false"}
-      className="min-w-0 overflow-hidden rounded-md border border-border/50 bg-card data-[active=true]:border-primary/50"
-    >
-      {diffView}
-    </div>
+    <CodeView<ReviewAnnotationPayload>
+      ref={viewerRef}
+      containerRef={containerRef}
+      items={items}
+      options={options}
+      onScroll={handleScroll}
+      renderAnnotation={renderAnnotation}
+      renderHeaderPrefix={renderHeaderPrefix}
+      renderHeaderMetadata={renderHeaderMetadata}
+      className="review-code-view min-w-0 rounded-md border border-border/50 bg-card"
+      style={codeViewStyle}
+    />
   );
 }
 

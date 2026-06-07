@@ -29,7 +29,7 @@ import {
 } from "lucide-react";
 import { cn } from "@g-spot/ui/lib/utils";
 import { useHotkeys } from "@tanstack/react-hotkeys";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import type { CodeViewHandle } from "@pierre/diffs/react";
 
 import type {
   ReviewComment,
@@ -78,8 +78,8 @@ import {
 import {
   DiffModeToggle,
   DiffSkeleton,
-  FileDiffCard,
   FileTreePanel,
+  ReviewCodeView,
   ReviewAnnotationContent,
   type ReviewAnnotationContentProps,
   type PRFile,
@@ -90,12 +90,14 @@ import {
   buildReviewAnnotations,
   getReviewCommentLine,
   reviewAnnotationKey,
+  type ReviewAnnotationPayload,
 } from "./review-annotations";
 import { ReviewShell } from "./shell";
 import { Timeline, TimelineSkeleton } from "./timeline";
 
 const FILE_EXPAND_LIMIT = 50;
 const EMPTY_COMMENTS: never[] = [];
+const EMPTY_COMMENTS_BY_FILE: Record<string, ReviewComment[]> = {};
 const SIDE_COMMENT_RAIL_MEDIA_QUERY = "(min-width: 1024px)";
 const SIDE_COMMENT_RAIL_ANCHOR_OFFSET = 18;
 const SIDE_COMMENT_RAIL_CARD_GAP = 8;
@@ -113,14 +115,17 @@ function sameRailLayout(a: Record<string, number>, b: Record<string, number>) {
   return aKeys.every((key) => a[key] === b[key]);
 }
 
-function getSideAnchor(root: HTMLElement | null, key: string) {
-  if (!root) return null;
-  const anchors =
-    root.querySelectorAll<HTMLElement>("[data-review-side-anchor]");
+function getSideAnchorMap(root: HTMLElement | null) {
+  const byKey = new Map<string, HTMLElement>();
+  if (!root) return byKey;
+  const anchors = root.querySelectorAll<HTMLElement>(
+    "[data-review-side-anchor]",
+  );
   for (const anchor of anchors) {
-    if (anchor.dataset.reviewSideAnchor === key) return anchor;
+    const key = anchor.dataset.reviewSideAnchor;
+    if (key) byKey.set(key, anchor);
   }
-  return null;
+  return byKey;
 }
 
 function isSideAnchorInsideFileRow(anchor: HTMLElement) {
@@ -140,6 +145,7 @@ function SideCommentRail({
   contentProps,
   layoutVersion,
   anchorRootRef,
+  scrollRootRef,
   focusedCommentId,
   onFocusComment,
 }: {
@@ -150,6 +156,7 @@ function SideCommentRail({
   >;
   layoutVersion: string;
   anchorRootRef: RefObject<HTMLElement | null>;
+  scrollRootRef: RefObject<HTMLElement | null>;
   focusedCommentId: number | null;
   onFocusComment: (commentId: number) => void;
 }) {
@@ -159,7 +166,7 @@ function SideCommentRail({
     cardNodesRef.current = new Map();
   }
   const cardNodes = cardNodesRef.current;
-  const measureTimerRef = useRef<number | null>(null);
+  const measureFrameRef = useRef<number | null>(null);
   const requestMeasureRef = useRef<() => void>(() => {});
   const [positions, setPositions] = useState<Record<string, number>>({});
   const [measuredHeight, setMeasuredHeight] = useState(0);
@@ -175,6 +182,7 @@ function SideCommentRail({
     }
 
     const rootTop = root.getBoundingClientRect().top;
+    const anchorsByKey = getSideAnchorMap(anchorRootRef.current);
     const measurements: Array<{
       key: string;
       anchorTop: number;
@@ -184,7 +192,7 @@ function SideCommentRail({
     let nextHeight = 0;
 
     for (const item of items) {
-      const anchor = getSideAnchor(anchorRootRef.current, item.key);
+      const anchor = anchorsByKey.get(item.key);
       if (!anchor) continue;
       if (!isSideAnchorInsideFileRow(anchor)) continue;
 
@@ -219,13 +227,13 @@ function SideCommentRail({
   }, [anchorRootRef, cardNodes, items]);
 
   const requestMeasure = useCallback(() => {
-    if (typeof window === "undefined" || measureTimerRef.current != null) {
+    if (typeof window === "undefined" || measureFrameRef.current != null) {
       return;
     }
-    measureTimerRef.current = window.setTimeout(() => {
-      measureTimerRef.current = null;
+    measureFrameRef.current = window.requestAnimationFrame(() => {
+      measureFrameRef.current = null;
       measure();
-    }, 0);
+    });
   }, [measure]);
 
   useLayoutEffect(() => {
@@ -266,10 +274,18 @@ function SideCommentRail({
     if (!root || typeof MutationObserver === "undefined") return;
 
     const observer = new MutationObserver(requestMeasure);
-    observer.observe(root, { childList: true, subtree: true });
+    observer.observe(root, { childList: true });
 
     return () => observer.disconnect();
   }, [anchorRootRef, items, layoutVersion, requestMeasure]);
+
+  useLayoutEffect(() => {
+    const root = scrollRootRef.current;
+    if (!root) return;
+    const handleScroll = () => requestMeasureRef.current();
+    root.addEventListener("scroll", handleScroll, { passive: true });
+    return () => root.removeEventListener("scroll", handleScroll);
+  }, [scrollRootRef]);
 
   useLayoutEffect(() => {
     const handleResize = () => requestMeasureRef.current();
@@ -279,9 +295,9 @@ function SideCommentRail({
 
   useLayoutEffect(
     () => () => {
-      if (measureTimerRef.current != null) {
-        window.clearTimeout(measureTimerRef.current);
-        measureTimerRef.current = null;
+      if (measureFrameRef.current != null) {
+        window.cancelAnimationFrame(measureFrameRef.current);
+        measureFrameRef.current = null;
       }
     },
     [],
@@ -332,37 +348,8 @@ function SideCommentRail({
   );
 }
 
-function commentAnchorSelector(commentId: number) {
-  return `[data-review-comment-id="${commentId}"]`;
-}
-
-function scrollAnchorVerticallyInto(
-  anchor: HTMLElement,
-  scrollRoot: HTMLElement,
-) {
-  const anchorRect = anchor.getBoundingClientRect();
-  const rootRect = scrollRoot.getBoundingClientRect();
-  const verticalOffset =
-    anchorRect.height > rootRect.height
-      ? 56
-      : Math.max(0, (rootRect.height - anchorRect.height) / 2);
-  const top =
-    scrollRoot.scrollTop +
-    anchorRect.top -
-    rootRect.top -
-    verticalOffset;
-
-  scrollRoot.scrollTo({
-    top: Math.max(0, top),
-    behavior: "auto",
-  });
-}
-
-// Rough px guess: header (~36) + per-line (~18) capped so an enormous file
-// doesn't reserve a screen-and-a-half of empty space.
-function estimateDiffHeight(file: PRFile): number {
-  const lines = (file.additions ?? 0) + (file.deletions ?? 0);
-  return 36 + Math.min(lines, 40) * 18;
+function githubSideToCodeViewSide(side: "LEFT" | "RIGHT") {
+  return side === "LEFT" ? "deletions" : "additions";
 }
 
 function FileRailHandle({
@@ -486,6 +473,7 @@ export function PRReviewView({
   const pendingInlineComments = usePendingComments(pendingKey);
   const {
     active: activeCompose,
+    start: startCompose,
     cancel: cancelSideCompose,
     submit: submitSideCompose,
   } = useActiveCompose(pendingKey);
@@ -546,10 +534,10 @@ export function PRReviewView({
     timelineLoading: timeline.isLoading,
     reviewComments: reviewCommentsByPath,
   });
-  const virtualListRef = useRef<HTMLDivElement | null>(null);
+  const codeViewRef =
+    useRef<CodeViewHandle<ReviewAnnotationPayload> | null>(null);
+  const codeViewContainerRef = useRef<HTMLDivElement | null>(null);
   const [activeFile, setActiveFile] = useState<string | null>(null);
-  const [scrollElement, setScrollElement] = useState<HTMLElement | null>(null);
-  const [virtualScrollMargin, setVirtualScrollMargin] = useState(0);
   const [sideRailAvailable, setSideRailAvailable] = useState(false);
   const useSideCommentRail = rightSidebarOpen && sideRailAvailable;
   const sideCommentRailItems = useMemo<SideCommentRailItem[]>(() => {
@@ -602,6 +590,7 @@ export function PRReviewView({
     );
   }, [fileList, setAllFiles]);
   const filesSectionRef = useRef<HTMLDivElement | null>(null);
+  const filesFloatingSentinelRef = useRef<HTMLDivElement | null>(null);
   const pendingCommentScrollRef = useRef<number | null>(null);
   const [floatingState, setFloatingState] = useState<"skip" | "top">("skip");
 
@@ -618,80 +607,26 @@ export function PRReviewView({
   useEffect(() => cancelPendingCommentScroll, [cancelPendingCommentScroll]);
 
   useEffect(() => {
-    const nextScrollElement = filesSectionRef.current?.closest(
-      ".overflow-y-auto",
-    ) as HTMLElement | null;
-    setScrollElement(nextScrollElement);
-  }, [fileList.length]);
+    const sentinel = filesFloatingSentinelRef.current;
+    if (!sentinel || typeof IntersectionObserver === "undefined") return;
 
-  useEffect(() => {
-    if (!scrollElement) return;
-
-    const updateScrollMargin = () => {
-      const list = virtualListRef.current;
-      if (!list) return;
-
-      const listRect = list.getBoundingClientRect();
-      const scrollRect = scrollElement.getBoundingClientRect();
-      setVirtualScrollMargin(
-        listRect.top - scrollRect.top + scrollElement.scrollTop,
-      );
-    };
-
-    updateScrollMargin();
-    window.addEventListener("resize", updateScrollMargin);
-
-    const observer =
-      typeof ResizeObserver === "undefined"
-        ? null
-        : new ResizeObserver(updateScrollMargin);
-    if (filesSectionRef.current) observer?.observe(filesSectionRef.current);
-
-    return () => {
-      window.removeEventListener("resize", updateScrollMargin);
-      observer?.disconnect();
-    };
-  }, [scrollElement, fileList.length]);
-
-  const fileVirtualizer = useVirtualizer({
-    count: fileList.length,
-    getItemKey: (index) => fileList[index]?.filename ?? index,
-    getScrollElement: () => scrollElement,
-    estimateSize: (index) => estimateDiffHeight(fileList[index]!) + 12,
-    onChange: (instance) => {
-      const virtualFiles = instance.getVirtualItems();
-      const visibleTop = (scrollElement?.scrollTop ?? 0) + 56;
-      const firstVisible =
-        virtualFiles.find((item) => item.end > visibleTop) ?? virtualFiles[0];
-      const filename = firstVisible
-        ? fileList[firstVisible.index]?.filename
-        : null;
-      if (!filename) return;
-      setActiveFile((prev) => (prev === filename ? prev : filename));
-    },
-    overscan: 4,
-    scrollMargin: virtualScrollMargin,
-  });
-
-  useEffect(() => {
-    const el = filesSectionRef.current;
-    if (!el) return;
-    const update = () => {
-      const rect = el.getBoundingClientRect();
-      setFloatingState(
-        rect.top <= STICKY_HEADER_OFFSET_PX ? "top" : "skip",
-      );
-    };
-    update();
-    const scrollParent = el.closest(".overflow-y-auto") as HTMLElement | null;
-    const target = scrollParent ?? window;
-    target.addEventListener("scroll", update, { passive: true });
-    window.addEventListener("resize", update);
-    return () => {
-      target.removeEventListener("scroll", update);
-      window.removeEventListener("resize", update);
-    };
-  }, [fileList.length]);
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry) return;
+        setFloatingState(
+          entry.boundingClientRect.top <= STICKY_HEADER_OFFSET_PX
+            ? "top"
+            : "skip",
+        );
+      },
+      {
+        rootMargin: `-${STICKY_HEADER_OFFSET_PX}px 0px 0px 0px`,
+        threshold: 0,
+      },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, []);
 
   const scrollToFiles = useCallback(() => {
     filesSectionRef.current?.scrollIntoView({
@@ -716,16 +651,21 @@ export function PRReviewView({
   const scrollToFile = useCallback(
     (filename: string) => {
       cancelPendingCommentScroll();
-      const index = fileList.findIndex((f) => f.filename === filename);
-      if (index === -1) return;
+      if (!fileList.some((f) => f.filename === filename)) return;
 
       setActiveFile(filename);
-      fileVirtualizer.scrollToIndex(index, {
-        align: "start",
+      filesSectionRef.current?.scrollIntoView({
         behavior: "auto",
+        block: "start",
+      });
+      codeViewRef.current?.scrollTo({
+        type: "item",
+        id: filename,
+        align: "start",
+        behavior: "instant",
       });
     },
-    [cancelPendingCommentScroll, fileList, fileVirtualizer],
+    [cancelPendingCommentScroll, fileList],
   );
 
   const scrollToComment = useCallback(
@@ -742,30 +682,21 @@ export function PRReviewView({
 
       expandFile(path);
       scrollToFile(path);
-      setFocusedCommentId(null);
+      setFocusedCommentId(commentId);
 
-      let attempts = 0;
-      const selector = commentAnchorSelector(commentId);
       const tryScroll = () => {
         pendingCommentScrollRef.current = null;
-        const anchor = document.querySelector<HTMLElement>(selector);
-        if (anchor) {
-          setFocusedCommentId(commentId);
-          const scrollRoot =
-            scrollElement ??
-            (filesSectionRef.current?.closest(
-              ".overflow-y-auto",
-            ) as HTMLElement | null);
-          if (scrollRoot) {
-            scrollAnchorVerticallyInto(anchor, scrollRoot);
-          }
-          return;
-        }
-
-        attempts += 1;
-        if (attempts < 20) {
-          pendingCommentScrollRef.current = window.setTimeout(tryScroll, 50);
-        }
+        if (!comment) return;
+        const line = getReviewCommentLine(comment);
+        if (line == null) return;
+        codeViewRef.current?.scrollTo({
+          type: "line",
+          id: path,
+          lineNumber: line,
+          side: githubSideToCodeViewSide(comment.side),
+          align: "center",
+          behavior: "instant",
+        });
       };
 
       pendingCommentScrollRef.current = window.setTimeout(tryScroll, 0);
@@ -774,7 +705,6 @@ export function PRReviewView({
       cancelPendingCommentScroll,
       expandFile,
       reviewCommentsByPath,
-      scrollElement,
       scrollToFile,
     ],
   );
@@ -804,6 +734,22 @@ export function PRReviewView({
   ]);
 
   const repoLabel = `${target.owner}/${target.repo}`;
+  const diffCacheKey = useMemo(() => {
+    const rangeKey = commitRange
+      ? `${commitRange.baseSha}...${commitRange.headSha}`
+      : `${pr?.base.sha ?? "base"}...${pr?.head.sha ?? "head"}`;
+    return `pr:${target.owner}/${target.repo}:${target.number}:${rangeKey}`;
+  }, [
+    commitRange,
+    pr?.base.sha,
+    pr?.head.sha,
+    target.number,
+    target.owner,
+    target.repo,
+  ]);
+  const handleActiveFileChange = useCallback((filename: string) => {
+    setActiveFile((prev) => (prev === filename ? prev : filename));
+  }, []);
 
   const fullHeader = pr ? (
     <PRFullHeader
@@ -848,14 +794,10 @@ export function PRReviewView({
   ) : (
     <SidebarSkeleton />
   );
-  const virtualFiles = fileVirtualizer.getVirtualItems();
-  const virtualTotalSize = fileVirtualizer.getTotalSize();
   const sideRailLayoutVersion = useMemo(
     () =>
-      virtualFiles
-        .map((item) => `${item.key}:${item.start}:${item.size}`)
-        .join("|"),
-    [virtualFiles],
+      sideCommentRailItems.map((item) => item.key).join("|"),
+    [sideCommentRailItems],
   );
   const sidebar = useSideCommentRail ? (
     <div className="space-y-4">
@@ -864,7 +806,8 @@ export function PRReviewView({
         items={sideCommentRailItems}
         contentProps={sideRailContentProps}
         layoutVersion={sideRailLayoutVersion}
-        anchorRootRef={virtualListRef}
+        anchorRootRef={codeViewContainerRef}
+        scrollRootRef={codeViewContainerRef}
         focusedCommentId={focusedCommentId}
         onFocusComment={setFocusedCommentId}
       />
@@ -897,6 +840,7 @@ export function PRReviewView({
       </ActivitySection>
 
       <section ref={filesSectionRef} data-review-files-section="true">
+        <div ref={filesFloatingSentinelRef} className="h-px w-px" />
         <div className="sticky top-0 z-10 -mx-4 flex items-center justify-between border-b border-border/50 bg-background px-4 py-2 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
           <div className="flex items-center gap-2">
             <Button
@@ -965,7 +909,7 @@ export function PRReviewView({
                 <FileTreePanel
                   files={fileList}
                   activeFile={activeFile}
-                  commentsByFile={reviewCommentsByPath ?? {}}
+                  commentsByFile={reviewCommentsByPath ?? EMPTY_COMMENTS_BY_FILE}
                   onSelect={scrollToFile}
                 />
               </div>
@@ -973,7 +917,7 @@ export function PRReviewView({
               <FileRailHandle
                 files={fileList}
                 activeFile={activeFile}
-                commentsByFile={reviewCommentsByPath ?? {}}
+                commentsByFile={reviewCommentsByPath ?? EMPTY_COMMENTS_BY_FILE}
                 onSelect={scrollToFile}
               />
             )}
@@ -986,55 +930,26 @@ export function PRReviewView({
                   default; the rest are collapsed.
                 </div>
               ) : null}
-              <div className="relative">
-                <div
-                  ref={virtualListRef}
-                  className="relative min-w-0"
-                  style={{ height: virtualTotalSize }}
-                >
-                  {virtualFiles.map((virtualFile) => {
-                    const f = fileList[virtualFile.index]!;
-                    return (
-                      <div
-                        key={virtualFile.key}
-                        data-index={virtualFile.index}
-                        data-filename={f.filename}
-                        ref={(el) => {
-                          if (el) {
-                            fileVirtualizer.measureElement(el);
-                          }
-                        }}
-                        className="absolute left-0 top-0 w-full pb-3"
-                        style={{
-                          transform: `translateY(${
-                            virtualFile.start - virtualScrollMargin
-                          }px)`,
-                        }}
-                      >
-                        <FileDiffCard
-                          file={f}
-                          isActive={activeFile === f.filename}
-                          mode={diffMode}
-                          comments={
-                            reviewCommentsByPath?.[f.filename] ??
-                            EMPTY_COMMENTS
-                          }
-                          target={target}
-                          account={account}
-                          baseSha={pr?.base.sha}
-                          headSha={pr?.head.sha}
-                          headRef={pr?.head.ref}
-                          pendingKey={pendingKey}
-                          annotationPlacement={
-                            useSideCommentRail ? "side" : "inline"
-                          }
-                          focusedCommentId={focusedCommentId}
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+              <ReviewCodeView
+                files={fileList}
+                mode={diffMode}
+                commentsByFile={reviewCommentsByPath ?? EMPTY_COMMENTS_BY_FILE}
+                target={target}
+                account={account}
+                headRef={pr?.head.ref}
+                baseRepoFull={baseRepoFull}
+                activeCompose={activeCompose}
+                pendingDraftPaths={pendingDraftPaths}
+                onStartCompose={startCompose}
+                onSubmitCompose={submitSideCompose}
+                onCancelCompose={cancelSideCompose}
+                annotationPlacement={useSideCommentRail ? "side" : "inline"}
+                focusedCommentId={focusedCommentId}
+                viewerRef={codeViewRef}
+                containerRef={codeViewContainerRef}
+                cacheKey={diffCacheKey}
+                onActiveFileChange={handleActiveFileChange}
+              />
             </div>
           </div>
         )}
@@ -1043,7 +958,7 @@ export function PRReviewView({
       <CommentsDrawer
         open={commentsOpen}
         onOpenChange={setCommentsOpen}
-        commentsByFile={reviewCommentsByPath ?? {}}
+        commentsByFile={reviewCommentsByPath ?? EMPTY_COMMENTS_BY_FILE}
         onJumpTo={(target) => {
           setCommentsOpen(false);
           scrollToComment(target);

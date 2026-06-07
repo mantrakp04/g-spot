@@ -81,6 +81,30 @@ export function useFileCollapse(filename: string) {
   return { collapsed, toggle };
 }
 
+export function useCollapsedFiles() {
+  const collapsedSet = useAtomValue(collapsedFilesAtom);
+  const setCollapsed = useSetAtom(collapsedFilesAtom);
+  const allFiles = useAtomValue(allFilesAtom);
+
+  const toggleFile = useCallback(
+    (filename: string, bulk: boolean) => {
+      setCollapsed((prev) => {
+        if (bulk) {
+          const anyOpen = allFiles.some((f) => !prev.has(f));
+          return anyOpen ? new Set(allFiles) : new Set();
+        }
+        const next = new Set(prev);
+        if (next.has(filename)) next.delete(filename);
+        else next.add(filename);
+        return next;
+      });
+    },
+    [allFiles, setCollapsed],
+  );
+
+  return { collapsedSet, toggleFile };
+}
+
 export function useExpandFile() {
   const setCollapsed = useSetAtom(collapsedFilesAtom);
   return useCallback(

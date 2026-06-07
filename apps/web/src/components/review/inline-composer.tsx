@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { Button } from "@g-spot/ui/components/button";
 import { Textarea } from "@g-spot/ui/components/textarea";
+import { cn } from "@g-spot/ui/lib/utils";
 
 export type { OnStartInlineComment } from "@/hooks/use-pending-comments";
 
@@ -9,10 +10,12 @@ export function InlineComposer({
   hasExistingDraft,
   onSubmit,
   onCancel,
+  placement = "inline",
 }: {
   hasExistingDraft: boolean;
   onSubmit: (body: string) => void;
   onCancel: () => void;
+  placement?: "inline" | "side";
 }) {
   const [body, setBody] = useState("");
 
@@ -24,7 +27,13 @@ export function InlineComposer({
 
   return (
     <div
-      className="space-y-2 border-y px-3 py-3"
+      data-review-composer-placement={placement}
+      className={cn(
+        "space-y-2 px-3 py-3",
+        placement === "side"
+          ? "rounded-md border shadow-sm"
+          : "border-y",
+      )}
       style={{
         background: "var(--diffs-bg-buffer, var(--muted))",
         color: "var(--diffs-fg, var(--foreground))",

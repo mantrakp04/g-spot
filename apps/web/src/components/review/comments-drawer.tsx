@@ -24,6 +24,7 @@ import { cn } from "@g-spot/ui/lib/utils";
 
 import type { ReviewComment } from "@/hooks/use-github-detail";
 import { Markdown } from "./markdown";
+import { formatReviewCommentRange } from "./review-annotations";
 
 type StatusFilter = "open" | "resolved" | "all";
 type SortOrder = "newest" | "oldest" | "file";
@@ -247,84 +248,87 @@ export function CommentsDrawer({
             </div>
           ) : (
             <ul>
-              {filtered.map(({ path, root, replies }) => (
-                <li
-                  key={root.id}
-                  className="group/comment flex items-start border-b border-border/40 hover:bg-muted/50 last:border-b-0"
-                >
-                  <button
-                    type="button"
-                    onClick={() => onJumpTo?.({ path, commentId: root.id })}
-                    className="min-w-0 flex-1 cursor-pointer py-3 pr-2 pl-4 text-left"
+              {filtered.map(({ path, root, replies }) => {
+                const lineLabel = formatReviewCommentRange(root);
+                return (
+                  <li
+                    key={root.id}
+                    className="group/comment flex items-start border-b border-border/40 hover:bg-muted/50 last:border-b-0"
                   >
-                    <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground/80">
-                      <span className="truncate font-mono">
-                        {path}
-                        {root.line != null ? (
-                          <span className="ml-1 text-muted-foreground/60">
-                            L{root.line}
-                          </span>
-                        ) : null}
-                      </span>
-                      <span
-                        className={cn(
-                          "size-1.5 shrink-0 rounded-md",
-                          root.isResolved
-                            ? "bg-muted-foreground/40"
-                            : "bg-primary",
-                        )}
-                      />
-                    </div>
-                    <div className="mt-1.5 flex items-center gap-2 text-[12px]">
-                      {root.user?.avatarUrl ? (
-                        <img
-                          src={root.user.avatarUrl}
-                          alt=""
-                          className="size-5 shrink-0 rounded-full object-cover"
-                        />
-                      ) : (
-                        <div className="size-5 shrink-0 rounded-full bg-muted" />
-                      )}
-                      <span className="font-medium text-foreground">
-                        {root.user?.login ?? "ghost"}
-                      </span>
-                      <span className="text-muted-foreground/70">
-                        {relTime(root.createdAt)}
-                      </span>
-                    </div>
-                    <div className="mt-1.5 line-clamp-4 text-[12px] text-foreground/90">
-                      <Markdown>{root.body}</Markdown>
-                    </div>
-                    {replies > 0 ? (
-                      <div className="mt-2 text-[11px] text-muted-foreground/70">
-                        {replies} {replies === 1 ? "reply" : "replies"}
-                      </div>
-                    ) : null}
-                  </button>
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          className="mt-2.5 mr-3 text-muted-foreground/70 hover:text-foreground"
-                          aria-label="Copy comment link"
-                          onClick={() =>
-                            copyCommentLinks(
-                              [root.htmlUrl],
-                              "Comment link copied",
-                            )
-                          }
-                        />
-                      }
+                    <button
+                      type="button"
+                      onClick={() => onJumpTo?.({ path, commentId: root.id })}
+                      className="min-w-0 flex-1 cursor-pointer py-3 pr-2 pl-4 text-left"
                     >
-                      <Copy />
-                    </TooltipTrigger>
-                    <TooltipContent side="left">Copy comment link</TooltipContent>
-                  </Tooltip>
-                </li>
-              ))}
+                      <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground/80">
+                        <span className="truncate font-mono">
+                          {path}
+                          {lineLabel != null ? (
+                            <span className="ml-1 text-muted-foreground/60">
+                              {lineLabel}
+                            </span>
+                          ) : null}
+                        </span>
+                        <span
+                          className={cn(
+                            "size-1.5 shrink-0 rounded-md",
+                            root.isResolved
+                              ? "bg-muted-foreground/40"
+                              : "bg-primary",
+                          )}
+                        />
+                      </div>
+                      <div className="mt-1.5 flex items-center gap-2 text-[12px]">
+                        {root.user?.avatarUrl ? (
+                          <img
+                            src={root.user.avatarUrl}
+                            alt=""
+                            className="size-5 shrink-0 rounded-full object-cover"
+                          />
+                        ) : (
+                          <div className="size-5 shrink-0 rounded-full bg-muted" />
+                        )}
+                        <span className="font-medium text-foreground">
+                          {root.user?.login ?? "ghost"}
+                        </span>
+                        <span className="text-muted-foreground/70">
+                          {relTime(root.createdAt)}
+                        </span>
+                      </div>
+                      <div className="mt-1.5 line-clamp-4 text-[12px] text-foreground/90">
+                        <Markdown>{root.body}</Markdown>
+                      </div>
+                      {replies > 0 ? (
+                        <div className="mt-2 text-[11px] text-muted-foreground/70">
+                          {replies} {replies === 1 ? "reply" : "replies"}
+                        </div>
+                      ) : null}
+                    </button>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            className="mt-2.5 mr-3 text-muted-foreground/70 hover:text-foreground"
+                            aria-label="Copy comment link"
+                            onClick={() =>
+                              copyCommentLinks(
+                                [root.htmlUrl],
+                                "Comment link copied",
+                              )
+                            }
+                          />
+                        }
+                      >
+                        <Copy />
+                      </TooltipTrigger>
+                      <TooltipContent side="left">Copy comment link</TooltipContent>
+                    </Tooltip>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>

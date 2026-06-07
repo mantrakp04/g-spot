@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, ChevronRight, Undo2 } from "lucide-react";
 import type { OAuthConnection } from "@hexclave/react";
 
 import { Button } from "@g-spot/ui/components/button";
 import { Textarea } from "@g-spot/ui/components/textarea";
+import { cn } from "@g-spot/ui/lib/utils";
 
 import {
   useReplyReviewComment,
@@ -13,6 +14,10 @@ import {
 } from "@/hooks/use-github-detail";
 
 import { Markdown, SuggestionContext, type SuggestionAnchor } from "./markdown";
+import {
+  getReviewCommentLine,
+  getReviewCommentStartLine,
+} from "./review-annotations";
 import { Wrappable } from "./wrappable";
 
 function relativeTime(iso: string) {
@@ -88,6 +93,7 @@ export function InlineThread({
   account,
   prHeadRef,
   baseRepoFull,
+  placement = "inline",
 }: {
   root: ReviewComment;
   replies: ReviewComment[];
@@ -95,24 +101,61 @@ export function InlineThread({
   account?: OAuthConnection | null;
   prHeadRef?: string;
   baseRepoFull?: string;
+  placement?: "inline" | "side";
 }) {
+  const {
+    line,
+    originalLine,
+    originalStartLine,
+    path,
+    side,
+    startLine: reviewStartLine,
+  } = root;
   const anchor = useMemo<SuggestionAnchor | null>(() => {
-    if (!account || !prHeadRef || !baseRepoFull || root.line == null) {
+    const endLine = getReviewCommentLine({
+      line,
+      originalLine,
+    });
+    if (!account || !prHeadRef || !baseRepoFull || endLine == null) {
       return null;
     }
+    const startLine = getReviewCommentStartLine({
+      line,
+      originalLine,
+      originalStartLine,
+      side,
+      startLine: reviewStartLine,
+    });
     return {
-      path: root.path,
-      side: root.side,
-      line: root.line,
-      startLine: null,
+      path,
+      side,
+      line: endLine,
+      startLine: startLine == null || startLine === endLine ? null : startLine,
       prHeadRef,
       baseRepoFull,
       account,
     };
-  }, [account, prHeadRef, baseRepoFull, root.path, root.side, root.line]);
+  }, [
+    account,
+    prHeadRef,
+    baseRepoFull,
+    path,
+    side,
+    line,
+    reviewStartLine,
+    originalLine,
+    originalStartLine,
+  ]);
   const [expanded, setExpanded] = useState(true);
-  // Resolved threads default to collapsed — they're noise once handled.
-  const [threadCollapsed, setThreadCollapsed] = useState(root.isResolved);
+  // Capture the uncontrolled initial default once; user toggles own it after mount.
+  const initialThreadCollapsed = useRef(root.isResolved);
+  const [threadCollapsedOverride, setThreadCollapsedOverride] = useState<
+    "collapsed" | "expanded" | null
+  >(null);
+  const threadCollapsed =
+    threadCollapsedOverride === null
+      ? initialThreadCollapsed.current
+      : threadCollapsedOverride === "collapsed";
   const [replyOpen, setReplyOpen] = useState(false);
   const [replyBody, setReplyBody] = useState("");
 
@@ -156,7 +199,13 @@ export function InlineThread({
   return (
     <div
       data-review-comment-id={root.id}
-      className="space-y-2 border-y px-3 py-3"
+      data-review-thread-placement={placement}
+      className={cn(
+        "space-y-2 px-3 py-3",
+        placement === "side"
+          ? "rounded-md border shadow-sm"
+          : "border-y",
+      )}
       style={{
         background: "var(--diffs-bg-buffer, var(--muted))",
         color: "var(--diffs-fg, var(--foreground))",
@@ -167,7 +216,7 @@ export function InlineThread({
       {threadCollapsed ? (
         <button
           type="button"
-          onClick={() => setThreadCollapsed(false)}
+          onClick={() => setThreadCollapsedOverride("expanded")}
           className="flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-left text-[12px] transition-colors hover:bg-card/60"
           style={{
             background: "var(--diffs-bg, var(--card))",
@@ -206,7 +255,7 @@ export function InlineThread({
           type="button"
           variant="ghost"
           size="xs"
-          onClick={() => setThreadCollapsed(true)}
+          onClick={() => setThreadCollapsedOverride("collapsed")}
           className="text-muted-foreground/70"
           title="Collapse thread"
         >

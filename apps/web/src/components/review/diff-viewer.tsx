@@ -2,7 +2,6 @@ import {
   useCallback,
   useMemo,
   useState,
-  forwardRef,
   type CSSProperties,
 } from "react";
 import {
@@ -33,12 +32,17 @@ import {
   usePendingComments,
   type PendingCommentsKey,
 } from "@/hooks/use-pending-comments";
-import { mergeRefs } from "@/lib/merge-refs";
 
 import { useDiffCustomization } from "./diff-customizer";
 import { useFileCollapse } from "./diff-collapse-state";
 import { InlineComposer } from "./inline-composer";
 import { InlineThread } from "./inline-thread";
+import {
+  buildReviewAnnotations,
+  getReviewCommentRange,
+  reviewAnnotationKey,
+  type ReviewAnnotationPayload,
+} from "./review-annotations";
 
 export type PRFile = {
   filename: string;
@@ -52,16 +56,8 @@ export type PRFile = {
 export type DiffMode = "unified" | "split";
 type AnnotationPlacement = "inline" | "side";
 
-type AnnotationPayload =
-  | {
-      kind: "thread";
-      root: ReviewComment;
-      replies: ReviewComment[];
-    }
-  | {
-      kind: "compose";
-      startLine?: number;
-    };
+const EMPTY_FILE_COMMENTS: ReviewComment[] = [];
+const REVIEW_DIFF_LINE_HEIGHT_PX = 18.6;
 
 // Map the app's design tokens into pierre's diff shadow DOM via its real
 // custom property surface (see node_modules/@pierre/diffs/dist/**.css). CSS
@@ -72,59 +68,61 @@ const DIFF_HOST_STYLE = {
     "ui-monospace, SFMono-Regular, 'JetBrains Mono', Menlo, monospace",
   "--diffs-font-size": "12px",
   "--diffs-line-height": "1.55",
+  "--review-diff-line-height": "18.6px",
   "--diffs-bg": "var(--card)",
   "--diffs-fg": "var(--foreground)",
 } as CSSProperties;
 
 const SIDE_ANNOTATION_UNSAFE_CSS = `
-  :host {
-    --review-side-annotation-width: 360px;
-    --review-side-annotation-gap: 12px;
-  }
-
-  [data-diff],
-  [data-file] {
-    overflow: visible;
-  }
-
-  [data-code],
-  [data-content],
-  [data-line-annotation] {
-    overflow: visible;
-  }
-
   [data-line-annotation] {
     position: relative;
-    min-height: 0;
-    height: 0;
+    min-height: 0 !important;
+    height: 0 !important;
+    margin-block: 0 !important;
+    padding-block: 0 !important;
     overflow: visible;
     background: transparent;
-    z-index: 5;
+    pointer-events: none;
   }
 
   [data-line-annotation] > [data-annotation-content] {
     position: absolute;
-    inset-block-start: calc(var(--diffs-line-height, 20px) * -1);
-    inset-inline-start: calc(100% + var(--review-side-annotation-gap));
-    width: var(--review-side-annotation-width);
-    max-width: var(--review-side-annotation-width);
-    white-space: normal;
-  }
-
-  [data-overflow='scroll'] [data-line-annotation] > [data-annotation-content] {
-    position: absolute;
-    left: calc(100% + var(--review-side-annotation-gap));
+    inset-block-start: calc(var(--review-diff-line-height, 19px) * -1);
+    inset-inline: 0;
+    min-height: 0 !important;
+    height: var(--review-diff-line-height, 19px) !important;
+    margin-block: 0 !important;
+    padding-block: 0 !important;
+    border: 0 !important;
+    overflow: visible;
+    border-radius: 4px;
+    pointer-events: none;
+    z-index: 3;
   }
 `;
 
+const SIDE_ANNOTATION_ANCHOR_STYLE: CSSProperties = {
+  display: "block",
+  position: "relative",
+  width: "100%",
+  height: 0,
+  overflow: "visible",
+  pointerEvents: "none",
+};
+
+const SIDE_ANNOTATION_ACTIVE_MARK_STYLE: CSSProperties = {
+  position: "absolute",
+  insetInline: 0,
+  top: 0,
+  height: "var(--review-diff-line-height, 19px)",
+  borderRadius: 4,
+  background: "color-mix(in srgb, var(--primary) 13%, transparent)",
+  boxShadow:
+    "inset 0 0 0 1px color-mix(in srgb, var(--primary) 72%, transparent)",
+};
+
 function sideToGithub(side: "deletions" | "additions"): "LEFT" | "RIGHT" {
   return side === "deletions" ? "LEFT" : "RIGHT";
-}
-
-function githubSideToPierre(
-  side: "LEFT" | "RIGHT",
-): "deletions" | "additions" {
-  return side === "LEFT" ? "deletions" : "additions";
 }
 
 function buildUnifiedPatch(file: PRFile): string {
@@ -141,81 +139,115 @@ function buildUnifiedPatch(file: PRFile): string {
   return `${header}\n${file.patch ?? ""}`;
 }
 
-function buildAnnotations(
-  comments: ReviewComment[],
-  compose:
-    | { side: "LEFT" | "RIGHT"; line: number; startLine?: number }
-    | null,
-): DiffLineAnnotation<AnnotationPayload>[] {
-  const roots = comments.filter((c) => c.inReplyToId == null);
-  const repliesByRoot = new Map<number, ReviewComment[]>();
-  for (const c of comments) {
-    if (c.inReplyToId != null) {
-      const arr = repliesByRoot.get(c.inReplyToId) ?? [];
-      arr.push(c);
-      repliesByRoot.set(c.inReplyToId, arr);
-    }
-  }
-  for (const arr of repliesByRoot.values()) {
-    arr.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  }
+function SideAnnotationAnchor({
+  id,
+  active,
+  lineCount,
+}: {
+  id: string;
+  active: boolean;
+  lineCount: number;
+}) {
+  const activeMarkStyle = active
+    ? {
+        ...SIDE_ANNOTATION_ACTIVE_MARK_STYLE,
+        top: -Math.max(0, lineCount - 1) * REVIEW_DIFF_LINE_HEIGHT_PX,
+        height: Math.max(1, lineCount) * REVIEW_DIFF_LINE_HEIGHT_PX,
+      }
+    : undefined;
 
-  const out: DiffLineAnnotation<AnnotationPayload>[] = [];
-  for (const root of roots) {
-    const line = root.line ?? root.originalLine;
-    if (line == null) continue;
-    out.push({
-      side: githubSideToPierre(root.side),
-      lineNumber: line,
-      metadata: {
-        kind: "thread",
-        root,
-        replies: repliesByRoot.get(root.id) ?? [],
-      },
-    });
-  }
-
-  if (compose) {
-    out.push({
-      side: githubSideToPierre(compose.side),
-      lineNumber: compose.line,
-      metadata: { kind: "compose", startLine: compose.startLine },
-    });
-  }
-  return out;
+  return (
+    <span
+      data-review-side-anchor={id}
+      data-review-side-anchor-active={active ? "true" : undefined}
+      aria-hidden="true"
+      style={SIDE_ANNOTATION_ANCHOR_STYLE}
+    >
+      {active ? (
+        <span
+          data-review-side-anchor-highlight="true"
+          style={activeMarkStyle}
+        />
+      ) : null}
+    </span>
+  );
 }
 
-export const FileDiffCard = forwardRef<
-  HTMLDivElement,
-  {
-    file: PRFile;
-    isActive?: boolean;
-    mode?: DiffMode;
-    comments?: ReviewComment[];
-    target: ReviewTarget;
-    account: OAuthConnection | null;
-    baseSha?: string;
-    headSha?: string;
-    headRef?: string;
-    pendingKey: PendingCommentsKey;
-    annotationPlacement?: AnnotationPlacement;
+export type ReviewAnnotationContentProps = {
+  annotation: DiffLineAnnotation<ReviewAnnotationPayload>;
+  placement: AnnotationPlacement;
+  hasExistingDraft: boolean;
+  onSubmit: (body: string) => void;
+  onCancel: () => void;
+  target: ReviewTarget;
+  account: OAuthConnection | null;
+  headRef?: string;
+  baseRepoFull: string;
+};
+
+export function ReviewAnnotationContent({
+  annotation,
+  placement,
+  hasExistingDraft,
+  onSubmit,
+  onCancel,
+  target,
+  account,
+  headRef,
+  baseRepoFull,
+}: ReviewAnnotationContentProps) {
+  const payload = annotation.metadata;
+  if (payload.kind === "compose") {
+    return (
+      <InlineComposer
+        hasExistingDraft={hasExistingDraft}
+        onSubmit={onSubmit}
+        onCancel={onCancel}
+        placement={placement}
+      />
+    );
   }
->(function FileDiffCard(
-  {
-    file,
-    isActive,
-    mode = "split",
-    comments = [],
-    target,
-    account,
-    baseSha,
-    headSha,
-    headRef,
-    pendingKey,
-    annotationPlacement = "inline",
-  },
-  ref,
-) {
+
+  return (
+    <InlineThread
+      root={payload.root}
+      replies={payload.replies}
+      target={target}
+      account={account}
+      prHeadRef={headRef}
+      baseRepoFull={baseRepoFull}
+      placement={placement}
+    />
+  );
+}
+
+export function FileDiffCard({
+  file,
+  isActive,
+  mode = "split",
+  comments = EMPTY_FILE_COMMENTS,
+  target,
+  account,
+  baseSha,
+  headSha,
+  headRef,
+  pendingKey,
+  annotationPlacement = "inline",
+  focusedCommentId,
+}: {
+  file: PRFile;
+  isActive?: boolean;
+  mode?: DiffMode;
+  comments?: ReviewComment[];
+  target: ReviewTarget;
+  account: OAuthConnection | null;
+  baseSha?: string;
+  headSha?: string;
+  headRef?: string;
+  pendingKey: PendingCommentsKey;
+  annotationPlacement?: AnnotationPlacement;
+  focusedCommentId?: number | null;
+}) {
   const { collapsed, toggle: toggleCollapsed } = useFileCollapse(file.filename);
   const customization = useDiffCustomization();
 
@@ -257,37 +289,25 @@ export const FileDiffCard = forwardRef<
   );
 
   const lineAnnotations = useMemo(
-    () => buildAnnotations(comments, composeForFile),
+    () => buildReviewAnnotations(comments, composeForFile),
     [comments, composeForFile],
   );
-  const useSideAnnotations =
-    annotationPlacement === "side" && lineAnnotations.length > 0;
+  const useSideRail = annotationPlacement === "side";
 
   const baseRepoFull = `${target.owner}/${target.repo}`;
 
-  const renderAnnotation = useCallback(
-    (annotation: DiffLineAnnotation<AnnotationPayload>) => {
-      const payload = annotation.metadata;
-      if (payload.kind === "compose") {
-        return (
-          <InlineComposer
-            hasExistingDraft={hasExistingDraft}
-            onSubmit={submitCompose}
-            onCancel={cancelCompose}
-          />
-        );
-      }
-      return (
-        <InlineThread
-          root={payload.root}
-          replies={payload.replies}
-          target={target}
-          account={account}
-          prHeadRef={headRef}
-          baseRepoFull={baseRepoFull}
-        />
-      );
-    },
+  const annotationContentProps = useMemo<
+    Omit<ReviewAnnotationContentProps, "annotation" | "placement">
+  >(
+    () => ({
+      hasExistingDraft,
+      onSubmit: submitCompose,
+      onCancel: cancelCompose,
+      target,
+      account,
+      headRef,
+      baseRepoFull,
+    }),
     [
       hasExistingDraft,
       submitCompose,
@@ -296,6 +316,41 @@ export const FileDiffCard = forwardRef<
       account,
       headRef,
       baseRepoFull,
+    ],
+  );
+
+  const renderAnnotation = useCallback(
+    (annotation: DiffLineAnnotation<ReviewAnnotationPayload>) => {
+      if (!useSideRail) {
+        return (
+          <ReviewAnnotationContent
+            annotation={annotation}
+            placement="inline"
+            {...annotationContentProps}
+          />
+        );
+      }
+      return (
+        <SideAnnotationAnchor
+          id={reviewAnnotationKey(file.filename, annotation)}
+          active={
+            annotation.metadata.kind === "thread" &&
+            annotation.metadata.root.id === focusedCommentId
+          }
+          lineCount={
+            annotation.metadata.kind === "thread"
+              ? (getReviewCommentRange(annotation.metadata.root)?.lineCount ??
+                1)
+              : 1
+          }
+        />
+      );
+    },
+    [
+      annotationContentProps,
+      file.filename,
+      focusedCommentId,
+      useSideRail,
     ],
   );
 
@@ -365,7 +420,6 @@ export const FileDiffCard = forwardRef<
   if (!file.patch) {
     return (
       <div
-        ref={mergeRefs(ref)}
         data-active={isActive ? "true" : "false"}
         className="rounded-md border border-border/50 bg-card px-4 py-6 text-center text-[12px] text-muted-foreground/70 data-[active=true]:border-primary/50"
       >
@@ -383,45 +437,41 @@ export const FileDiffCard = forwardRef<
     expansionLineCount: 20,
     lineDiffType: customization.lineDiffType,
     disableBackground: !customization.backgrounds,
-    overflow: (
-      useSideAnnotations || customization.wrapping ? "wrap" : "scroll"
-    ) as "wrap" | "scroll",
+    overflow: (customization.wrapping ? "wrap" : "scroll") as "wrap" | "scroll",
     disableLineNumbers: !customization.lineNumbers,
-    unsafeCSS: useSideAnnotations ? SIDE_ANNOTATION_UNSAFE_CSS : undefined,
+    unsafeCSS: useSideRail ? SIDE_ANNOTATION_UNSAFE_CSS : undefined,
   };
+
+  const diffView = canUseMultiFile ? (
+    <MultiFileDiff<ReviewAnnotationPayload>
+      oldFile={oldFile}
+      newFile={newFile}
+      options={sharedOptions}
+      style={DIFF_HOST_STYLE}
+      lineAnnotations={lineAnnotations}
+      renderAnnotation={renderAnnotation}
+      renderHeaderPrefix={renderHeaderPrefix}
+    />
+  ) : (
+    <PatchDiff<ReviewAnnotationPayload>
+      patch={buildUnifiedPatch(file)}
+      options={sharedOptions}
+      style={DIFF_HOST_STYLE}
+      lineAnnotations={lineAnnotations}
+      renderAnnotation={renderAnnotation}
+      renderHeaderPrefix={renderHeaderPrefix}
+    />
+  );
 
   return (
     <div
-      ref={mergeRefs(ref)}
       data-active={isActive ? "true" : "false"}
-      className={cn(
-        "rounded-md border border-border/50 bg-card data-[active=true]:border-primary/50",
-        useSideAnnotations ? "overflow-visible" : "overflow-hidden",
-      )}
+      className="min-w-0 overflow-hidden rounded-md border border-border/50 bg-card data-[active=true]:border-primary/50"
     >
-      {canUseMultiFile ? (
-        <MultiFileDiff<AnnotationPayload>
-          oldFile={oldFile}
-          newFile={newFile}
-          options={sharedOptions}
-          style={DIFF_HOST_STYLE}
-          lineAnnotations={lineAnnotations}
-          renderAnnotation={renderAnnotation}
-          renderHeaderPrefix={renderHeaderPrefix}
-        />
-      ) : (
-        <PatchDiff<AnnotationPayload>
-          patch={buildUnifiedPatch(file)}
-          options={sharedOptions}
-          style={DIFF_HOST_STYLE}
-          lineAnnotations={lineAnnotations}
-          renderAnnotation={renderAnnotation}
-          renderHeaderPrefix={renderHeaderPrefix}
-        />
-      )}
+      {diffView}
     </div>
   );
-});
+}
 
 type TreeFolderNode = {
   name: string;

@@ -22,6 +22,7 @@ export function ReviewShell({
   isLoading,
   sidebarOpen,
   onSidebarOpenChange,
+  rightSidebarSticky = true,
 }: {
   fullHeader: ReactNode;
   condensedHeader: ReactNode;
@@ -31,6 +32,7 @@ export function ReviewShell({
   isLoading?: boolean;
   sidebarOpen?: boolean;
   onSidebarOpenChange?: (open: boolean) => void;
+  rightSidebarSticky?: boolean;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const fullHeaderRef = useRef<HTMLDivElement | null>(null);
@@ -96,15 +98,20 @@ export function ReviewShell({
       </div>
       <div
         ref={scrollRef}
-        className="flex min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
+        className="flex min-h-0 flex-1 items-start overflow-y-auto overflow-x-hidden"
       >
-        <div className="mx-auto flex w-full min-w-0 max-w-[1600px] flex-col gap-4 px-4 sm:px-6 lg:flex-row lg:gap-8 lg:px-8">
+        <div className="mx-auto flex w-full min-w-0 max-w-none flex-col gap-4 px-4 sm:px-6 lg:flex-row lg:gap-8 lg:px-8">
           <div className="min-w-0 flex-1">
             <div ref={fullHeaderRef}>{fullHeader}</div>
             {main}
           </div>
           {effectiveSidebarOpen ? (
-            <aside className="order-last w-full shrink-0 pb-6 lg:sticky lg:top-0 lg:order-none lg:h-fit lg:w-[300px] lg:py-6">
+            <aside
+              className={cn(
+                "order-last w-full shrink-0 pb-6 lg:order-none lg:h-fit lg:w-[300px] lg:py-6",
+                rightSidebarSticky ? "lg:sticky lg:top-0" : "lg:self-start",
+              )}
+            >
               {rightSidebar}
             </aside>
           ) : null}

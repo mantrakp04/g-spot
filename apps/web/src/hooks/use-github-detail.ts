@@ -692,7 +692,9 @@ export type ReviewComment = {
   inReplyToId: number | null;
   path: string;
   line: number | null;
+  startLine: number | null;
   originalLine: number | null;
+  originalStartLine: number | null;
   side: "LEFT" | "RIGHT";
   position: number | null;
   body: string;
@@ -798,7 +800,9 @@ export function useGitHubPRReviewComments(
           inReplyToId: c.in_reply_to_id ?? null,
           path: c.path,
           line: c.line ?? null,
+          startLine: c.start_line ?? null,
           originalLine: c.original_line ?? null,
+          originalStartLine: c.original_start_line ?? null,
           side: (c.side ?? "RIGHT") as "LEFT" | "RIGHT",
           position: c.position ?? null,
           body: c.body ?? "",
@@ -868,7 +872,9 @@ export function useReplyReviewComment(
                   inReplyToId: comment.in_reply_to_id ?? null,
                   path,
                   line: comment.line ?? null,
+                  startLine: comment.start_line ?? null,
                   originalLine: comment.original_line ?? null,
+                  originalStartLine: comment.original_start_line ?? null,
                   side: (comment.side ?? "RIGHT") as "LEFT" | "RIGHT",
                   position: comment.position ?? null,
                   body: comment.body ?? "",

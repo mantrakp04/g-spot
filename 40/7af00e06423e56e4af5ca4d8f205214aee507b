@@ -1,0 +1,75 @@
+apps/web/src/components/review/diff-viewer.tsx
+  s_59925e4f00f2d3::t_11f0a1bc877c95 232,234-236,422
+  s_fe1409a0a969c3::t_f66c6c63e08974 260
+  s_59925e4f00f2d3::t_c649271647d0d6 300,305-306,324
+  s_2f13c96d38ed03::t_72209acf094072 327
+  s_31bb82a0a9adf8::t_d9014ce40fa858 348
+  s_59925e4f00f2d3::t_91ea0dee086a3b 296-297,307-308,321-323
+  s_2f13c96d38ed03::t_634eb47e29fbea 418-420
+  s_fe1409a0a969c3::t_737dc20f81827a 243,292,333-338,341-344,346,356,370
+  s_2f13c96d38ed03::t_109cb98c24a040 285-291,314,320
+  s_2ed779741e45ba::t_32fd371fcf4114 276
+apps/web/src/components/review/pr-review-view.tsx
+  s_59925e4f00f2d3::t_836bd2828fbf9c 126
+  s_59925e4f00f2d3::t_2fb1fbe38242c9 352
+  s_2f13c96d38ed03::t_8e5503fde5d837 121-122
+  s_31bb82a0a9adf8::t_19ed67300c60c1 615
+  s_5e5087b66da79f::t_58d00ee4ed5c50 626
+  s_2f13c96d38ed03::t_43409b20534784 288,298
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "407af00e06423e56e4af5ca4d8f205214aee507b",
+  "prompts": {},
+  "sessions": {
+    "s_2ed779741e45ba": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e9443-0507-7e82-b9f1-141396f10d77",
+        "model": "gpt-5.5"
+      },
+      "human_author": "mantrakp04 <mantrakp@gmail.com>"
+    },
+    "s_2f13c96d38ed03": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ea2a9-06a0-7100-bd5f-7ca3186a4239",
+        "model": "gpt-5.5"
+      },
+      "human_author": "mantrakp04 <mantrakp@gmail.com>"
+    },
+    "s_31bb82a0a9adf8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5b8098e9-f23f-47a3-9c02-5a81b3e429eb",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "mantrakp04 <mantrakp@gmail.com>"
+    },
+    "s_59925e4f00f2d3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e9b04-d7e1-7bb0-a266-f40844f82ef5",
+        "model": "gpt-5.5"
+      },
+      "human_author": "mantrakp04 <mantrakp@gmail.com>"
+    },
+    "s_5e5087b66da79f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ea2c7-7a46-71e1-bfe5-849c0b35ce6d",
+        "model": "gpt-5.5"
+      },
+      "human_author": "mantrakp04 <mantrakp@gmail.com>"
+    },
+    "s_fe1409a0a969c3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ea2d1-82da-7401-b453-dfc59419a32b",
+        "model": "gpt-5.5"
+      },
+      "human_author": "mantrakp04 <mantrakp@gmail.com>"
+    }
+  }
+}

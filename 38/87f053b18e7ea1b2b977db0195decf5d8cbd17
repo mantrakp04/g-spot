@@ -1,0 +1,23 @@
+apps/web/src/components/tweakcn-theme-provider.tsx
+  s_8ca207618ed4dc::t_fd72e2bf6a3da7 5,286,313
+apps/web/src/components/shell/app-icon-rail.tsx
+  s_8ca207618ed4dc::t_fd72e2bf6a3da7 1,7,22,25-26,31,128-141
+apps/web/src/lib/demo-mode.ts
+  s_8ca207618ed4dc::t_fd72e2bf6a3da7 1-11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "3887f053b18e7ea1b2b977db0195decf5d8cbd17",
+  "prompts": {},
+  "sessions": {
+    "s_8ca207618ed4dc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ea2d6-5e6e-72c1-a7e6-1591995bcc28",
+        "model": "gpt-5.5"
+      },
+      "human_author": "mantrakp04 <mantrakp@gmail.com>"
+    }
+  }
+}

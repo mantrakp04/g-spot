@@ -1,0 +1,21 @@
+apps/cli/package.json
+  s_1ea0617e0b3e72::t_a41e32f45ee2ee 3
+apps/desktop/package.json
+  s_1ea0617e0b3e72::t_a41e32f45ee2ee 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "289c5b06f6e79f3e2440b03b32ca649079fdcd96",
+  "prompts": {},
+  "sessions": {
+    "s_1ea0617e0b3e72": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ea38c-6e75-7fc2-ab43-71e099d1bd1d",
+        "model": "gpt-5.5"
+      },
+      "human_author": "mantrakp04 <mantrakp@gmail.com>"
+    }
+  }
+}

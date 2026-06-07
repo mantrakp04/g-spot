@@ -2,6 +2,7 @@
 import * as React from "react"
 import { env } from "@g-spot/env/web"
 import { fetchThemes, type Theme } from "@/lib/tweakcn"
+import { DEMO_ROTATION_INTERVAL_MS, isEmbeddedFrame } from "@/lib/demo-mode"
 
 type ThemeMode = "light" | "dark" | "system"
 
@@ -36,7 +37,6 @@ interface ThemeProviderProps {
 const THEME_STORAGE_KEY = "theme-config"
 const APPLIED_PROPS_KEY = "tweakcn-applied-props"
 const TWEAKCN_THEME_CHANGE_EVENT = "tweakcn-theme-change"
-const DEMO_THEME_MODE_INTERVAL_MS = 10_000
 const THEME_MODES: ThemeMode[] = ["light", "dark", "system"]
 
 function isThemeMode(value: string | null): value is ThemeMode {
@@ -283,6 +283,7 @@ export function ThemeProvider({
 
   React.useEffect(() => {
     if (!env.VITE_DEMO_MODE) return
+    if (!isEmbeddedFrame()) return
 
     let isMounted = true
     void fetchThemes()
@@ -309,7 +310,7 @@ export function ThemeProvider({
       if (nextTheme) {
         storeTweakCNTheme(nextTheme)
       }
-    }, DEMO_THEME_MODE_INTERVAL_MS)
+    }, DEMO_ROTATION_INTERVAL_MS)
 
     return () => {
       isMounted = false

@@ -1,10 +1,10 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { Button } from "@g-spot/ui/components/button";
 import { env } from "@g-spot/env/web";
 import { cn } from "@g-spot/ui/lib/utils";
 import { useUser } from "@hexclave/react";
-import { CatchBoundary, Link, useRouterState } from "@tanstack/react-router";
+import { CatchBoundary, Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   BotIcon,
   BrainIcon,
@@ -19,13 +19,16 @@ import { Logo } from "@/components/logo";
 import { NavUser } from "@/components/nav-user";
 import { DesktopUpdateButton } from "@/components/desktop-update-button";
 import { ThemePicker } from "@/components/tweakcn-theme-picker";
+import { DEMO_ROTATION_INTERVAL_MS, isEmbeddedFrame } from "@/lib/demo-mode";
 import { signInWithExternalBrowser } from "@/lib/desktop-auth";
+
+type RailItemTarget = "/" | "/notes" | "/memory" | "/workflows" | "/projects";
 
 type RailItem = {
   id: string;
   label: string;
   icon: typeof Inbox;
-  to: string;
+  to: RailItemTarget;
   matches: (pathname: string) => boolean;
 };
 
@@ -122,6 +125,20 @@ function UserSlot() {
 
 export function AppIconRail() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!env.VITE_DEMO_MODE) return;
+    if (!isEmbeddedFrame()) return;
+
+    const intervalId = window.setInterval(() => {
+      const currentIndex = ITEMS.findIndex((item) => item.matches(pathname));
+      const nextItem = ITEMS[(currentIndex + 1) % ITEMS.length] ?? ITEMS[0];
+      void navigate({ to: nextItem.to });
+    }, DEMO_ROTATION_INTERVAL_MS);
+
+    return () => window.clearInterval(intervalId);
+  }, [navigate, pathname]);
 
   return (
     <nav className="flex h-full w-12 shrink-0 flex-col items-center gap-1 border-r border-sidebar-border bg-sidebar py-2">

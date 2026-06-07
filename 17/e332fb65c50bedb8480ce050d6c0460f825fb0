@@ -1,0 +1,29 @@
+apps/web/src/components/files/diff-patch.ts
+  s_9def3fdca3d573::t_cb838446b1b6c5 163-167,175,182
+apps/web/src/components/files/diff-hunk-actions.tsx
+  s_9def3fdca3d573::t_6269a0c1536dcf 37,40,51,54
+apps/web/src/components/files/diff-viewer.tsx
+  s_9def3fdca3d573::t_ede33a68d06576 352-354,358-359,366-367,373-374
+  s_9def3fdca3d573::t_2f63d758fc2cf7 336
+  s_9def3fdca3d573::t_eeebbf4dafd824 10-14,16-23,29,60-63,240-244,299-335,337-351,355-357,360-365,368-372,375-377,383,387,408-429,435-443
+packages/api/src/lib/git.ts
+  s_9def3fdca3d573::t_efcdfaacb183fd 851,854,857-858
+packages/api/src/routers/git.ts
+  s_9def3fdca3d573::t_98e2742fee4812 342,356
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "17e332fb65c50bedb8480ce050d6c0460f825fb0",
+  "prompts": {},
+  "sessions": {
+    "s_9def3fdca3d573": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ea2e0-2ca8-7a92-a054-e0f3200c4559",
+        "model": "gpt-5.5"
+      },
+      "human_author": "mantrakp04 <mantrakp@gmail.com>"
+    }
+  }
+}

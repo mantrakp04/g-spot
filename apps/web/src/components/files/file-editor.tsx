@@ -40,7 +40,20 @@ export function FileEditor({ projectId, path, active }: FileEditorProps) {
   const { resolvedTheme } = useTheme();
   const monacoTheme = useMonacoTheme(resolvedTheme, active);
   const settings = useAtomValue(monacoSettingsAtom);
-  const editorOptions = useMemo(() => buildEditorOptions(settings), [settings]);
+  const editorOptions = useMemo(
+    () =>
+      ({
+        ...buildEditorOptions(settings),
+        // The file editor carries no diagnostics or decorations, so its
+        // overview ruler is an always-empty canvas that still repaints on
+        // scroll. Drop it. (The diff editor keeps its ruler — it shows change
+        // markers there.)
+        overviewRulerLanes: 0,
+        overviewRulerBorder: false,
+        hideCursorInOverviewRuler: true,
+      }) satisfies monaco.editor.IStandaloneEditorConstructionOptions,
+    [settings],
+  );
   const fileQuery = useQuery({
     queryKey: fsKeys.read(projectId, path),
     queryFn: () => trpcClient.fs.read.query({ projectId, path }),

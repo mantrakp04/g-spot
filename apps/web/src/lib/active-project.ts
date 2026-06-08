@@ -4,7 +4,7 @@ import { atomWithStorage } from "jotai/utils";
 /**
  * Lightweight cache for the user's "last opened" project so the sidebar can
  * stay project-scoped when the user navigates somewhere outside the
- * `/projects/$projectId/*` subtree (e.g. settings, inbox, sections).
+ * `/agent/$projectId/*` subtree.
  *
  * The URL is always the source of truth — this is just a fallback.
  */

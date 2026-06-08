@@ -10,7 +10,7 @@ type ProjectSettingsSearch = {
   tab?: ProjectSettingsTab;
 };
 
-export const Route = createFileRoute("/projects/$projectId/settings")({
+export const Route = createFileRoute("/agent/$projectId/settings")({
   component: ProjectSettingsRoute,
   validateSearch: (search: Record<string, unknown>): ProjectSettingsSearch => ({
     tab: isProjectSettingsTab(search.tab) ? search.tab : undefined,
@@ -29,7 +29,7 @@ function ProjectSettingsRoute() {
       tab={activeTab}
       onTabChange={(nextTab) => {
         void navigate({
-          to: "/projects/$projectId/settings",
+          to: "/agent/$projectId/settings",
           params: { projectId },
           search: { tab: nextTab === "general" ? undefined : nextTab },
           replace: true,

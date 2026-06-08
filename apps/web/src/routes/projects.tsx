@@ -1,16 +1,9 @@
-import { createFileRoute, Outlet } from "@tanstack/react-router";
-
-import { AiSidebar } from "@/components/chat/ai-sidebar";
-import { AppLayout } from "@/components/shell/app-layout";
+import { createFileRoute, Navigate } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/projects")({
-  component: ProjectsLayout,
+  component: ProjectsRedirect,
 });
 
-function ProjectsLayout() {
-  return (
-    <AppLayout sidebar={<AiSidebar />}>
-      <Outlet />
-    </AppLayout>
-  );
+function ProjectsRedirect() {
+  return <Navigate to="/agent" replace />;
 }

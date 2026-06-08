@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 
 import { acquireTerminalSession } from "./terminal-sessions";
+import { registerSurfaceFocus } from "@/lib/surface-focus";
 
 type TerminalViewProps = {
   projectId: string;
@@ -11,7 +12,7 @@ type TerminalViewProps = {
 /**
  * Thin wrapper around the persistent terminal session keyed by `tabId`. The
  * xterm instance, WebSocket, and PTY all live in `terminal-sessions.ts` so
- * unmounting this component (e.g. navigating away from /projects/$id) does
+ * unmounting this component (e.g. navigating away from /agent/$id) does
  * not tear down the shell. We only attach/detach the session's container.
  */
 export function TerminalView({ projectId, tabId, active }: TerminalViewProps) {
@@ -52,6 +53,18 @@ export function TerminalView({ projectId, tabId, active }: TerminalViewProps) {
     });
     return () => cancelAnimationFrame(handle);
   }, [active, projectId, tabId]);
+
+  useEffect(() => {
+    return registerSurfaceFocus(tabId, () => {
+      const session = acquireTerminalSession(tabId, projectId);
+      try {
+        session.fit.fit();
+      } catch {
+        // ignore
+      }
+      session.term.focus();
+    });
+  }, [projectId, tabId]);
 
   const handleWrapperMouseDown = () => {
     const session = acquireTerminalSession(tabId, projectId);

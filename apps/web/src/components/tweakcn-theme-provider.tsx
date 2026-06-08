@@ -2,7 +2,7 @@
 import * as React from "react"
 import { env } from "@g-spot/env/web"
 import { fetchThemes, type Theme } from "@/lib/tweakcn"
-import { DEMO_ROTATION_INTERVAL_MS, isEmbeddedFrame } from "@/lib/demo-mode"
+import { DEMO_ROTATION_INTERVAL_MS, isEmbeddedFrame, useDemoInteractionPause } from "@/lib/demo-mode"
 
 type ThemeMode = "light" | "dark" | "system"
 
@@ -259,6 +259,9 @@ export function ThemeProvider({
           : "light"
       : theme
   const demoThemesRef = React.useRef<Theme[]>([])
+  const pauseDemoRotation = useDemoInteractionPause()
+  const pauseDemoRotationRef = React.useRef(pauseDemoRotation)
+  pauseDemoRotationRef.current = pauseDemoRotation
 
   const applyTheme = React.useCallback((resolved: "light" | "dark") => {
     if (typeof document === "undefined") return
@@ -297,6 +300,8 @@ export function ThemeProvider({
       })
 
     const intervalId = window.setInterval(() => {
+      if (pauseDemoRotationRef.current) return
+
       setThemeState((currentTheme) => {
         const nextThemes = THEME_MODES.filter((candidate) => candidate !== currentTheme)
         const nextTheme = nextThemes[Math.floor(Math.random() * nextThemes.length)] ?? "system"

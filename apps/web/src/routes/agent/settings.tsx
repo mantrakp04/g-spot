@@ -10,7 +10,7 @@ type ChatSettingsSearch = {
   tab?: ChatSettingsTab;
 };
 
-export const Route = createFileRoute("/chat/settings")({
+export const Route = createFileRoute("/agent/settings")({
   component: ChatSettingsRoute,
   validateSearch: (search: Record<string, unknown>): ChatSettingsSearch => ({
     tab: isChatSettingsTab(search.tab) ? search.tab : undefined,
@@ -27,7 +27,7 @@ function ChatSettingsRoute() {
       tab={activeTab}
       onTabChange={(nextTab) => {
         void navigate({
-          to: "/chat/settings",
+          to: "/agent/settings",
           search: { tab: nextTab === "agent" ? undefined : nextTab },
           replace: true,
         });

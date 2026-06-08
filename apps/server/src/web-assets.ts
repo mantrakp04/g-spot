@@ -4,7 +4,7 @@ import path from "node:path";
 // ── Desktop-hosted web callback pages ──
 
 // Only serve the bundled SPA when the desktop shell explicitly points us at
-// its copy. In dev (web served by Vite on :3001) this stays null so stale
+// its copy. In dev (web served by Vite on :3002) this stays null so stale
 // `apps/web/dist` builds don't shadow the dev server.
 export const webDistDir = process.env.G_SPOT_WEB_DIST_DIR ?? null;
 

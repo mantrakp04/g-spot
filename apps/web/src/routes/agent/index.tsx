@@ -9,7 +9,7 @@ import { useEffect } from "react";
 import { useProjects } from "@/hooks/use-projects";
 import { useLastProjectId, useSetLastProjectId } from "@/lib/active-project";
 
-export const Route = createFileRoute("/projects/")({
+export const Route = createFileRoute("/agent/")({
   component: ProjectsIndexPage,
 });
 
@@ -31,7 +31,7 @@ function ProjectsIndexPage() {
     if (target) {
       setLastProjectId(target.id);
       void navigate({
-        to: "/projects/$projectId",
+        to: "/agent/$projectId",
         params: { projectId: target.id },
         replace: true,
       });
@@ -63,7 +63,7 @@ function ProjectsIndexPage() {
           </CardHeader>
           <CardContent>
             <Link
-              to="/projects/new"
+              to="/agent/new"
               className={cn(buttonVariants({ variant: "default" }), "gap-2")}
             >
               <Plus className="size-4" />

@@ -13,11 +13,12 @@ import type { Tab } from "@/lib/tabs-store";
 type TabItemProps = {
   tab: Tab;
   active: boolean;
+  highlighted?: boolean;
   onFocus: () => void;
   onClose: () => void;
 };
 
-export function TabItem({ tab, active, onFocus, onClose }: TabItemProps) {
+export function TabItem({ tab, active, highlighted = false, onFocus, onClose }: TabItemProps) {
   const Icon =
     tab.kind === "terminal"
       ? TerminalSquare
@@ -43,6 +44,7 @@ export function TabItem({ tab, active, onFocus, onClose }: TabItemProps) {
       role="tab"
       aria-selected={active}
       data-active={active}
+      data-highlighted={highlighted}
       onClick={onFocus}
       onAuxClick={handleAuxClick}
       className={cn(
@@ -51,7 +53,9 @@ export function TabItem({ tab, active, onFocus, onClose }: TabItemProps) {
         "border-r border-sidebar-border",
         active
           ? "bg-background text-foreground"
-          : "text-muted-foreground hover:bg-background/40 hover:text-foreground",
+          : highlighted
+            ? "bg-primary/10 text-foreground shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.24)] hover:bg-primary/15"
+            : "text-muted-foreground hover:bg-background/40 hover:text-foreground",
       )}
     >
       <Icon className={cn("size-3.5 shrink-0", active ? "opacity-100" : "opacity-70")} />

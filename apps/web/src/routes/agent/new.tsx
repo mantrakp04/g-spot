@@ -4,7 +4,7 @@ import { ArrowLeft } from "lucide-react";
 
 import { CreateProjectForm } from "@/components/projects/create-project-form";
 
-export const Route = createFileRoute("/projects/new")({
+export const Route = createFileRoute("/agent/new")({
   component: NewProjectPage,
 });
 
@@ -13,7 +13,7 @@ function NewProjectPage() {
     <div className="h-full overflow-y-auto">
       <div className="container mx-auto max-w-2xl space-y-8 px-4 py-12">
         <Link
-          to="/projects"
+          to="/agent"
           className="inline-flex items-center gap-1.5 text-muted-foreground text-xs transition-colors hover:text-foreground"
         >
           <ArrowLeft className="size-3.5" />

@@ -5,7 +5,7 @@ import { Button } from "@g-spot/ui/components/button";
 import { Skeleton } from "@g-spot/ui/components/skeleton";
 import { cn } from "@g-spot/ui/lib/utils";
 import { Link, useNavigate, useParams, useRouterState } from "@tanstack/react-router";
-import { Cog, Plus } from "lucide-react";
+import { Cog, FolderPlus } from "lucide-react";
 
 import { SidebarProjectItem } from "@/components/projects/sidebar-project-item";
 import { SecondarySidebar } from "@/components/shell/secondary-sidebar";
@@ -17,18 +17,21 @@ import { useDeleteChatMutation } from "@/hooks/use-chat-data";
 import { useProjects } from "@/hooks/use-projects";
 import { useLastProjectId, useSetLastProjectId } from "@/lib/active-project";
 import { chatKeys } from "@/lib/query-keys";
+import { useActiveTab } from "@/lib/tabs-store";
 
 export function AiSidebar() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const isChatSettings = pathname === "/chat/settings";
+  const isChatSettings = pathname === "/agent/settings";
+  const activeTab = useActiveTab();
 
   const params = useParams({ strict: false }) as {
     chatId?: string;
     projectId?: string;
   };
-  const activeChatId = params.chatId;
+  const activeChatId =
+    activeTab?.kind === "chat" ? (activeTab.chatId ?? undefined) : undefined;
 
   const projectsQuery = useProjects();
   const projects = projectsQuery.data ?? [];
@@ -90,7 +93,7 @@ export function AiSidebar() {
       e.stopPropagation();
       deleteChat.mutate(chatId);
       if (activeChatId === chatId && activeProjectId) {
-        navigate({ to: "/projects/$projectId", params: { projectId: activeProjectId } });
+        navigate({ to: "/agent/$projectId", params: { projectId: activeProjectId } });
       }
     },
     [activeChatId, activeProjectId, deleteChat, navigate],
@@ -110,7 +113,7 @@ export function AiSidebar() {
             )}
             aria-label="Agent settings"
             nativeButton={false}
-            render={<Link to="/chat/settings" />}
+            render={<Link to="/agent/settings" />}
           >
             <Cog className="size-3.5" />
           </Button>
@@ -120,9 +123,9 @@ export function AiSidebar() {
             className="text-muted-foreground hover:text-foreground"
             aria-label="New project"
             nativeButton={false}
-            render={<Link to="/projects/new" />}
+            render={<Link to="/agent/new" />}
           >
-            <Plus className="size-3.5" />
+            <FolderPlus className="size-3.5" />
           </Button>
         </div>
       }

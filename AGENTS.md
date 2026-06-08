@@ -2,6 +2,30 @@
 
 `CLAUDE.md` is a symlink to this file.
 
+## Workflow capture (meta-rule — read every message through this)
+
+This file is the user's living workflow. On **every** incoming message, before acting, classify the intent:
+
+- **One-time / ad-hoc** (specific to this task, this file, this moment) → just do it. Don't touch this file.
+- **Generic / recurring** (a preference, habit, or rule that would apply again to similar future tasks) → fold it into the `Workflow` section below, then carry it out.
+
+Heuristics for "generic enough to capture":
+- It's phrased as a general rule ("always…", "whenever…", "from now on…", "I want X to happen when Y").
+- It's a process/verification step that isn't tied to one specific file or one-off bug.
+- You'd plausibly redo it across multiple unrelated tasks (e.g. "verify UI changes in a browser when you make a UI change").
+
+When capturing:
+- Add or update the relevant bullet under `Workflow` (don't duplicate — merge into an existing rule if it overlaps).
+- Keep it terse and actionable, matching the style of the rest of this file.
+- Do it silently as part of the task; a one-line mention that you updated the workflow is enough.
+
+## Workflow
+
+Recurring conventions captured from the user. Follow these on matching tasks:
+
+- **Verify UI in a browser.** Whenever a change touches the UI, run the app and confirm the change visually in a browser (use a browser/QA skill) before calling it done. The dev server with HMR runs on **port 3002** (`apps/web`, `http://localhost:3002`) — not 3001 (3001 is `apps/server`). Ports are derived from `packages/env/src/dev-ports.ts` (prefix `30`: server `3001`, web `3002`, landing `3003`, relay `3004`).
+- **Simplicity over forcing the current arch.** Put logic where it's simplest and best, not where the existing structure happens to sit. If something is cleaner/easier on the server, move it server-side; if it belongs on the client, move it there. Don't contort code to fit the current architecture — rewrite it for the side that makes it simpler, and clean up the old side (rename/remove stale paths) when you do.
+
 ## Task completion requirements
 
 ### Type checking
@@ -12,9 +36,6 @@ bun check-types
 ```
 
 Always run `bun check-types` after code changes before finalizing. If it fails, re-run until it passes. Turbo runs `check-types` in each workspace that defines it.
-
-- Root **`fmt`** / **`lint`** scripts are not wired yet; Turbo’s `lint` task currently runs nothing. When you add formatters or linters, extend the root `package.json` and this section so they are part of the same bar.
-- There is **no test runner** in the repo yet. If you add Vitest (or similar), prefer **`bun run test`** over **`bun test`** so the script name is explicit.
 
 ## Communication style
 
@@ -49,7 +70,7 @@ Rule of thumb: **stay on task unless told otherwise or the interrupt would make 
 - **Run web search** before you assert facts about third-party APIs, CLI behavior, framework versions, platform limits, security advisories, deprecations, licensing, or current events. Prefer primary sources (official docs, release notes, standards bodies) surfaced via search.
 - **Ground questions to the user** in what search already showed. Prefer “I found [A] vs [B] in current docs; which matches your setup?” over guesses. If search is inconclusive, say that and point to what you checked.
 - **Internal-only work** (reading this repo, inferring types, following existing patterns) does not require web search. **External claims and integration decisions do.**
-- **Stack with other tools:** **Context7** for third-party SDK shapes and examples; **DeepWiki** (or repo docs) for a specific GitHub project’s behavior; **web search** for freshness, version matrices, and anything not covered by those. If two sources disagree, trust newer primary documentation after search, not memory.
+- **Stack with other tools:** **DeepWiki** (or repo docs) for a specific GitHub project’s behavior; **web search** for freshness, version matrices, and anything not covered by those. If two sources disagree, trust newer primary documentation after search, not memory.
 
 ## DO
 
@@ -57,7 +78,6 @@ Rule of thumb: **stay on task unless told otherwise or the interrupt would make 
 - **Check existing patterns** in codebase before implementing.
 - **Cross-check server/client impact** — if you edit server-side code, verify client usage, and vice versa.
 - **Rename symbols to match reality** — if code moves across server/client boundaries, rename the original vars, schemas, imports, and helpers so the names describe what they actually are.
-- **Use Context7 for third-party SDK API verification** before integrating.
 - **For Convex deployment config (especially Vercel build commands), follow official Convex docs as source of truth.**
 - **Verify against DeepWiki (or upstream repo docs) before asserting behavior of a specific open-source project; use web search for time-sensitive or general external facts** (see Research grounding above).
 - **Keep responses terse** and actionable.
@@ -68,7 +88,7 @@ Rule of thumb: **stay on task unless told otherwise or the interrupt would make 
 - **Use skeleton loaders**, not spinners.
 - **Use GitHub CLI efficiently** — prefer `gh` subcommands over manual API calls, and reuse existing auth/config without re-authing.
 - **Match Tailwind patterns exactly** — don't modify unrelated classes.
-- **DRY the code** — reuse existing utilities.
+- **Keep the code DRY** — reuse existing utilities.
 - **Clean up after approach changes** — remove stale paths/helpers when method changes.
 - **Split oversized modules** — break complex files into focused, manageable units.
 - **Prefer workspace catalog dependencies** — add new deps to root `workspaces.catalog` and consume via `catalog:` when possible.
@@ -101,11 +121,11 @@ This project has no users. There's no real data yet. Make whatever changes you w
 
 - **Local-first, not cloud.** There is no production cloud deployment target for this repo. Do not prioritize multi-tenant SaaS patterns, edge hosting, or serverless cost/latency tradeoffs unless the task explicitly says so.
 - **Optimize for a single machine** — fast startup, snappy UI, low friction on the developer/user’s box — not for regional redundancy, cold-start budgets, or platform billing quirks.
-- **Ship shape: packaged desktop app.** The web UI and local API are built and **served together inside a desktop shell** (`apps/desktop`), not primarily as a public web URL. Default mental model: embedded local HTTP + bundled UI (this repo uses **Electrobun**; if packaging moves to Electron or similar, keep the same “local bundle” assumption).
+- **Ship shape: packaged desktop app and a cli.** The web UI and local API are built and **served together inside a desktop/cli shell** (`apps/desktop` n `apps/cli`), not primarily as a public web URL. Default mental model: embedded local HTTP + bundled UI (this repo uses **Electrobun**; if packaging moves to Electron or similar, keep the same “local bundle” assumption).
 
 ## Client boundary
 
-- **Treat `apps/web`, `apps/desktop`, and `apps/server` as client-facing surfaces.** They are user-reachable and must be handled with the same caution as frontend code for secrets exposure.
+- **Treat `apps/web`, `apps/desktop`, `apps/cli` and `apps/server` as client-facing surfaces.** They are user-reachable and must be handled with the same caution as frontend code for secrets exposure.
 - **Only `apps/relay` is non-client-facing.** Keep sensitive-only logic and truly secret environment variables there unless they are strictly required elsewhere.
 - **Do not reveal sensitive env vars to the client side.** Never expose secrets to browser code, desktop renderer code, preload-exposed APIs, or server responses intended for client consumption.
 - **If an env var is sensitive, assume it must not be readable from `apps/web`, `apps/desktop`, or any client-consumable path in `apps/server`.** Pass derived data or server-side results instead of raw secrets.
@@ -133,6 +153,7 @@ Long-term maintainability matters. When adding functionality, look for shared lo
 - **`apps/server`**: Bun + **Elysia** + **tRPC** HTTP API; uses `@g-spot/api` routers and `@g-spot/db` for persistence. Treat as client-facing for data exposure and secret-handling decisions.
 - **`apps/web`**: **React / Vite** SPA; **TanStack Router** (`src/routes/`); **tRPC** + TanStack Query client; shared UI from `@g-spot/ui` (Hexclave auth and other app wiring live here). Client-facing.
 - **`apps/desktop`**: **Electrobun** wraps the web build for a native shell (`dev:hmr` runs web dev + electrobun). Client-facing.
+- **`apps/cli`**: **CLI** wraps the web and server into a single cli command
 - **`apps/relay`**: Relay service for non-client-facing push/webhook and secret-bearing relay work.
 - **`packages/api`**: Shared **tRPC** router definitions and types consumed by server and web (`workspace:*`).
 - **`packages/db`**: **Drizzle** schema, migrations, and DB scripts (`db:push`, `db:studio`, etc.).

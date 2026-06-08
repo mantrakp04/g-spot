@@ -86,6 +86,8 @@ import {
   createChatRenderState,
   getLastAssistantTurnStartIndex,
 } from "@/lib/chat-render-model";
+import { useOpenChatTab } from "@/lib/tabs-store";
+import { focusSurface, registerSurfaceFocus } from "@/lib/surface-focus";
 
 const STARTER_PROMPTS = [
   "Brainstorm ideas for a weekend project I could ship in a day",
@@ -211,7 +213,8 @@ function AttachmentPreviews() {
 }
 
 interface ChatViewProps {
-  chatId?: string;
+  tabId?: string;
+  chatId?: string | null;
   /**
    * Project this chat belongs to (or, when `chatId` is omitted, the project
    * that a freshly created chat will be assigned to).
@@ -267,6 +270,7 @@ async function getChatHeaders(): Promise<Record<string, string>> {
  * This ensures useChat initializes with the actual messages.
  */
 export function ChatView({
+  tabId,
   chatId,
   projectId,
   focusMessageId,
@@ -304,6 +308,7 @@ export function ChatView({
   return (
     <ChatViewInner
       key={`${projectId}:${chatId ?? "draft"}`}
+      tabId={tabId}
       chatId={chatId ?? null}
       projectId={projectId}
       projectName={projectName}
@@ -318,6 +323,7 @@ export function ChatView({
 }
 
 interface ChatViewInnerProps {
+  tabId?: string;
   chatId: string | null;
   projectId: string;
   projectName: string;
@@ -330,6 +336,7 @@ interface ChatViewInnerProps {
 }
 
 function ChatViewInner({
+  tabId,
   chatId,
   projectId,
   projectName,
@@ -349,10 +356,11 @@ function ChatViewInner({
   const updateProjectAgentConfig = useUpdateProjectAgentConfigMutation();
   const replaceMessages = useReplaceChatMessagesMutation();
   const forkChat = useForkChatMutation();
+  const openChatTab = useOpenChatTab();
   const isDraft = chatId === null;
   const { newChat } = useNewChat();
   const handleNewChat = useCallback(() => {
-    void newChat(projectId);
+    void newChat(projectId).then(({ id }) => focusSurface(id));
   }, [newChat, projectId]);
   const allModels = piCatalog.data?.models ?? EMPTY_PI_MODELS;
   const configuredProviders = useMemo(
@@ -820,9 +828,12 @@ function ChatViewInner({
           pendingMessageId: userMsgId,
         });
 
+        openChatTab(projectId, nextChat.id, "New Chat", {
+          replaceTabId: tabId,
+        });
         navigate({
-          to: "/projects/$projectId/chat/$chatId",
-          params: { projectId, chatId: nextChat.id },
+          to: "/agent/$projectId",
+          params: { projectId },
         });
         return;
       }
@@ -860,8 +871,10 @@ function ChatViewInner({
       isDraft,
       isStreamActive,
       navigate,
+      openChatTab,
       projectId,
       startStream,
+      tabId,
     ],
   );
 
@@ -1035,12 +1048,13 @@ function ChatViewInner({
         retainedMessageCount: index + 1,
       });
 
+      openChatTab(projectId, nextChat.id, "Forked chat");
       navigate({
-        to: "/projects/$projectId/chat/$chatId",
-        params: { projectId, chatId: nextChat.id },
+        to: "/agent/$projectId",
+        params: { projectId },
       });
     },
-    [chatId, forkChat, messages, navigate, persistedMessagesById, projectId],
+    [chatId, forkChat, messages, navigate, openChatTab, persistedMessagesById, projectId],
   );
 
   const handleModelChange = useCallback(
@@ -1383,6 +1397,7 @@ function ChatViewInner({
               <div className="w-full">
                 <PromptInputProvider>
                   <ChatPromptInputArea
+                    tabId={tabId}
                     chatId={chatId}
                     projectId={projectId}
                     projectName={projectName}
@@ -1468,6 +1483,7 @@ function ChatViewInner({
           <div className="mx-auto w-full max-w-2xl px-3 py-2">
             <PromptInputProvider>
               <ChatPromptInputArea
+                tabId={tabId}
                 chatId={chatId}
                 projectId={projectId}
                 projectName={projectName}
@@ -1509,6 +1525,7 @@ function ChatViewInner({
 }
 
 interface ChatPromptInputAreaProps {
+  tabId?: string;
   chatId: string | null;
   projectId: string;
   projectName: string;
@@ -1533,6 +1550,7 @@ interface ChatPromptInputAreaProps {
 }
 
 function ChatPromptInputArea({
+  tabId,
   chatId,
   projectId,
   projectName,
@@ -1558,19 +1576,24 @@ function ChatPromptInputArea({
   const controller = usePromptInputController();
   const popoverRef = useRef<SlashCommandPopoverHandle>(null);
   const anchorRef = useRef<HTMLDivElement>(null);
+  const focusTextarea = useCallback(() => {
+    const textarea = anchorRef.current?.querySelector<HTMLTextAreaElement>(
+      'textarea[name="message"]',
+    );
+    textarea?.focus();
+  }, []);
 
   useEffect(() => {
     if (!active) return;
 
     const frame = window.requestAnimationFrame(() => {
-      const textarea = anchorRef.current?.querySelector<HTMLTextAreaElement>(
-        'textarea[name="message"]',
-      );
-      textarea?.focus();
+      focusTextarea();
     });
 
     return () => window.cancelAnimationFrame(frame);
-  }, [active, layout]);
+  }, [active, focusTextarea, layout]);
+
+  useEffect(() => registerSurfaceFocus(tabId, focusTextarea), [focusTextarea, tabId]);
 
   const handleTextareaKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {

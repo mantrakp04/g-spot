@@ -74,7 +74,7 @@ export function ChatProjectSelect({
                       setOpen(false);
                       if (isSelected) return;
                       void navigate({
-                        to: "/projects/$projectId",
+                        to: "/agent/$projectId",
                         params: { projectId: project.id },
                       });
                     }}

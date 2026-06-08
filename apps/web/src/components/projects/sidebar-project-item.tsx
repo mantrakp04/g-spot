@@ -22,6 +22,8 @@ import {
 import { useChats } from "@/hooks/use-chat-data";
 import { useInfiniteScroll } from "@/hooks/use-infinite-scroll";
 import { useNewChat } from "@/hooks/use-new-chat";
+import { focusSurface } from "@/lib/surface-focus";
+import { useOpenChatTab } from "@/lib/tabs-store";
 
 interface SidebarProjectItemProps {
   project: {
@@ -67,6 +69,7 @@ export function SidebarProjectItem({
   runtimeStatuses,
 }: SidebarProjectItemProps) {
   const { newChat, isPending: newChatPending } = useNewChat();
+  const openChatTab = useOpenChatTab();
   const [showAllChats, setShowAllChats] = useState(false);
 
   const {
@@ -103,7 +106,7 @@ export function SidebarProjectItem({
     (event: React.MouseEvent) => {
       event.preventDefault();
       event.stopPropagation();
-      void newChat(project.id);
+      void newChat(project.id).then(({ id }) => focusSurface(id));
     },
     [newChat, project.id],
   );
@@ -149,7 +152,7 @@ export function SidebarProjectItem({
           <Plus className="mx-auto size-3" />
         </button>
         <Link
-          to="/projects/$projectId/settings"
+          to="/agent/$projectId/settings"
           params={{ projectId: project.id }}
           className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-all hover:bg-sidebar-accent hover:text-foreground group-hover/project:opacity-100 focus-visible:opacity-100"
           aria-label={`${project.name} settings`}
@@ -182,8 +185,11 @@ export function SidebarProjectItem({
           return (
             <Link
               key={chat.id}
-              to="/projects/$projectId/chat/$chatId"
-              params={{ projectId: project.id, chatId: chat.id }}
+              to="/agent/$projectId"
+              params={{ projectId: project.id }}
+              onClick={() =>
+                openChatTab(project.id, chat.id, chat.title || "Untitled")
+              }
               className={cn(
                 "group/chat flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-sidebar-accent",
                 activeChatId === chat.id && "bg-sidebar-accent",

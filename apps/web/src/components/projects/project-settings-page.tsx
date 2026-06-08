@@ -215,7 +215,7 @@ export function ProjectSettingsPage({
     try {
       await deleteProject.mutateAsync({ id: projectId, force: chatCount > 0 });
       toast.success("Project deleted");
-      await navigate({ to: "/projects" });
+      await navigate({ to: "/agent" });
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Could not delete project";
@@ -240,7 +240,7 @@ export function ProjectSettingsPage({
       <div className="container mx-auto max-w-3xl space-y-8 px-4 py-12">
         <div className="space-y-3">
           <Link
-            to="/projects/$projectId"
+            to="/agent/$projectId"
             params={{ projectId }}
             className="inline-flex items-center gap-1.5 text-muted-foreground text-xs transition-colors hover:text-foreground"
           >
@@ -397,10 +397,10 @@ export function ProjectSettingsPage({
                   Per-project Pi agent defaults. New chats in this project start
                   from these values — the user-level defaults at{" "}
                   <Link
-                    to="/chat/settings"
+                    to="/agent/settings"
                     className="underline underline-offset-2 hover:text-foreground"
                   >
-                    /chat/settings
+                    /agent/settings
                   </Link>{" "}
                   are only used when a new project is first created.
                 </CardDescription>
@@ -460,7 +460,7 @@ export function ProjectSettingsPage({
             <McpView
               projectId={projectId}
               projectPath={project.path}
-              description="MCP servers spawned from this project's .mcp.json. They're added on top of the global servers configured at /chat/settings."
+              description="MCP servers spawned from this project's .mcp.json. They're added on top of the global servers configured at /agent/settings."
             />
           </TabsContent>
         </Tabs>

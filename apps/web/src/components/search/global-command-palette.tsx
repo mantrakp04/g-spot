@@ -16,6 +16,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Bot, Brain, Database, Github, Mail, MessageSquare, NotebookText, Search, User } from "lucide-react";
 
+import { useOpenChatTab } from "@/lib/tabs-store";
 import { trpcClient } from "@/utils/trpc";
 
 type SearchResult = Awaited<ReturnType<typeof trpcClient.search.global.query>>[number];
@@ -78,6 +79,7 @@ export function GlobalCommandPalette() {
   const [agentResults, setAgentResults] = useState<SearchResult[]>([]);
   const debouncedQuery = useDebouncedValue(query, 120);
   const navigate = useNavigate();
+  const openChatTab = useOpenChatTab();
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -165,10 +167,13 @@ export function GlobalCommandPalette() {
       const projectId = result.target.projectId;
       const chatId = result.target.chatId;
       if (projectId && chatId) {
+        openChatTab(projectId, chatId, result.title || "Untitled", {
+          focusMessageId: result.target.messageId ?? undefined,
+          searchText: result.target.query ?? undefined,
+        });
         void navigate({
-          to: "/projects/$projectId/chat/$chatId",
-          params: { projectId, chatId },
-          search: { messageId: result.target.messageId ?? undefined, q: result.target.query ?? undefined },
+          to: "/agent/$projectId",
+          params: { projectId },
         });
       }
       return;

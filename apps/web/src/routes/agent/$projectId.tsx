@@ -11,7 +11,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { FileSearchDialog } from "@/components/file-search/file-search-dialog";
 import { RightSidebar } from "@/components/right-sidebar/right-sidebar";
-import { TabBar } from "@/components/tabs/tab-bar";
+import { TabShortcuts } from "@/components/tabs/tab-bar";
 import { useProject } from "@/hooks/use-projects";
 import { useSetLastProjectId } from "@/lib/active-project";
 import {
@@ -25,7 +25,7 @@ const RIGHT_MAIN_PANEL_ID = "right-main";
 const browserStorage =
   typeof window !== "undefined" ? window.localStorage : undefined;
 
-export const Route = createFileRoute("/projects/$projectId")({
+export const Route = createFileRoute("/agent/$projectId")({
   component: ProjectLayout,
 });
 
@@ -100,7 +100,7 @@ function ProjectLayout() {
       minSize="40"
     >
       <div className="flex h-full min-h-0 min-w-0 flex-col">
-        <TabBar projectId={projectId} />
+        <TabShortcuts projectId={projectId} />
         <Outlet />
       </div>
     </ResizablePanel>

@@ -19,10 +19,10 @@ import { Logo } from "@/components/logo";
 import { NavUser } from "@/components/nav-user";
 import { DesktopUpdateButton } from "@/components/desktop-update-button";
 import { ThemePicker } from "@/components/tweakcn-theme-picker";
-import { DEMO_ROTATION_INTERVAL_MS, isEmbeddedFrame } from "@/lib/demo-mode";
+import { DEMO_ROTATION_INTERVAL_MS, isEmbeddedFrame, useDemoInteractionPause } from "@/lib/demo-mode";
 import { signInWithExternalBrowser } from "@/lib/desktop-auth";
 
-type RailItemTarget = "/" | "/notes" | "/memory" | "/workflows" | "/projects";
+type RailItemTarget = "/" | "/notes" | "/memory" | "/workflows" | "/agent";
 
 type RailItem = {
   id: string;
@@ -63,10 +63,11 @@ const ITEMS: RailItem[] = [
   },
   {
     id: "ai",
-    label: "AI",
+    label: "Agent",
     icon: BotIcon,
-    to: "/projects",
-    matches: (p) => p.startsWith("/projects") || p.startsWith("/chat"),
+    to: "/agent",
+    matches: (p) =>
+      p.startsWith("/agent") || p.startsWith("/projects") || p.startsWith("/chat"),
   },
 ];
 
@@ -126,19 +127,22 @@ function UserSlot() {
 export function AppIconRail() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const navigate = useNavigate();
+  const pauseDemoRotation = useDemoInteractionPause();
 
   useEffect(() => {
     if (!env.VITE_DEMO_MODE) return;
     if (!isEmbeddedFrame()) return;
 
     const intervalId = window.setInterval(() => {
+      if (pauseDemoRotation) return;
+
       const currentIndex = ITEMS.findIndex((item) => item.matches(pathname));
       const nextItem = ITEMS[(currentIndex + 1) % ITEMS.length] ?? ITEMS[0];
       void navigate({ to: nextItem.to });
     }, DEMO_ROTATION_INTERVAL_MS);
 
     return () => window.clearInterval(intervalId);
-  }, [navigate, pathname]);
+  }, [navigate, pathname, pauseDemoRotation]);
 
   return (
     <nav className="flex h-full w-12 shrink-0 flex-col items-center gap-1 border-r border-sidebar-border bg-sidebar py-2">

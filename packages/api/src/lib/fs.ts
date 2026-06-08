@@ -21,6 +21,14 @@ const IGNORED_DIRS = new Set([
 ]);
 
 const MAX_FILES = 50_000;
+const LIST_ALL_CACHE_MS = 30_000;
+
+type FileListCacheEntry = {
+  expiresAt: number;
+  promise: Promise<string[]>;
+};
+
+const fileListCache = new Map<string, FileListCacheEntry>();
 
 function shouldSkip(name: string) {
   return IGNORED_DIRS.has(name);
@@ -93,6 +101,27 @@ export async function listDirectory(
  */
 export async function listAllFiles(projectPath: string): Promise<string[]> {
   const root = path.resolve(projectPath);
+  const now = Date.now();
+  const cached = fileListCache.get(root);
+  if (cached && cached.expiresAt > now) {
+    return (await cached.promise).slice();
+  }
+
+  const promise = walkAllFiles(root);
+  fileListCache.set(root, {
+    expiresAt: now + LIST_ALL_CACHE_MS,
+    promise,
+  });
+
+  try {
+    return (await promise).slice();
+  } catch (error) {
+    fileListCache.delete(root);
+    throw error;
+  }
+}
+
+async function walkAllFiles(root: string): Promise<string[]> {
   const out: string[] = [];
   async function walk(dirAbs: string, dirRel: string) {
     if (out.length >= MAX_FILES) return;

@@ -71,7 +71,7 @@ export function CreateProjectForm({
         onCreated(created.id);
       } else {
         await navigate({
-          to: "/projects/$projectId",
+          to: "/agent/$projectId",
           params: { projectId: created.id },
         });
       }

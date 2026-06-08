@@ -7,7 +7,7 @@ import "@xterm/xterm/css/xterm.css";
 /**
  * Persistent terminal sessions keyed by tab id. The xterm instance, fit addon,
  * WebSocket, and DOM host all live in this module so the PTY survives when
- * `TerminalView` unmounts (e.g. user navigates away from /projects/$id and
+ * `TerminalView` unmounts (e.g. user navigates away from /agent/$id and
  * back). The component just appends/removes the session's container element
  * from its wrapper; nothing is disposed until the tab itself is closed.
  */
@@ -29,12 +29,64 @@ export type TerminalSession = {
 };
 
 const sessions = new Map<string, TerminalSession>();
+const MAX_TERMINAL_HISTORY_CHARS = 500_000;
 
-function buildSocketUrl(projectId: string, cols: number, rows: number) {
+function historyKey(tabId: string) {
+  return `gspot.terminal.history.${tabId}`;
+}
+
+function readTerminalHistory(tabId: string) {
+  if (typeof window === "undefined") return "";
+  try {
+    return window.localStorage.getItem(historyKey(tabId)) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function appendTerminalHistory(tabId: string, chunk: string) {
+  if (typeof window === "undefined" || chunk.length === 0) return;
+  try {
+    const next = (readTerminalHistory(tabId) + chunk).slice(-MAX_TERMINAL_HISTORY_CHARS);
+    window.localStorage.setItem(historyKey(tabId), next);
+  } catch {
+    // Storage may be disabled — terminal still works without durable scrollback.
+  }
+}
+
+function clearTerminalHistory(tabId: string) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(historyKey(tabId));
+  } catch {
+    // ignore
+  }
+}
+
+function inferResumeAgent(history: string) {
+  if (/\bClaude Code\b|\bclaude\b/i.test(history)) return "claude";
+  if (/\bCodex CLI\b|\bcodex\b/i.test(history)) return "codex";
+  return null;
+}
+
+function buildSocketUrl(
+  sessionId: string,
+  projectId: string,
+  cols: number,
+  rows: number,
+  historyLength: number,
+  resumeAgent: string | null,
+) {
   const url = new URL(serverWebSocketPath("/api/terminal/socket"));
   url.searchParams.set("projectId", projectId);
   url.searchParams.set("cols", String(cols));
   url.searchParams.set("rows", String(rows));
+  url.searchParams.set("sessionId", sessionId);
+  url.searchParams.set("historyOffset", String(historyLength));
+  if (resumeAgent) {
+    url.searchParams.set("resumeAgent", resumeAgent);
+    url.searchParams.set("skipReplay", "1");
+  }
   return url.toString();
 }
 
@@ -88,12 +140,17 @@ function createSession(tabId: string, projectId: string): TerminalSession {
   const fit = new FitAddon();
   term.loadAddon(fit);
   term.open(container);
+  const restoredHistory = readTerminalHistory(tabId);
+  const resumeAgent = inferResumeAgent(restoredHistory);
+  if (restoredHistory && !resumeAgent) {
+    term.write(restoredHistory);
+  }
 
   const cols = term.cols;
   const rows = term.rows;
 
   const pendingInput: string[] = [];
-  const socket = new WebSocket(buildSocketUrl(projectId, cols, rows));
+  const socket = new WebSocket(buildSocketUrl(tabId, projectId, cols, rows, restoredHistory.length, resumeAgent));
 
   const session: TerminalSession = {
     tabId,
@@ -138,6 +195,7 @@ function createSession(tabId: string, projectId: string): TerminalSession {
     }
     if (!msg) return;
     if (msg.t === "out") {
+      appendTerminalHistory(tabId, msg.d);
       term.write(msg.d);
       return;
     }
@@ -192,6 +250,13 @@ export function disposeTerminalSession(tabId: string): void {
   if (!session) return;
   session.disposed = true;
   try {
+    if (session.socket.readyState === WebSocket.OPEN) {
+      session.socket.send(JSON.stringify({ t: "close" }));
+    }
+  } catch {
+    // ignore
+  }
+  try {
     session.resizeObserver.disconnect();
   } catch {
     // ignore
@@ -208,6 +273,7 @@ export function disposeTerminalSession(tabId: string): void {
   }
   session.container.remove();
   sessions.delete(tabId);
+  clearTerminalHistory(tabId);
 }
 
 export function reapTerminalSessions(liveTabIds: ReadonlySet<string>): void {

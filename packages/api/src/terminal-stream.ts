@@ -42,8 +42,6 @@ type TerminalSocket = {
       projectId?: string;
       sessionId?: string;
       historyOffset?: string;
-      skipReplay?: string;
-      resumeAgent?: string;
       cols?: string;
       rows?: string;
     };
@@ -211,7 +209,7 @@ type AgentResumeBinding = {
   updatedAt: number;
 };
 
-type AgentResumeSource = "stored" | "cmux" | "inferred";
+type AgentResumeSource = "stored" | "cmux";
 
 type ResolvedAgentResumeBinding = {
   binding: AgentResumeBinding;
@@ -480,14 +478,9 @@ function findLatestAgentSession(agent: AgentKind, cwd: string) {
   return agent === "claude" ? findLatestClaudeSession(cwd) : findLatestCodexSession(cwd);
 }
 
-function parseResumeAgent(value: string | undefined): AgentKind | null {
-  return value === "claude" || value === "codex" ? value : null;
-}
-
 function resolveAgentResumeBinding(
   surfaceId: string,
   cwd: string,
-  resumeAgent: AgentKind | null,
 ): ResolvedAgentResumeBinding | null {
   const stored = findStoredAgentResumeBinding(surfaceId, cwd);
   if (stored) return { binding: stored, source: "stored" };
@@ -495,8 +488,7 @@ function resolveAgentResumeBinding(
   const cmux = findCmuxAgentResumeBinding(surfaceId, cwd);
   if (cmux) return { binding: cmux, source: "cmux" };
 
-  const inferred = resumeAgent ? findLatestAgentSession(resumeAgent, cwd) : null;
-  return inferred ? { binding: inferred, source: "inferred" } : null;
+  return null;
 }
 
 function agentResumeCommand(binding: AgentResumeBinding): string[] {
@@ -512,23 +504,18 @@ function shellCommand(command: string[]) {
   return command.map(shellEscape).join(" ");
 }
 
-function terminalLaunchCommand(id: string, cwd: string, resumeAgent: AgentKind | null) {
+function terminalLaunchCommand(id: string, cwd: string) {
   const name = multiplexerSessionName(id);
-  const resolvedResumeBinding = resolveAgentResumeBinding(id, cwd, resumeAgent);
-  const resumeBinding = resolvedResumeBinding?.binding ?? null;
+  const resumeBinding = resolveAgentResumeBinding(id, cwd)?.binding ?? null;
   const resumeCommand = resumeBinding ? agentResumeCommand(resumeBinding) : null;
-  const shouldReplaceStaleMultiplexer = resolvedResumeBinding?.source === "inferred";
   const tmuxPath = pickTmux();
   if (tmuxPath) {
     if (tmuxSessionExists(tmuxPath, name)) {
-      if (shouldReplaceStaleMultiplexer) {
-        spawnSync(tmuxPath, ["kill-session", "-t", name], { stdio: "ignore" });
-      } else {
-        return {
-          command: [tmuxPath, "attach-session", "-t", name],
-          backend: { kind: "tmux", name, tmuxPath } satisfies TerminalSession["backend"],
-        };
-      }
+      // A live multiplexer session is the source of truth — always reattach.
+      return {
+        command: [tmuxPath, "attach-session", "-t", name],
+        backend: { kind: "tmux", name, tmuxPath } satisfies TerminalSession["backend"],
+      };
     }
     if (resumeCommand) {
       return {
@@ -545,14 +532,11 @@ function terminalLaunchCommand(id: string, cwd: string, resumeAgent: AgentKind |
   const screenPath = pickScreen();
   if (screenPath) {
     if (screenSessionExists(screenPath, name)) {
-      if (shouldReplaceStaleMultiplexer) {
-        spawnSync(screenPath, ["-S", name, "-X", "quit"], { stdio: "ignore" });
-      } else {
-        return {
-          command: [screenPath, "-x", name],
-          backend: { kind: "screen", name, screenPath } satisfies TerminalSession["backend"],
-        };
-      }
+      // A live multiplexer session is the source of truth — always reattach.
+      return {
+        command: [screenPath, "-x", name],
+        backend: { kind: "screen", name, screenPath } satisfies TerminalSession["backend"],
+      };
     }
     if (resumeCommand) {
       return {
@@ -661,10 +645,6 @@ function parseHistoryOffset(value: string | undefined) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 }
 
-function shouldSkipReplay(ws: TerminalSocket) {
-  return ws.data.query.skipReplay === "1";
-}
-
 function broadcast(session: TerminalSession, payload: unknown) {
   for (const client of session.clients) {
     send(client, payload);
@@ -690,7 +670,7 @@ async function createTerminalSession(ws: TerminalSocket): Promise<TerminalSessio
   const cwd = await resolveCwd(ws.data.query.projectId);
   const id = getSessionId(ws);
   const decoder = new TerminalOutputDecoder();
-  const launch = terminalLaunchCommand(id, cwd, parseResumeAgent(ws.data.query.resumeAgent));
+  const launch = terminalLaunchCommand(id, cwd);
   let session: TerminalSession | null = null;
 
   const terminal = new Bun.Terminal({
@@ -772,11 +752,9 @@ export async function handleTerminalSocketOpen(ws: TerminalSocket) {
   const existing = sessions.get(sessionId);
   if (existing) {
     existing.clients.add(ws);
-    if (!shouldSkipReplay(ws)) {
-      const offset = parseHistoryOffset(ws.data.query.historyOffset);
-      const missed = existing.output.slice(offset);
-      if (missed) send(ws, { t: "out", d: missed });
-    }
+    const offset = parseHistoryOffset(ws.data.query.historyOffset);
+    const missed = existing.output.slice(offset);
+    if (missed) send(ws, { t: "out", d: missed });
     return;
   }
 
@@ -785,11 +763,9 @@ export async function handleTerminalSocketOpen(ws: TerminalSocket) {
     const session = await opening;
     if (!session) return;
     session.clients.add(ws);
-    if (!shouldSkipReplay(ws)) {
-      const offset = parseHistoryOffset(ws.data.query.historyOffset);
-      const missed = session.output.slice(offset);
-      if (missed) send(ws, { t: "out", d: missed });
-    }
+    const offset = parseHistoryOffset(ws.data.query.historyOffset);
+    const missed = session.output.slice(offset);
+    if (missed) send(ws, { t: "out", d: missed });
     return;
   }
 

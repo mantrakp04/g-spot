@@ -69,12 +69,41 @@ const scrubCodesignTarget = (target) => {
   }
 };
 
+const isTransientDownloadError = (message) =>
+  /download failed|failed to download|50[0-9]|429|timed out|timeout|ETIMEDOUT|ECONNRESET|EAI_AGAIN|socket hang up/i.test(
+    message,
+  );
+
 const build = () => {
   const env = { ...process.env };
   if (process.platform === "darwin") {
     env.PATH = `${join(scriptDir, "mac-release-bin")}:${env.PATH ?? ""}`;
   }
-  run("bunx", ["electrobun", "build", ...args], { env });
+
+  const maxAttempts = 4;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    // Capture output (instead of inheriting) so we can tell a transient
+    // download failure (504/timeout) apart from a real build error.
+    const result = spawnSync("bunx", ["electrobun", "build", ...args], {
+      encoding: "utf8",
+      env,
+    });
+    if (result.stdout) process.stdout.write(result.stdout);
+    if (result.stderr) process.stderr.write(result.stderr);
+    if (result.status === 0) return;
+
+    const output = [result.stdout, result.stderr].filter(Boolean).join("\n");
+    const transient = isTransientDownloadError(output);
+    if (attempt === maxAttempts || !transient) {
+      throw new Error(output || "bunx electrobun build failed");
+    }
+
+    const delaySeconds = 2 ** attempt;
+    console.warn(
+      `electrobun build failed with a transient download error (attempt ${attempt}/${maxAttempts}). Retrying in ${delaySeconds}s...`,
+    );
+    spawnSync("sleep", [String(delaySeconds)], { stdio: "ignore" });
+  }
 };
 
 const codesign = () => {

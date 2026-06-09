@@ -26,6 +26,8 @@ export type TerminalSession = {
   pendingInput: string[];
   resizeObserver: ResizeObserver;
   disposed: boolean;
+  /** Signature of the theme last applied — lets us skip no-op reapplies. */
+  themeSignature: string;
 };
 
 const sessions = new Map<string, TerminalSession>();
@@ -63,19 +65,12 @@ function clearTerminalHistory(tabId: string) {
   }
 }
 
-function inferResumeAgent(history: string) {
-  if (/\bClaude Code\b|\bclaude\b/i.test(history)) return "claude";
-  if (/\bCodex CLI\b|\bcodex\b/i.test(history)) return "codex";
-  return null;
-}
-
 function buildSocketUrl(
   sessionId: string,
   projectId: string,
   cols: number,
   rows: number,
   historyLength: number,
-  resumeAgent: string | null,
 ) {
   const url = new URL(serverWebSocketPath("/api/terminal/socket"));
   url.searchParams.set("projectId", projectId);
@@ -83,10 +78,6 @@ function buildSocketUrl(
   url.searchParams.set("rows", String(rows));
   url.searchParams.set("sessionId", sessionId);
   url.searchParams.set("historyOffset", String(historyLength));
-  if (resumeAgent) {
-    url.searchParams.set("resumeAgent", resumeAgent);
-    url.searchParams.set("skipReplay", "1");
-  }
   return url.toString();
 }
 
@@ -111,6 +102,49 @@ function buildTheme(host: HTMLElement) {
   };
 }
 
+function themeSignature(theme: ReturnType<typeof buildTheme>) {
+  return `${theme.foreground}|${theme.background}|${theme.cursor}|${theme.selectionBackground}|${theme.selectionInactiveBackground}`;
+}
+
+/**
+ * The app drives theming by mutating CSS custom properties on
+ * `document.documentElement` (class/data-theme/inline style). xterm caches its
+ * palette as a concrete `theme` object at creation, so it never sees those
+ * changes — switching themes used to leave live terminals on the old palette.
+ * We watch the root for attribute changes and re-read + reapply the theme to
+ * every live session, diffing a signature so unchanged themes are a no-op.
+ */
+let themeObserver: MutationObserver | null = null;
+
+function reapplyThemeToAllSessions() {
+  if (typeof document === "undefined") return;
+  const theme = buildTheme(document.documentElement);
+  const signature = themeSignature(theme);
+  for (const session of sessions.values()) {
+    if (session.disposed || session.themeSignature === signature) continue;
+    session.term.options.theme = theme;
+    session.themeSignature = signature;
+  }
+}
+
+function ensureThemeObserver() {
+  if (themeObserver || typeof document === "undefined") return;
+  let scheduled = false;
+  themeObserver = new MutationObserver(() => {
+    if (scheduled) return;
+    scheduled = true;
+    // Coalesce bursts of attribute writes into a single reapply next frame.
+    requestAnimationFrame(() => {
+      scheduled = false;
+      reapplyThemeToAllSessions();
+    });
+  });
+  themeObserver.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["class", "style", "data-theme"],
+  });
+}
+
 function createSession(tabId: string, projectId: string): TerminalSession {
   const container = document.createElement("div");
   container.className = "min-h-0 min-w-0 flex-1";
@@ -119,6 +153,7 @@ function createSession(tabId: string, projectId: string): TerminalSession {
   // detached at theme-read time — close enough for the initial render and the
   // ResizeObserver will refit once attached.
   const themeHost = document.documentElement;
+  const theme = buildTheme(themeHost);
 
   const term = new Terminal({
     fontFamily:
@@ -128,10 +163,13 @@ function createSession(tabId: string, projectId: string): TerminalSession {
     letterSpacing: 0,
     cursorBlink: true,
     allowProposedApi: true,
-    theme: buildTheme(themeHost),
+    theme,
     scrollback: 5000,
     macOptionIsMeta: true,
   });
+
+  // Keep this session's palette in sync with later theme switches.
+  ensureThemeObserver();
 
   const unicode11 = new Unicode11Addon();
   term.loadAddon(unicode11);
@@ -140,9 +178,12 @@ function createSession(tabId: string, projectId: string): TerminalSession {
   const fit = new FitAddon();
   term.loadAddon(fit);
   term.open(container);
+  // Always replay locally-persisted scrollback. Agent resume is decided
+  // server-side from stored session bindings, so the client never needs to
+  // guess (and never drops scrollback on a bad guess); a resumed session keeps
+  // its prior history visible above it.
   const restoredHistory = readTerminalHistory(tabId);
-  const resumeAgent = inferResumeAgent(restoredHistory);
-  if (restoredHistory && !resumeAgent) {
+  if (restoredHistory) {
     term.write(restoredHistory);
   }
 
@@ -150,7 +191,7 @@ function createSession(tabId: string, projectId: string): TerminalSession {
   const rows = term.rows;
 
   const pendingInput: string[] = [];
-  const socket = new WebSocket(buildSocketUrl(tabId, projectId, cols, rows, restoredHistory.length, resumeAgent));
+  const socket = new WebSocket(buildSocketUrl(tabId, projectId, cols, rows, restoredHistory.length));
 
   const session: TerminalSession = {
     tabId,
@@ -163,6 +204,7 @@ function createSession(tabId: string, projectId: string): TerminalSession {
     // Real observer assigned below — placeholder satisfies the type.
     resizeObserver: new ResizeObserver(() => {}),
     disposed: false,
+    themeSignature: themeSignature(theme),
   };
 
   const sendInput = (data: string) => {

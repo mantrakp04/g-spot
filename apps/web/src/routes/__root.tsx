@@ -2,7 +2,7 @@ import { useEffect } from "react";
 
 import { env } from "@g-spot/env/web";
 import { Toaster } from "@g-spot/ui/components/sonner";
-import { HotkeysProvider, useHotkeys } from "@tanstack/react-hotkeys";
+import { HotkeysProvider } from "@tanstack/react-hotkeys";
 import type { QueryClient } from "@tanstack/react-query";
 import { HeadContent, Outlet, createRootRouteWithContext, useLocation, useNavigate } from "@tanstack/react-router";
 import { useAtom } from "jotai";
@@ -13,6 +13,7 @@ import { AppIconRail } from "@/components/shell/app-icon-rail";
 import { reapTerminalSessions } from "@/components/terminal/terminal-sessions";
 import { useTabs } from "@/lib/tabs-store";
 import { useSecondarySidebar } from "@/components/shell/secondary-sidebar";
+import { useKeybinds } from "@/lib/keybinds";
 import { rightSidebarCollapsedAtom } from "@/lib/sidebars-store";
 import { DraftDock } from "@/components/inbox/draft-dock";
 import { RelayHeartbeat } from "@/components/relay-heartbeat";
@@ -46,16 +47,14 @@ function SidebarHotkeys() {
   const { toggle: toggleSecondary } = useSecondarySidebar();
   const [, setRightCollapsed] = useAtom(rightSidebarCollapsedAtom);
 
-  useHotkeys([
+  useKeybinds([
     {
-      hotkey: "Mod+B",
+      id: "global.toggleSecondarySidebar",
       callback: () => toggleSecondary(),
-      options: { meta: { name: "Toggle secondary sidebar" } },
     },
     {
-      hotkey: "Mod+L",
+      id: "global.toggleRightSidebar",
       callback: () => setRightCollapsed((v) => !v),
-      options: { meta: { name: "Toggle right sidebar" } },
     },
   ]);
 

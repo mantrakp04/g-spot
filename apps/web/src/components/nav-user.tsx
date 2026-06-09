@@ -15,7 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@g-spot/ui/components/dropdown-menu";
 import { useHexclaveApp, useUser } from "@hexclave/react";
-import { BadgeCheck, ChevronsUpDown, Link2, LogOut } from "lucide-react";
+import { BadgeCheck, ChevronsUpDown, Keyboard, Link2, LogOut } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 
 import { UserIdentity, userIdentityInitials } from "@/components/user-identity";
@@ -89,6 +89,13 @@ export function NavUser({ compact = false }: { compact?: boolean } = {}) {
           >
             <Link2 />
             Connected accounts
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            className="gap-2"
+            render={<Link to="/settings/keybinds" />}
+          >
+            <Keyboard />
+            Keyboard shortcuts
           </DropdownMenuItem>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />

@@ -1,7 +1,7 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useHotkeys } from "@tanstack/react-hotkeys";
 
 import type { StackNode } from "@/hooks/use-github-detail";
+import { useKeybinds } from "@/lib/keybinds";
 
 function parseUrl(url: string) {
   const m = /github\.com\/([^\/]+)\/([^\/]+)\/pull\/(\d+)/.exec(url);
@@ -39,21 +39,18 @@ export function StackViz({ nodes }: { nodes: StackNode[] }) {
     });
   };
 
-  useHotkeys(
-    [
-      {
-        hotkey: "[",
-        callback: () => jumpStack(-1),
-        options: { meta: { name: "Previous PR in stack" } },
-      },
-      {
-        hotkey: "]",
-        callback: () => jumpStack(1),
-        options: { meta: { name: "Next PR in stack" } },
-      },
-    ],
-    { enabled: nodes.length > 1 },
-  );
+  useKeybinds([
+    {
+      id: "review.prevStack",
+      callback: () => jumpStack(-1),
+      options: { enabled: nodes.length > 1 },
+    },
+    {
+      id: "review.nextStack",
+      callback: () => jumpStack(1),
+      options: { enabled: nodes.length > 1 },
+    },
+  ]);
 
   if (nodes.length <= 1) return null;
   return (

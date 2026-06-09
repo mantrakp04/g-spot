@@ -2,6 +2,7 @@ import {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
+  useResizableLayout,
 } from "@g-spot/ui/components/resizable";
 import { Spinner } from "@g-spot/ui/components/spinner";
 import { cn } from "@g-spot/ui/lib/utils";
@@ -31,9 +32,11 @@ import {
   TerminalSquare,
   X,
 } from "lucide-react";
-import { lazy, Suspense, useCallback, useEffect, useMemo } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef } from "react";
 
 import { ChatView } from "@/components/chat/chat-view";
+import { ChangesPanel } from "@/components/right-sidebar/changes";
+import { FileTree } from "@/components/right-sidebar/file-tree";
 import { TerminalView } from "@/components/terminal/terminal-view";
 import { useNewChat } from "@/hooks/use-new-chat";
 import { subscribeChatRuntimeFinished } from "@/lib/chat-runtime-statuses";
@@ -42,9 +45,11 @@ import {
   type Tab,
   type TabPaneLeaf,
   type TabPaneNode,
+  type TabPaneSplit,
   type SplitDropDirection,
   useActivePaneId,
   useClosePane,
+  useCloseManyTabs,
   useCloseTab,
   useFocusPane,
   useFocusTab,
@@ -52,6 +57,8 @@ import {
   useHighlightedTabIds,
   useMoveTab,
   useNormalizeTabLayout,
+  useOpenDiffTab,
+  useOpenFileTab,
   useOpenTerminalTab,
   useSplitTabToPane,
   useSplitActivePane,
@@ -65,6 +72,9 @@ import { TabItem } from "./tab-item";
 // Monaco is ~5MB — only pull it in when a file or diff tab opens.
 const FileEditor = lazy(() => import("@/components/files/file-editor"));
 const DiffViewer = lazy(() => import("@/components/files/diff-viewer"));
+
+const browserStorage =
+  typeof window !== "undefined" ? window.localStorage : undefined;
 
 function MonacoFallback() {
   return (
@@ -98,10 +108,25 @@ export function TabsContent({ projectId }: TabsContentProps) {
     () => new Map(tabs.map((tab) => [tab.id, tab])),
     [tabs],
   );
+  const draggingRef = useRef(false);
 
   useEffect(() => {
     normalizeLayout(tabs);
   }, [normalizeLayout, tabs]);
+
+  // Drag failsafe: if the window loses focus (alt-tab, devtools, OS switch)
+  // mid-drag, the pointer-up may never reach us and the drag state sticks.
+  // Synthesize an Escape so dnd-kit cancels the in-flight drag cleanly.
+  useEffect(() => {
+    const cancelStuckDrag = () => {
+      if (!draggingRef.current) return;
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    };
+    window.addEventListener("blur", cancelStuckDrag);
+    return () => window.removeEventListener("blur", cancelStuckDrag);
+  }, []);
 
   useEffect(
     () => subscribeChatRuntimeFinished((chatId) => highlightChatTab(chatId)),
@@ -112,6 +137,7 @@ export function TabsContent({ projectId }: TabsContentProps) {
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
+      draggingRef.current = false;
       const activeId = String(event.active.id);
       const overId = event.over ? String(event.over.id) : null;
       if (!overId) return;
@@ -164,6 +190,12 @@ export function TabsContent({ projectId }: TabsContentProps) {
       collisionDetection={(args) => {
         const pointerCollisions = pointerWithin(args);
         return pointerCollisions.length > 0 ? pointerCollisions : closestCenter(args);
+      }}
+      onDragStart={() => {
+        draggingRef.current = true;
+      }}
+      onDragCancel={() => {
+        draggingRef.current = false;
       }}
       onDragEnd={handleDragEnd}
     >
@@ -254,13 +286,51 @@ function TabPaneNodeView({
   }
 
   return (
+    <SplitNodeView
+      node={node}
+      projectId={projectId}
+      tabsById={tabsById}
+      highlightedTabIds={highlightedTabIds}
+      activePaneId={activePaneId}
+      onFocusPane={onFocusPane}
+    />
+  );
+}
+
+function SplitNodeView({
+  node,
+  projectId,
+  tabsById,
+  highlightedTabIds,
+  activePaneId,
+  onFocusPane,
+}: {
+  node: TabPaneSplit;
+  projectId: string;
+  tabsById: ReadonlyMap<string, Tab>;
+  highlightedTabIds: Readonly<Record<string, number>>;
+  activePaneId: string;
+  onFocusPane: (paneId: string) => void;
+}) {
+  const panelIds = [`${node.id}:0`, `${node.id}:1`];
+  // Persist this split's divider position across reloads, keyed by the stable
+  // split-node id. Reuses the same storage-backed layout infra as the shell.
+  const { defaultLayout, onLayoutChanged } = useResizableLayout({
+    id: `gspot.pane.split.${node.id}`,
+    panelIds,
+    storage: browserStorage,
+  });
+
+  return (
     <ResizablePanelGroup
       orientation={node.orientation}
+      defaultLayout={defaultLayout}
+      onLayoutChanged={onLayoutChanged}
       className="min-h-0 min-w-0 flex-1"
     >
       <ResizablePanel
-        id={`${node.id}:0`}
-        minSize={15}
+        id={panelIds[0]}
+        minSize="15"
         className="flex min-h-0 min-w-0"
       >
         <TabPaneNodeView
@@ -274,8 +344,8 @@ function TabPaneNodeView({
       </ResizablePanel>
       <ResizableHandle />
       <ResizablePanel
-        id={`${node.id}:1`}
-        minSize={15}
+        id={panelIds[1]}
+        minSize="15"
         className="flex min-h-0 min-w-0"
       >
         <TabPaneNodeView
@@ -399,11 +469,11 @@ function PaneDropZoneRef({
 function PaneDropPreview({ zone }: { zone: PaneDropZone }) {
   return (
     <>
-      <div className="absolute inset-1 rounded-sm border border-sky-400/80 shadow-[inset_0_0_0_1px_rgba(56,189,248,0.2)]" />
+      <div className="absolute inset-0 border border-sky-400/80 shadow-[inset_0_0_0_1px_rgba(56,189,248,0.2)]" />
       <div
         data-pane-drop-preview={zone}
         className={cn(
-          "absolute rounded-sm border border-sky-300/80 bg-sky-400/20 shadow-[0_0_24px_rgba(56,189,248,0.22)]",
+          "absolute border border-sky-300/80 bg-sky-400/20 shadow-[0_0_24px_rgba(56,189,248,0.22)]",
           paneDropPreviewClass(zone),
         )}
       />
@@ -414,30 +484,30 @@ function PaneDropPreview({ zone }: { zone: PaneDropZone }) {
 function paneDropZoneClass(zone: PaneDropZone) {
   switch (zone) {
     case "left":
-      return "inset-y-0 left-0 w-1/4";
+      return "inset-y-0 left-0 w-1/2";
     case "right":
-      return "inset-y-0 right-0 w-1/4";
+      return "inset-y-0 right-0 w-1/2";
     case "top":
-      return "left-1/4 right-1/4 top-0 h-1/4";
+      return "inset-x-0 top-0 h-1/2";
     case "bottom":
-      return "bottom-0 left-1/4 right-1/4 h-1/4";
+      return "inset-x-0 bottom-0 h-1/2";
     case "center":
-      return "inset-x-1/4 inset-y-1/4";
+      return "inset-0";
   }
 }
 
 function paneDropPreviewClass(zone: PaneDropZone) {
   switch (zone) {
     case "left":
-      return "inset-y-2 left-2 w-[34%]";
+      return "inset-y-0 left-0 w-1/2";
     case "right":
-      return "inset-y-2 right-2 w-[34%]";
+      return "inset-y-0 right-0 w-1/2";
     case "top":
-      return "left-2 right-2 top-2 h-[34%]";
+      return "inset-x-0 top-0 h-1/2";
     case "bottom":
-      return "bottom-2 left-2 right-2 h-[34%]";
+      return "inset-x-0 bottom-0 h-1/2";
     case "center":
-      return "inset-2";
+      return "inset-0";
   }
 }
 
@@ -461,9 +531,11 @@ function PaneTabStrip({
   const droppable = useDroppable({ id: paneDropId(leaf.id) });
   const focusTab = useFocusTab();
   const closeTab = useCloseTab();
+  const closeManyTabs = useCloseManyTabs();
   const closePane = useClosePane();
   const openTerminal = useOpenTerminalTab();
   const splitActivePane = useSplitActivePane();
+  const splitTabToPane = useSplitTabToPane();
   const { newChat, isPending: newChatPending } = useNewChat();
   const navigate = useNavigate();
 
@@ -523,7 +595,7 @@ function PaneTabStrip({
               droppable.isOver && "bg-primary/10",
             )}
           >
-            {leaf.tabIds.map((tabId) => {
+            {leaf.tabIds.map((tabId, index) => {
               const tab = tabsById.get(tabId);
               if (!tab) return null;
               return (
@@ -534,6 +606,14 @@ function PaneTabStrip({
                   highlighted={tab.id in highlightedTabIds}
                   onFocus={() => handleFocus(tab)}
                   onClose={() => closeTab(tab.id)}
+                  onCloseOthers={() =>
+                    closeManyTabs(leaf.tabIds.filter((id) => id !== tab.id))
+                  }
+                  onCloseToRight={() => closeManyTabs(leaf.tabIds.slice(index + 1))}
+                  onSplitRight={() => splitTabToPane(tab.id, leaf.id, "right")}
+                  onSplitDown={() => splitTabToPane(tab.id, leaf.id, "bottom")}
+                  canCloseOthers={leaf.tabIds.length > 1}
+                  canCloseToRight={index < leaf.tabIds.length - 1}
                 />
               );
             })}
@@ -584,12 +664,24 @@ function SortableTabItem({
   highlighted,
   onFocus,
   onClose,
+  onCloseOthers,
+  onCloseToRight,
+  onSplitRight,
+  onSplitDown,
+  canCloseOthers,
+  canCloseToRight,
 }: {
   tab: Tab;
   active: boolean;
   highlighted: boolean;
   onFocus: () => void;
   onClose: () => void;
+  onCloseOthers: () => void;
+  onCloseToRight: () => void;
+  onSplitRight: () => void;
+  onSplitDown: () => void;
+  canCloseOthers: boolean;
+  canCloseToRight: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: tab.id });
@@ -614,6 +706,12 @@ function SortableTabItem({
         highlighted={highlighted}
         onFocus={onFocus}
         onClose={onClose}
+        onCloseOthers={onCloseOthers}
+        onCloseToRight={onCloseToRight}
+        onSplitRight={onSplitRight}
+        onSplitDown={onSplitDown}
+        canCloseOthers={canCloseOthers}
+        canCloseToRight={canCloseToRight}
       />
     </div>
   );
@@ -653,6 +751,8 @@ function PaneEmptyState({
 }
 
 function TabSurface({ tab, active }: { tab: Tab; active: boolean }) {
+  const openFile = useOpenFileTab();
+  const openDiff = useOpenDiffTab();
   return (
     <div
       data-active={active}
@@ -662,6 +762,24 @@ function TabSurface({ tab, active }: { tab: Tab; active: boolean }) {
       )}
       aria-hidden={!active}
     >
+      {tab.kind === "file-tree" && (
+        <FileTree
+          projectId={tab.projectId}
+          onFileClick={(path) => openFile(tab.projectId, path)}
+        />
+      )}
+      {tab.kind === "changes" && (
+        <ChangesPanel
+          projectId={tab.projectId}
+          onChangeClick={(path, mode, opts) => {
+            if (opts?.openFile) {
+              openFile(tab.projectId, path);
+              return;
+            }
+            openDiff(tab.projectId, path, mode);
+          }}
+        />
+      )}
       {tab.kind === "chat" && (
         <ChatView
           tabId={tab.id}

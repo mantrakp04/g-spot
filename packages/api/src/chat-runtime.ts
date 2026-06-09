@@ -44,15 +44,33 @@ function publishRuntimeStatuses() {
   }
 }
 
+// Cap the per-run replay buffer so a long agent turn (many tool calls with
+// large outputs) can't grow it without bound — every new subscriber replays
+// the whole buffer, so an unbounded buffer is both a memory and a
+// reconnect-cost hazard. Mirrors the terminal's 500k scrollback discipline.
+// Completed turns are persisted to SQLite and loaded separately by the client,
+// so dropping the oldest in-flight events only briefly degrades a mid-turn
+// reconnect; it self-heals once the message persists.
+const MAX_REPLAY_BUFFER_BYTES = 2_000_000;
+
+type BufferedEvent = { event: unknown; size: number };
+
 class ActiveChatStream {
-  private readonly bufferedEvents: unknown[] = [];
+  private readonly bufferedEvents: BufferedEvent[] = [];
+  private bufferedBytes = 0;
+  private replayTruncated = false;
   private readonly subscribers = new Set<ChatRuntimeSubscriber>();
   private isClosed = false;
 
   subscribe(subscriber: ChatRuntimeSubscriber) {
-    const replayBuffer = [...this.bufferedEvents];
+    // Tell the client its replay is partial so it can lean on the persisted
+    // message history for anything older than the retained tail.
+    if (this.replayTruncated) {
+      subscriber({ type: "gspot_replay_truncated" });
+    }
 
-    for (const event of replayBuffer) {
+    const replayBuffer = [...this.bufferedEvents];
+    for (const { event } of replayBuffer) {
       subscriber(event);
     }
 
@@ -72,7 +90,19 @@ class ActiveChatStream {
       return;
     }
 
-    this.bufferedEvents.push(event);
+    const size = estimateEventBytes(event);
+    this.bufferedEvents.push({ event, size });
+    this.bufferedBytes += size;
+    // Evict oldest events past the budget, always keeping the most recent one.
+    while (
+      this.bufferedBytes > MAX_REPLAY_BUFFER_BYTES &&
+      this.bufferedEvents.length > 1
+    ) {
+      const dropped = this.bufferedEvents.shift();
+      if (!dropped) break;
+      this.bufferedBytes -= dropped.size;
+      this.replayTruncated = true;
+    }
 
     for (const subscriber of this.subscribers) {
       subscriber(event);
@@ -89,15 +119,34 @@ class ActiveChatStream {
   }
 }
 
+function estimateEventBytes(event: unknown): number {
+  try {
+    return JSON.stringify(event)?.length ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
 function failPendingApprovalsForRuntime(runtime: ChatRuntime, reason: string) {
   if (runtime.pendingApprovals.size === 0) {
     return;
   }
 
-  for (const [, approval] of runtime.pendingApprovals) {
+  for (const [toolCallId, approval] of runtime.pendingApprovals) {
+    // Publish a resolution so the client's pending-approval card clears with a
+    // reason instead of hanging silently when the run is torn down underneath
+    // it (config change / abort / GC).
+    runtime.activeStream?.publish({
+      type: "tool_approval_resolved",
+      toolCallId,
+      toolName: approval.toolName,
+      approved: false,
+      reason,
+    });
     approval.resolve({ approved: false, reason });
   }
   runtime.pendingApprovals.clear();
+  runtime.activeStream?.publish({ type: "gspot_run_aborted", reason });
 }
 
 export async function getChatRuntime(

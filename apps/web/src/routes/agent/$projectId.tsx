@@ -9,11 +9,12 @@ import { createFileRoute, Outlet } from "@tanstack/react-router";
 import { useAtomValue } from "jotai";
 import { useCallback, useEffect, useState } from "react";
 
-import { FileSearchDialog } from "@/components/file-search/file-search-dialog";
+import { CommandPalette } from "@/components/command-palette/command-palette";
 import { RightSidebar } from "@/components/right-sidebar/right-sidebar";
 import { TabShortcuts } from "@/components/tabs/tab-bar";
 import { useProject } from "@/hooks/use-projects";
 import { useSetLastProjectId } from "@/lib/active-project";
+import { useKeybind } from "@/lib/keybinds";
 import {
   rightSidebarCollapsedAtom,
   sidebarsSwappedAtom,
@@ -52,17 +53,7 @@ function ProjectLayout() {
   const openSearch = useCallback(() => setSearchOpen(true), []);
 
   // ⌘P / Ctrl+P → fuzzy file search.
-  useEffect(() => {
-    const handler = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey)) return;
-      if (event.shiftKey || event.altKey) return;
-      if (event.key.toLowerCase() !== "p") return;
-      event.preventDefault();
-      setSearchOpen(true);
-    };
-    window.addEventListener("keydown", handler, true);
-    return () => window.removeEventListener("keydown", handler, true);
-  }, []);
+  useKeybind("global.fileSearch", () => setSearchOpen(true));
 
   if (projectQuery.isLoading) {
     return (
@@ -128,7 +119,7 @@ function ProjectLayout() {
           </>
         )}
       </ResizablePanelGroup>
-      <FileSearchDialog
+      <CommandPalette
         projectId={projectId}
         open={searchOpen}
         onOpenChange={setSearchOpen}

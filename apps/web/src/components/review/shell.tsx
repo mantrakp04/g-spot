@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-import { useHotkey } from "@tanstack/react-hotkeys";
 import { PanelRightClose, PanelRightOpen } from "lucide-react";
 
 import { Button } from "@g-spot/ui/components/button";
 import { cn } from "@g-spot/ui/lib/utils";
 
+import { useKeybind } from "@/lib/keybinds";
 import { KeyboardOverlay } from "./keyboard-overlay";
 
 /**
@@ -42,11 +42,7 @@ export function ReviewShell({
   const effectiveSidebarOpen = sidebarOpen ?? uncontrolledSidebarOpen;
   const setSidebarOpen = onSidebarOpenChange ?? setUncontrolledSidebarOpen;
 
-  useHotkey(
-    { key: "?" },
-    () => setHelpOpen((s) => !s),
-    { meta: { name: "Toggle keyboard help" } },
-  );
+  useKeybind("review.toggleHelp", () => setHelpOpen((s) => !s));
 
   useEffect(() => {
     const root = scrollRef.current;

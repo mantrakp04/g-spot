@@ -3,6 +3,12 @@ import { atomWithStorage } from "jotai/utils";
 import { useCallback } from "react";
 
 import { disposeTerminalSession } from "@/components/terminal/terminal-sessions";
+import {
+  closedTabsAtom,
+  pushClosedTabs,
+  type ClosedTabRecord,
+} from "./closed-tabs-store";
+import { jsonStorage } from "./json-storage";
 
 /**
  * Tab state is split into three layers:
@@ -54,7 +60,29 @@ export type DiffTab = {
   mode: DiffMode;
 };
 
-export type Tab = ChatTab | TerminalTab | FileTab | DiffTab;
+/** Project-scoped file tree promoted from the sidebar into a pane. */
+export type FileTreeTab = {
+  id: string;
+  kind: "file-tree";
+  projectId: string;
+  title: string;
+};
+
+/** Project-scoped changes (diff list) promoted from the sidebar into a pane. */
+export type ChangesTab = {
+  id: string;
+  kind: "changes";
+  projectId: string;
+  title: string;
+};
+
+export type Tab =
+  | ChatTab
+  | TerminalTab
+  | FileTab
+  | DiffTab
+  | FileTreeTab
+  | ChangesTab;
 export type SplitOrientation = "horizontal" | "vertical";
 export type SplitDropDirection = "left" | "right" | "top" | "bottom";
 
@@ -105,37 +133,6 @@ const initialPane: TabPane = {
   tabIds: [],
   activeTabId: null,
 };
-
-function jsonStorage<T>(storageKey: string) {
-  return {
-    getItem(_key: string, initialValue: T): T {
-      if (typeof window === "undefined") return initialValue;
-      try {
-        const raw = window.localStorage.getItem(storageKey);
-        if (!raw) return initialValue;
-        return JSON.parse(raw) as T;
-      } catch {
-        return initialValue;
-      }
-    },
-    setItem(_key: string, value: T) {
-      if (typeof window === "undefined") return;
-      try {
-        window.localStorage.setItem(storageKey, JSON.stringify(value));
-      } catch {
-        // Storage may be disabled - degrade silently.
-      }
-    },
-    removeItem(_key: string) {
-      if (typeof window === "undefined") return;
-      try {
-        window.localStorage.removeItem(storageKey);
-      } catch {
-        // Storage may be disabled - degrade silently.
-      }
-    },
-  };
-}
 
 export const tabsByIdAtom = atomWithStorage<TabsById>(
   TABS_STORAGE_KEY,
@@ -201,6 +198,14 @@ function fileTabId(projectId: string, path: string) {
 function diffTabId(projectId: string, path: string) {
   // Mode is mutable on a single diff tab - not part of identity.
   return `diff:${projectId}:${path}`;
+}
+
+function fileTreeTabId(projectId: string) {
+  return `file-tree:${projectId}`;
+}
+
+function changesTabId(projectId: string) {
+  return `changes:${projectId}`;
 }
 
 function basename(p: string) {
@@ -824,6 +829,58 @@ export function useOpenDiffTab() {
   );
 }
 
+/** Open (or focus, if already open) the project's file tree as a pane surface. */
+export function useOpenFileTreeTab() {
+  const setTabsById = useSetAtom(tabsByIdAtom);
+  const setPanesById = useSetAtom(tabPanesByIdAtom);
+  const layout = useAtomValue(tabPaneLayoutAtom);
+  const setActivePane = useSetAtom(activePaneIdAtom);
+  const activePaneId = useAtomValue(activePaneIdAtom);
+  return useCallback(
+    (projectId: string) => {
+      const id = fileTreeTabId(projectId);
+      setTabsById((prev) =>
+        prev[id]
+          ? prev
+          : { ...prev, [id]: { id, kind: "file-tree", projectId, title: "Files" } },
+      );
+      setPanesById((prev) => {
+        const next = addTabToPane(prev, layout, activePaneId, id);
+        setActivePane(next.paneId);
+        return next.panesById;
+      });
+      return id;
+    },
+    [activePaneId, layout, setActivePane, setPanesById, setTabsById],
+  );
+}
+
+/** Open (or focus, if already open) the project's changes list as a pane surface. */
+export function useOpenChangesTab() {
+  const setTabsById = useSetAtom(tabsByIdAtom);
+  const setPanesById = useSetAtom(tabPanesByIdAtom);
+  const layout = useAtomValue(tabPaneLayoutAtom);
+  const setActivePane = useSetAtom(activePaneIdAtom);
+  const activePaneId = useAtomValue(activePaneIdAtom);
+  return useCallback(
+    (projectId: string) => {
+      const id = changesTabId(projectId);
+      setTabsById((prev) =>
+        prev[id]
+          ? prev
+          : { ...prev, [id]: { id, kind: "changes", projectId, title: "Changes" } },
+      );
+      setPanesById((prev) => {
+        const next = addTabToPane(prev, layout, activePaneId, id);
+        setActivePane(next.paneId);
+        return next.panesById;
+      });
+      return id;
+    },
+    [activePaneId, layout, setActivePane, setPanesById, setTabsById],
+  );
+}
+
 export function useUpdateDiffMode() {
   const setTabsById = useSetAtom(tabsByIdAtom);
   return useCallback(
@@ -838,12 +895,34 @@ export function useUpdateDiffMode() {
   );
 }
 
+/** Build a reopen record for a tab from its current pane placement. */
+function closedRecordForTab(
+  tabsById: Readonly<TabsById>,
+  panesById: Readonly<PanesById>,
+  id: string,
+): ClosedTabRecord | null {
+  const tab = tabsById[id];
+  if (!tab) return null;
+  const paneId = findPaneIdByTabId(panesById, id);
+  if (!paneId) return null;
+  const index = panesById[paneId]?.tabIds.indexOf(id) ?? -1;
+  if (index < 0) return null;
+  return { tab, paneId, index, closedAt: Date.now() };
+}
+
 export function useCloseTab() {
   const setTabsById = useSetAtom(tabsByIdAtom);
   const setPanesById = useSetAtom(tabPanesByIdAtom);
   const setHighlightedTabIds = useSetAtom(highlightedTabIdsAtom);
+  const setClosedTabs = useSetAtom(closedTabsAtom);
+  const tabsById = useAtomValue(tabsByIdAtom);
+  const panesById = useAtomValue(tabPanesByIdAtom);
   return useCallback(
     (id: string) => {
+      const record = closedRecordForTab(tabsById, panesById, id);
+      if (record) {
+        setClosedTabs((prev) => pushClosedTabs(prev, [record]));
+      }
       setPanesById((prev) => removeTabFromPanes(prev, id));
       setHighlightedTabIds((prev) => {
         if (!(id in prev)) return prev;
@@ -862,8 +941,89 @@ export function useCloseTab() {
         return next;
       });
     },
-    [setHighlightedTabIds, setPanesById, setTabsById],
+    [panesById, setClosedTabs, setHighlightedTabIds, setPanesById, setTabsById, tabsById],
   );
+}
+
+export function useCloseManyTabs() {
+  const setTabsById = useSetAtom(tabsByIdAtom);
+  const setPanesById = useSetAtom(tabPanesByIdAtom);
+  const setHighlightedTabIds = useSetAtom(highlightedTabIdsAtom);
+  const setClosedTabs = useSetAtom(closedTabsAtom);
+  const tabsById = useAtomValue(tabsByIdAtom);
+  const panesById = useAtomValue(tabPanesByIdAtom);
+  return useCallback(
+    (ids: readonly string[]) => {
+      if (ids.length === 0) return;
+      const records = ids
+        .map((id) => closedRecordForTab(tabsById, panesById, id))
+        .filter((record): record is ClosedTabRecord => record !== null);
+      if (records.length > 0) {
+        setClosedTabs((prev) => pushClosedTabs(prev, records));
+      }
+      setPanesById((prev) => {
+        let next = prev;
+        for (const id of ids) next = removeTabFromPanes(next, id);
+        return next;
+      });
+      setHighlightedTabIds((prev) => {
+        let changed = false;
+        const next = { ...prev };
+        for (const id of ids) {
+          if (id in next) {
+            delete next[id];
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+      setTabsById((prev) => {
+        const next = { ...prev };
+        for (const id of ids) {
+          const closing = next[id];
+          if (!closing) continue;
+          if (closing.kind === "terminal") disposeTerminalSession(closing.id);
+          delete next[id];
+        }
+        return next;
+      });
+    },
+    [panesById, setClosedTabs, setHighlightedTabIds, setPanesById, setTabsById, tabsById],
+  );
+}
+
+export function useReopenClosedTab() {
+  const setTabsById = useSetAtom(tabsByIdAtom);
+  const setPanesById = useSetAtom(tabPanesByIdAtom);
+  const setActivePane = useSetAtom(activePaneIdAtom);
+  const setClosedTabs = useSetAtom(closedTabsAtom);
+  const closedTabs = useAtomValue(closedTabsAtom);
+  const layout = useAtomValue(tabPaneLayoutAtom);
+  return useCallback(() => {
+    const record = closedTabs[0];
+    if (!record) return;
+    setClosedTabs((prev) => prev.slice(1));
+
+    setTabsById((prev) =>
+      prev[record.tab.id] ? prev : { ...prev, [record.tab.id]: record.tab },
+    );
+    setPanesById((prev) => {
+      // Prefer the original pane; fall back to the first live leaf if it's gone.
+      const targetPaneId = findLeafIdByPaneId(layout, record.paneId) ?? firstLeafId(layout);
+      const pane = ensurePane(prev, targetPaneId);
+      setActivePane(targetPaneId);
+      if (pane.tabIds.includes(record.tab.id)) {
+        return { ...prev, [targetPaneId]: { ...pane, activeTabId: record.tab.id } };
+      }
+      const insertIndex = Math.max(0, Math.min(record.index, pane.tabIds.length));
+      const tabIds = [
+        ...pane.tabIds.slice(0, insertIndex),
+        record.tab.id,
+        ...pane.tabIds.slice(insertIndex),
+      ];
+      return { ...prev, [targetPaneId]: { ...pane, tabIds, activeTabId: record.tab.id } };
+    });
+  }, [closedTabs, layout, setActivePane, setClosedTabs, setPanesById, setTabsById]);
 }
 
 export function useCloseActiveTab() {

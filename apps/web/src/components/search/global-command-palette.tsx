@@ -16,6 +16,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Bot, Brain, Database, Github, Mail, MessageSquare, NotebookText, Search, User } from "lucide-react";
 
+import { useKeybind } from "@/lib/keybinds";
 import { useOpenChatTab } from "@/lib/tabs-store";
 import { trpcClient } from "@/utils/trpc";
 
@@ -81,20 +82,7 @@ export function GlobalCommandPalette() {
   const navigate = useNavigate();
   const openChatTab = useOpenChatTab();
 
-  useEffect(() => {
-    const handler = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey) || event.shiftKey || event.altKey) {
-        return;
-      }
-      if (event.key.toLowerCase() !== "k") return;
-
-      event.preventDefault();
-      setOpen((value) => !value);
-    };
-
-    window.addEventListener("keydown", handler, true);
-    return () => window.removeEventListener("keydown", handler, true);
-  }, []);
+  useKeybind("global.commandPalette", () => setOpen((value) => !value));
 
   useEffect(() => {
     if (!open) {

@@ -18,6 +18,7 @@ import {
   ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
+  Download,
   FilePlus2,
   FolderPlus,
   FolderTree,
@@ -184,6 +185,17 @@ function NotesPage() {
       content,
     }));
   }, [activeNoteQuery.data]);
+  const handleDownloadNote = useCallback(() => {
+    const blob = new Blob([contentDraft], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${(titleDraft || "untitled").trim() || "untitled"}.md`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }, [contentDraft, titleDraft]);
   const editingTitle =
     editingTitleOverride?.noteId === activeNoteId ? editingTitleOverride.value : false;
   const setEditingTitle = useCallback((value: SetStateAction<boolean>) => {
@@ -778,6 +790,11 @@ function NotesPage() {
                 {updateNote.isPending ? (
                   <Loader2 className="size-3 animate-spin text-muted-foreground mr-1" />
                 ) : null}
+                <ToolbarBtn
+                  icon={<Download className="size-4" />}
+                  title="Download as Markdown"
+                  onClick={handleDownloadNote}
+                />
                 <ToolbarBtn
                   icon={<BookOpen className="size-4" />}
                   title="Toggle backlinks panel"

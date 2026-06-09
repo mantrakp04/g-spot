@@ -61,6 +61,7 @@
   "type": "module",
   "scripts": {
     "dev": "turbo dev",
+    "dev:login": "bun run scripts/dev-login.ts",
     "dev:demo": "turbo run dev:demo",
     "build": "turbo build",
     "check-types": "turbo run check-types",

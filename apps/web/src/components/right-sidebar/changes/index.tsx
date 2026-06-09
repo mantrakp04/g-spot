@@ -12,6 +12,7 @@ import {
 } from "react";
 
 import { useConfirmDialog } from "@/contexts/confirm-dialog-context";
+import { useKeybindMatcher } from "@/lib/keybinds";
 import { gitKeys } from "@/lib/query-keys";
 import type { DiffMode } from "@/lib/tabs-store";
 
@@ -90,6 +91,7 @@ export function ChangesPanel({ projectId, onChangeClick }: Props) {
   const draft = useCommitDraftQuery(projectId);
 
   const mutations = useGitMutations(projectId);
+  const matchKeybind = useKeybindMatcher();
   const [viewMode] = useViewMode();
   const [expanded, setExpanded] = useExpandedGroups();
   const [selection, setSelection] = useSelection();
@@ -227,7 +229,7 @@ export function ChangesPanel({ projectId, onChangeClick }: Props) {
   );
 
   const handlePanelKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
+    if (matchKeybind("changes.selectAll", e)) {
       // Select all in any group with current selection.
       const group = GROUP_ORDER.find((g) => selection[g].length > 0) ?? null;
       if (group) {
@@ -240,7 +242,8 @@ export function ChangesPanel({ projectId, onChangeClick }: Props) {
       return;
     }
 
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    const isNext = matchKeybind("changes.selectNext", e);
+    if (isNext || matchKeybind("changes.selectPrev", e)) {
       e.preventDefault();
       const flat: Array<{ group: GroupId; path: string }> = [];
       for (const g of GROUP_ORDER) {
@@ -256,7 +259,7 @@ export function ChangesPanel({ projectId, onChangeClick }: Props) {
       }
       const next = idx === -1
         ? 0
-        : Math.max(0, Math.min(flat.length - 1, idx + (e.key === "ArrowDown" ? 1 : -1)));
+        : Math.max(0, Math.min(flat.length - 1, idx + (isNext ? 1 : -1)));
       const target = flat[next]!;
       setSelection((prev) => {
         const cleared: Record<GroupId, string[]> = {
@@ -270,7 +273,7 @@ export function ChangesPanel({ projectId, onChangeClick }: Props) {
       return;
     }
 
-    if (e.key === "Enter") {
+    if (matchKeybind("changes.openDiff", e)) {
       const active = activeRow(groups, selection);
       if (active) {
         e.preventDefault();
@@ -279,7 +282,7 @@ export function ChangesPanel({ projectId, onChangeClick }: Props) {
       return;
     }
 
-    if (e.key === " ") {
+    if (matchKeybind("changes.stage", e)) {
       const active = activeRow(groups, selection);
       if (active) {
         e.preventDefault();

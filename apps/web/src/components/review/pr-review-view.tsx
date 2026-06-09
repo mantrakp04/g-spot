@@ -28,7 +28,6 @@ import {
   PanelLeftOpen,
 } from "lucide-react";
 import { cn } from "@g-spot/ui/lib/utils";
-import { useHotkeys } from "@tanstack/react-hotkeys";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
 import type {
@@ -46,6 +45,7 @@ import {
   useGitHubPRStack,
   useGitHubPRTimeline,
 } from "@/hooks/use-github-detail";
+import { useKeybinds } from "@/lib/keybinds";
 import { CommitSelector, type CommitRange } from "./commit-selector";
 import { useExpandFile, useSetAllFiles } from "./diff-collapse-state";
 import { DiffCustomizerMenu } from "./diff-customizer";
@@ -790,17 +790,9 @@ export function PRReviewView({
     if (next) scrollToFile(next.filename);
   };
 
-  useHotkeys([
-    {
-      hotkey: "J",
-      callback: () => jumpFile(1),
-      options: { meta: { name: "Next file" } },
-    },
-    {
-      hotkey: "K",
-      callback: () => jumpFile(-1),
-      options: { meta: { name: "Previous file" } },
-    },
+  useKeybinds([
+    { id: "review.nextFile", callback: () => jumpFile(1) },
+    { id: "review.prevFile", callback: () => jumpFile(-1) },
   ]);
 
   const repoLabel = `${target.owner}/${target.repo}`;

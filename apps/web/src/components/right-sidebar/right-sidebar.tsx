@@ -1,14 +1,25 @@
 import { cn } from "@g-spot/ui/lib/utils";
 import { useAtom } from "jotai";
-import { FileText, GitBranch, Search, TerminalSquare } from "lucide-react";
+import {
+  FileText,
+  GitBranch,
+  PanelRight,
+  Search,
+} from "lucide-react";
 
-import { TerminalView } from "@/components/terminal/terminal-view";
 import {
   rightSidebarCollapsedAtom,
   rightSidebarTabAtom,
   type RightSidebarTab,
 } from "@/lib/sidebars-store";
-import { useOpenDiffTab, useOpenFileTab } from "@/lib/tabs-store";
+import {
+  useOpenChangesTab,
+  useOpenDiffTab,
+  useOpenFileTab,
+  useOpenFileTreeTab,
+} from "@/lib/tabs-store";
+
+import { focusSurface } from "@/lib/surface-focus";
 
 import { ChangesPanel } from "./changes";
 import { FileTree } from "./file-tree";
@@ -25,7 +36,6 @@ const TAB_DEFS: Array<{
 }> = [
   { id: "files", label: "All Files", icon: FileText },
   { id: "changes", label: "Changes", icon: GitBranch },
-  { id: "terminal", label: "Terminal", icon: TerminalSquare },
 ];
 
 export function RightSidebar({ projectId, onOpenSearch }: RightSidebarProps) {
@@ -33,6 +43,17 @@ export function RightSidebar({ projectId, onOpenSearch }: RightSidebarProps) {
   const [activeTab, setActiveTab] = useAtom(rightSidebarTabAtom);
   const openFile = useOpenFileTab();
   const openDiff = useOpenDiffTab();
+  const openFileTree = useOpenFileTreeTab();
+  const openChanges = useOpenChangesTab();
+
+  // Promote the active sidebar view into the main split grid (reuse-or-focus:
+  // the open hooks key on a stable per-project id, so an existing pane is
+  // refocused rather than duplicated).
+  const openActiveViewAsPane = () => {
+    const id =
+      activeTab === "files" ? openFileTree(projectId) : openChanges(projectId);
+    focusSurface(id);
+  };
 
   if (collapsed) {
     return (
@@ -69,8 +90,8 @@ export function RightSidebar({ projectId, onOpenSearch }: RightSidebarProps) {
   }
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col border-l border-border bg-background">
-      <div className="flex h-10 shrink-0 items-stretch border-b border-border bg-muted/30">
+    <div className="flex h-full min-h-0 min-w-0 flex-col border-l border-t border-border border-t-transparent bg-background">
+      <div className="flex h-9 shrink-0 items-stretch border-b border-border bg-muted/30">
         <div className="no-scrollbar flex flex-1 items-stretch overflow-x-auto">
           {TAB_DEFS.map((tab) => {
             const Icon = tab.icon;
@@ -80,15 +101,16 @@ export function RightSidebar({ projectId, onOpenSearch }: RightSidebarProps) {
                 key={tab.id}
                 type="button"
                 onClick={() => setActiveTab(tab.id)}
+                aria-label={tab.label}
+                title={tab.label}
                 className={cn(
-                  "relative flex items-center gap-1.5 px-3 text-[11px] font-medium transition-colors",
+                  "relative grid w-9 place-items-center transition-colors",
                   active
                     ? "bg-background text-foreground"
                     : "text-muted-foreground hover:bg-background/40 hover:text-foreground",
                 )}
               >
-                <Icon className="size-3.5" />
-                {tab.label}
+                <Icon className="size-3.5" aria-hidden />
                 {active && (
                   <span
                     aria-hidden
@@ -101,8 +123,17 @@ export function RightSidebar({ projectId, onOpenSearch }: RightSidebarProps) {
         </div>
         <button
           type="button"
+          onClick={openActiveViewAsPane}
+          className="grid size-9 shrink-0 place-items-center text-muted-foreground transition-colors hover:bg-background/40 hover:text-foreground"
+          aria-label="Open this view as a pane"
+          title="Open as pane"
+        >
+          <PanelRight className="size-3.5" />
+        </button>
+        <button
+          type="button"
           onClick={onOpenSearch}
-          className="flex shrink-0 items-center justify-center px-3 text-muted-foreground transition-colors hover:bg-background/40 hover:text-foreground"
+          className="grid size-9 shrink-0 place-items-center text-muted-foreground transition-colors hover:bg-background/40 hover:text-foreground"
           aria-label="Search files"
           title="Search files (⌘P)"
         >
@@ -110,8 +141,7 @@ export function RightSidebar({ projectId, onOpenSearch }: RightSidebarProps) {
         </button>
       </div>
 
-      {/* Keep all three panels mounted so terminal PTY + tree expansion state
-          survives tab switches. */}
+      {/* Keep both panels mounted so tree expansion state survives tab switches. */}
       <div className="flex min-h-0 flex-1 flex-col">
         <div
           className={cn(
@@ -139,18 +169,6 @@ export function RightSidebar({ projectId, onOpenSearch }: RightSidebarProps) {
               }
               openDiff(projectId, path, mode);
             }}
-          />
-        </div>
-        <div
-          className={cn(
-            "min-h-0 flex-1 flex-col",
-            activeTab === "terminal" ? "flex" : "hidden",
-          )}
-        >
-          <TerminalView
-            projectId={projectId}
-            tabId={`right-sidebar-terminal:${projectId}`}
-            active={activeTab === "terminal"}
           />
         </div>
       </div>

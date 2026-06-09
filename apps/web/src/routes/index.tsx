@@ -7,7 +7,6 @@ import { env } from "@g-spot/env/web";
 import { Skeleton } from "@g-spot/ui/components/skeleton";
 import type { OAuthConnection } from "@hexclave/react";
 import { useUser } from "@hexclave/react";
-import { useHotkeys } from "@tanstack/react-hotkeys";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
@@ -33,6 +32,7 @@ import { useGmailThread } from "@/hooks/use-gmail-thread";
 import { useSections, useUpdateSectionMutation } from "@/hooks/use-sections";
 import { useSectionCounts } from "@/contexts/section-counts-context";
 import type { GmailThread, GmailThreadDetail as GmailThreadDetailData } from "@/lib/gmail/types";
+import { useKeybinds } from "@/lib/keybinds";
 import { useEmailDrawerWidth } from "@/lib/inbox/inbox-preferences";
 import { gmailKeys, githubKeys } from "@/lib/query-keys";
 
@@ -423,21 +423,18 @@ function InboxPageContent({
     [selectedThread, currentIndex, handleSelectThread],
   );
 
-  useHotkeys(
-    [
-      {
-        hotkey: "J",
-        callback: () => handleNavigateThread(1),
-        options: { meta: { name: "Next thread" } },
-      },
-      {
-        hotkey: "K",
-        callback: () => handleNavigateThread(-1),
-        options: { meta: { name: "Previous thread" } },
-      },
-    ],
-    { enabled: selectedThread != null },
-  );
+  useKeybinds([
+    {
+      id: "inbox.nextThread",
+      callback: () => handleNavigateThread(1),
+      options: { enabled: selectedThread != null },
+    },
+    {
+      id: "inbox.prevThread",
+      callback: () => handleNavigateThread(-1),
+      options: { enabled: selectedThread != null },
+    },
+  ]);
 
   const { data: threadDetailData, isLoading: isDetailLoading } = useGmailThread(
     selectedThread?.thread.threadId ?? null,

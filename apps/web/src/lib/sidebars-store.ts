@@ -1,6 +1,6 @@
 import { atomWithStorage } from "jotai/utils";
 
-export type RightSidebarTab = "files" | "changes" | "terminal";
+export type RightSidebarTab = "files" | "changes";
 
 const SECONDARY_COLLAPSED_KEY = "gspot.secondarysidebar.collapsed.v1";
 const RIGHT_COLLAPSED_KEY = "gspot.rightsidebar.collapsed.v1";
@@ -60,14 +60,27 @@ export const rightSidebarCollapsedAtom = atomWithStorage<boolean>(
 export const rightSidebarTabAtom = atomWithStorage<RightSidebarTab>(
   RIGHT_TAB_KEY,
   "files",
-  jsonStorage<RightSidebarTab>(RIGHT_TAB_KEY),
+  {
+    ...jsonStorage<RightSidebarTab>(RIGHT_TAB_KEY),
+    getItem(_key, initialValue) {
+      if (typeof window === "undefined") return initialValue;
+      try {
+        const raw = window.localStorage.getItem(RIGHT_TAB_KEY);
+        if (!raw) return initialValue;
+        const parsed: unknown = JSON.parse(raw);
+        return parsed === "files" || parsed === "changes" ? parsed : initialValue;
+      } catch {
+        return initialValue;
+      }
+    },
+  },
   { getOnInit: true },
 );
 
 /**
- * When true, the AiSidebar physically sits on the right and the file/changes/
- * terminal panel sits on the left. Collapse state is per-sidebar (not per
- * position), so toggles still operate on the same logical panel after a swap.
+ * When true, the AiSidebar physically sits on the right and the file/changes
+ * panel sits on the left. Collapse state is per-sidebar (not per position), so
+ * toggles still operate on the same logical panel after a swap.
  */
 export const sidebarsSwappedAtom = atomWithStorage<boolean>(
   SWAPPED_KEY,

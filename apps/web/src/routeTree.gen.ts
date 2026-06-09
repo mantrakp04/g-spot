@@ -20,6 +20,7 @@ import { Route as AgentRouteImport } from './routes/agent'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ReviewIndexRouteImport } from './routes/review/index'
 import { Route as AgentIndexRouteImport } from './routes/agent/index'
+import { Route as SettingsKeybindsRouteImport } from './routes/settings/keybinds'
 import { Route as SettingsConnectionsRouteImport } from './routes/settings/connections'
 import { Route as HandlerSplatRouteImport } from './routes/handler/$'
 import { Route as AgentSettingsRouteImport } from './routes/agent/settings'
@@ -85,6 +86,11 @@ const AgentIndexRoute = AgentIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AgentRoute,
 } as any)
+const SettingsKeybindsRoute = SettingsKeybindsRouteImport.update({
+  id: '/settings/keybinds',
+  path: '/settings/keybinds',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsConnectionsRoute = SettingsConnectionsRouteImport.update({
   id: '/settings/connections',
   path: '/settings/connections',
@@ -146,6 +152,7 @@ export interface FileRoutesByFullPath {
   '/agent/settings': typeof AgentSettingsRoute
   '/handler/$': typeof HandlerSplatRoute
   '/settings/connections': typeof SettingsConnectionsRoute
+  '/settings/keybinds': typeof SettingsKeybindsRoute
   '/agent/': typeof AgentIndexRoute
   '/review/': typeof ReviewIndexRoute
   '/agent/$projectId/settings': typeof AgentProjectIdSettingsRoute
@@ -165,6 +172,7 @@ export interface FileRoutesByTo {
   '/agent/settings': typeof AgentSettingsRoute
   '/handler/$': typeof HandlerSplatRoute
   '/settings/connections': typeof SettingsConnectionsRoute
+  '/settings/keybinds': typeof SettingsKeybindsRoute
   '/agent': typeof AgentIndexRoute
   '/review': typeof ReviewIndexRoute
   '/agent/$projectId/settings': typeof AgentProjectIdSettingsRoute
@@ -186,6 +194,7 @@ export interface FileRoutesById {
   '/agent/settings': typeof AgentSettingsRoute
   '/handler/$': typeof HandlerSplatRoute
   '/settings/connections': typeof SettingsConnectionsRoute
+  '/settings/keybinds': typeof SettingsKeybindsRoute
   '/agent/': typeof AgentIndexRoute
   '/review/': typeof ReviewIndexRoute
   '/agent/$projectId/_tabs': typeof AgentProjectIdTabsRouteWithChildren
@@ -210,6 +219,7 @@ export interface FileRouteTypes {
     | '/agent/settings'
     | '/handler/$'
     | '/settings/connections'
+    | '/settings/keybinds'
     | '/agent/'
     | '/review/'
     | '/agent/$projectId/settings'
@@ -229,6 +239,7 @@ export interface FileRouteTypes {
     | '/agent/settings'
     | '/handler/$'
     | '/settings/connections'
+    | '/settings/keybinds'
     | '/agent'
     | '/review'
     | '/agent/$projectId/settings'
@@ -249,6 +260,7 @@ export interface FileRouteTypes {
     | '/agent/settings'
     | '/handler/$'
     | '/settings/connections'
+    | '/settings/keybinds'
     | '/agent/'
     | '/review/'
     | '/agent/$projectId/_tabs'
@@ -269,6 +281,7 @@ export interface RootRouteChildren {
   WorkflowsRoute: typeof WorkflowsRoute
   HandlerSplatRoute: typeof HandlerSplatRoute
   SettingsConnectionsRoute: typeof SettingsConnectionsRoute
+  SettingsKeybindsRoute: typeof SettingsKeybindsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -349,6 +362,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/agent/'
       preLoaderRoute: typeof AgentIndexRouteImport
       parentRoute: typeof AgentRoute
+    }
+    '/settings/keybinds': {
+      id: '/settings/keybinds'
+      path: '/settings/keybinds'
+      fullPath: '/settings/keybinds'
+      preLoaderRoute: typeof SettingsKeybindsRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/settings/connections': {
       id: '/settings/connections'
@@ -482,6 +502,7 @@ const rootRouteChildren: RootRouteChildren = {
   WorkflowsRoute: WorkflowsRoute,
   HandlerSplatRoute: HandlerSplatRoute,
   SettingsConnectionsRoute: SettingsConnectionsRoute,
+  SettingsKeybindsRoute: SettingsKeybindsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

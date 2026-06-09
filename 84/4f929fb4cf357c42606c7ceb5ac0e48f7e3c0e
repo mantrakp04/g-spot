@@ -1,0 +1,264 @@
+docs/agent-ux-research/gspot/frontend-ux.md
+  s_66859126c0eb1b::t_27e6322786592c 1-129
+docs/agent-ux-research/COMPARISON.md
+  s_66859126c0eb1b::t_2d412d20665676 1-453
+packages/api/src/chat-runtime.ts
+  s_66859126c0eb1b::t_6fb25bf05bfc0a 135-145,149
+  s_66859126c0eb1b::t_413f7952a28135 47-57,59-61,66-70,72-73,93-105,122-126
+docs/agent-ux-research/cmux/tabs.md
+  s_66859126c0eb1b::t_f9cd610ea1f0cf 1-398
+apps/web/src/lib/keybinds/registry.ts
+  s_ec432e3c976277::t_3456aae7453c8b 212-214
+  s_ec432e3c976277::t_a18b2601480d1b 60-64
+  s_ec432e3c976277::t_2943e2b6a09c41 1
+  s_ec432e3c976277::t_5d3a001050af12 2-59,65-211,215-222
+apps/web/src/routes/index.tsx
+  s_ec432e3c976277::t_edd797c12b0160 35
+  s_ec432e3c976277::t_b6930e8b507544 426-437
+.gitignore
+  s_66859126c0eb1b::t_33cd773966fc86 65
+apps/web/src/lib/sidebars-store.ts
+  s_4b984f958f7127::t_653eb1968711d3 3,63-69,71-76
+  s_4b984f958f7127::t_fd08ca80bbde94 70,81-83
+scripts/maintenance.sh
+  h_8c1b79571cf22c 1-7
+apps/web/src/components/review/shell.tsx
+  s_ec432e3c976277::t_57f2dfe9ecba92 8
+  s_ec432e3c976277::t_3601643cdac809 45
+docs/agent-ux-research/cmux/agent-sessions.md
+  s_66859126c0eb1b::t_0c0dd480d48901 1-347
+.agents/skills/feature-port/workflow.js
+  s_66859126c0eb1b::t_4945467974c6a0 85-87,89
+  s_66859126c0eb1b::t_57454ab0024f22 1-63,65-84,88,90-135
+  s_66859126c0eb1b::t_3e311470952f82 64
+apps/web/src/components/command-palette/command-palette.tsx
+  s_66859126c0eb1b::t_ad86e195720e67 4,8,11-18,21-27,29-35,38-43,46,52-55,65-72,81-84,86,88-91,94-96,98,101-219,223,226-227,229-233,237,254-260,262-265,267-294,296-297,300-310,324,328-332,334-384,387-401
+  s_66859126c0eb1b::t_7bab3fba62f0d2 385-386
+  s_66859126c0eb1b::t_363f5c029435ac 36-37
+  s_66859126c0eb1b::t_3495d0c67a0306 228
+apps/desktop/package.json
+  s_16edf294b7114c::t_b061f35ad5c83d 3
+packages/api/src/terminal-stream.ts
+  s_66859126c0eb1b::t_1dd212437bfadf 212
+  s_66859126c0eb1b::t_4b0769ffd8a6e7 535-539
+  s_66859126c0eb1b::t_e45bacbaee0d0e 673
+  s_66859126c0eb1b::t_43f748b1a85f30 491
+  s_66859126c0eb1b::t_cb58af93906126 755-757,766-768
+  s_66859126c0eb1b::t_93adf7e19c2d94 507,509,514-518
+docs/agent-ux-research/cmux/notifications-state.md
+  s_66859126c0eb1b::t_43e928bca7d603 1-165
+apps/web/src/lib/keybinds/index.ts
+  s_ec432e3c976277::t_11a2ec20947713 1-24
+apps/web/src/components/terminal/terminal-sessions.ts
+  s_66859126c0eb1b::t_261784a993be7b 207
+  s_66859126c0eb1b::t_4fd4be82671e85 105-147
+  s_66859126c0eb1b::t_2a46cdce0c0ec1 29-30
+  s_66859126c0eb1b::t_5e6e1736074dec 181-184,186,194
+  s_66859126c0eb1b::t_bfceea85539cd6 156,166,171-172
+.agents/skills/feature-port/SKILL.md
+  s_66859126c0eb1b::t_978235e68994ab 15
+  s_66859126c0eb1b::t_4c1c6a9d9e602d 1-2,4-14,16-28,32,34,37-42,44-52,56-59,61-62
+  s_66859126c0eb1b::t_e0b07945bf6bd8 29-31,33,35-36
+  s_66859126c0eb1b::t_57646231771576 43
+  s_66859126c0eb1b::t_d08f2e614eb8fc 3
+  s_66859126c0eb1b::t_35cb4c9bb7ba21 53-55
+  s_66859126c0eb1b::t_f63af85ca6ea07 60
+apps/web/src/components/right-sidebar/changes/index.tsx
+  s_ec432e3c976277::t_c539ffe6adf566 94
+  s_ec432e3c976277::t_d86249c8189876 232,245-246,262,276,285
+  s_ec432e3c976277::t_5421eaee22cd2e 15
+apps/web/src/lib/fuzzy-score.ts
+  s_66859126c0eb1b::t_a0fba83768e3a5 1-179
+docs/agent-ux-research/cmux/splits-panes.md
+  s_66859126c0eb1b::t_296a19a1607e62 1-184
+docs/agent-ux-research/cmux/workspace-groups.md
+  s_66859126c0eb1b::t_5525995eefc8a9 1-189
+apps/web/src/routes/settings/keybinds.tsx
+  s_ec432e3c976277::t_5732d115f66f0e 4-5,7
+  s_ec432e3c976277::t_c4c4f62ff2a99a 1-3,6,8-226
+scripts/dev-login.ts
+  h_8c1b79571cf22c 22
+  s_81bd3660870688::t_602bc791dde85c 27
+  s_81bd3660870688::t_4d085a974388cc 14,23
+  s_81bd3660870688::t_da91f457495566 1-13,15-21,24-26,28-101
+apps/web/src/lib/keybinds/use-keybind.ts
+  s_ec432e3c976277::t_46e55e340fc903 2
+  s_ec432e3c976277::t_553caeb72b50a1 1,3-90
+apps/web/src/routes/agent/$projectId.tsx
+  s_ec432e3c976277::t_fb491ecefd7c3a 56
+  s_66859126c0eb1b::t_937ba32f3179af 12
+  s_66859126c0eb1b::t_383e3f6d953ccd 122
+  s_ec432e3c976277::t_6c1c2a70c8a0b9 17
+apps/web/src/components/tabs/tab-bar.tsx
+  s_66859126c0eb1b::t_9188ce0a87864f 61-69
+  s_66859126c0eb1b::t_2d3415b9318481 9
+  s_ec432e3c976277::t_bb688dbb7c5b43 1,4
+  s_66859126c0eb1b::t_a46dc46fb631fe 21
+  s_ec432e3c976277::t_b2ac3fde89c71e 34-37,39-56
+  s_66859126c0eb1b::t_f4d224caeafc5e 57
+  s_66859126c0eb1b::t_cbfef8593b5ee4 38
+apps/web/src/components/review/stack-viz.tsx
+  s_ec432e3c976277::t_7203834fbc2797 4
+  s_ec432e3c976277::t_7bb4a932decdb9 42-53
+docs/agent-ux-research/cmux/command-palette.md
+  s_66859126c0eb1b::t_f3a578fa423bc3 1-169
+docs/agent-ux-research/gspot/backend-data.md
+  s_66859126c0eb1b::t_d0a92461cf3fc6 1-264
+apps/web/src/components/tabs/tabs-content.tsx
+  s_66859126c0eb1b::t_440c26f1d41922 35
+  s_66859126c0eb1b::t_4d68203147c5b0 76-78
+  s_66859126c0eb1b::t_c77ed413d4f6fb 140
+  s_66859126c0eb1b::t_49bfbca79e2286 534,538
+  s_66859126c0eb1b::t_b4617dbded01fd 48
+  s_66859126c0eb1b::t_e04c0a055e02c2 667-672,679-684,709-714
+  s_66859126c0eb1b::t_6ddb8d3ca55145 754-755,765-782
+  s_d4380f2ef96710::t_b7a9a3e03e188c 472,476,487,489,491,493,495,502,504,506,508,510
+  s_66859126c0eb1b::t_508b2b2b00853e 5
+  s_66859126c0eb1b::t_6d587b4ec0ac7d 598,609-616
+  s_66859126c0eb1b::t_2ab3b29ad141a7 111,117-129
+  s_66859126c0eb1b::t_e29eb01aa33c6f 194-199
+  s_66859126c0eb1b::t_24ab7bbc116385 289-323,327-328,332-333,347-348
+  s_66859126c0eb1b::t_a72f023799629d 60-61
+  s_66859126c0eb1b::t_ca9db327a9d7ac 52
+  s_66859126c0eb1b::t_5ee37d1bcfd60d 38-39
+apps/web/src/lib/closed-tabs-store.ts
+  s_66859126c0eb1b::t_e9555a857f1752 1-37
+apps/web/src/lib/tabs-store.ts
+  s_66859126c0eb1b::t_b057aad51d14b2 203-210
+  s_66859126c0eb1b::t_e2b2ad970598f1 63-85
+  s_66859126c0eb1b::t_80f31737a6d2d3 6-11
+  s_66859126c0eb1b::t_0777bc382f72f8 832-883
+  s_66859126c0eb1b::t_f81ca0dcd25b52 898-912,917-919,922-925,944-947,995-1026
+  s_66859126c0eb1b::t_fd1ff333c6af39 948-991
+apps/desktop/scripts/mac-release.js
+  s_6dda682c6466e3::t_bdf8fb19b71606 72-76,82-84,99,106
+  s_6dda682c6466e3::t_ded1858e9abd2a 85-98,100-105
+apps/web/src/routes/notes.tsx
+  s_af9e07a1e60952::t_d22a8f78963089 21
+  s_af9e07a1e60952::t_7df8f725270a86 188-198
+  s_af9e07a1e60952::t_8ca2807c458c9e 794-797
+apps/web/src/routes/__root.tsx
+  s_ec432e3c976277::t_f0cfb0f52e3c3c 50,52,56
+  s_ec432e3c976277::t_2d7c19d4c77899 5
+  s_ec432e3c976277::t_54e7e7041a614f 16
+apps/web/src/components/right-sidebar/right-sidebar.tsx
+  s_66859126c0eb1b::t_832150de1b9954 46-52,55-56
+  s_66859126c0eb1b::t_e88153d34584bd 126,128-132
+  s_4b984f958f7127::t_831a573d6f94a5 93
+  s_4b984f958f7127::t_8bbd4fa8ac4515 53-54
+  s_4b984f958f7127::t_4b5f84f4297bb6 144
+  s_4b984f958f7127::t_4f3857a866579a 104-105,113
+  s_4b984f958f7127::t_481d0b7437cd62 94,107,127,136
+  s_66859126c0eb1b::t_b27bb757220ce1 3-8,15-22
+apps/web/src/components/nav-user.tsx
+  s_ec432e3c976277::t_fd76da4a0ce78e 18
+  s_ec432e3c976277::t_6d037ae1460ec6 93-99
+docs/agent-ux-research/cmux/sidebar-panels.md
+  s_66859126c0eb1b::t_ac493c19f83ef2 1-160
+scripts/setup.sh
+  h_8c1b79571cf22c 1-3
+docs/agent-ux-research/cmux/workspaces.md
+  s_66859126c0eb1b::t_33c929e9d8c171 1-195
+apps/web/src/lib/json-storage.ts
+  s_66859126c0eb1b::t_758f0001cc9459 1-36
+apps/web/src/lib/keybinds/store.ts
+  s_ec432e3c976277::t_1c8fafc0d810b5 116
+  s_ec432e3c976277::t_c61daf3f7bbf1a 2-5
+  s_ec432e3c976277::t_fefddd32b418d9 1
+  s_ec432e3c976277::t_6670d75cee445a 6-57,60-64,66-115,117-160
+  s_ec432e3c976277::t_0a9a24d7799c39 58-59,65
+package.json
+  s_81bd3660870688::t_e8a95b3970ccc3 64
+apps/web/src/components/tabs/tab-item.tsx
+  s_66859126c0eb1b::t_78c18f590e4635 64
+  s_66859126c0eb1b::t_de650da71d8a05 77-84,86-93,96-97,99-102,104-107,110-112,114-117,120,125,130,136,142
+  s_66859126c0eb1b::t_f473fc76d1b0d8 1-8,11,16,31-36,39-51
+  s_66859126c0eb1b::t_11b65670035e4a 59-63
+  s_66859126c0eb1b::t_35c037c38b8081 76,103,108-109,113,118-119,121-124,126-129,131-135,137-141,143-148
+  s_66859126c0eb1b::t_ad148c6aa44a93 13-14
+apps/web/src/components/review/pr-review-view.tsx
+  s_ec432e3c976277::t_e5c255d0b95496 793-795
+  s_ec432e3c976277::t_3f5be1dd67480b 48
+apps/web/src/components/search/global-command-palette.tsx
+  s_ec432e3c976277::t_f26a7decc676fa 19
+  s_ec432e3c976277::t_f2cb1af11c18d8 85
+apps/cli/package.json
+  s_16edf294b7114c::t_b061f35ad5c83d 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "844f929fb4cf357c42606c7ceb5ac0e48f7e3c0e",
+  "prompts": {},
+  "humans": {
+    "h_8c1b79571cf22c": {
+      "author": "mantrakp04 <mantrakp@gmail.com>"
+    }
+  },
+  "sessions": {
+    "s_16edf294b7114c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019eab26-37cb-7b90-abec-3e67dcef7459",
+        "model": "gpt-5.5"
+      },
+      "human_author": "mantrakp04 <mantrakp@gmail.com>"
+    },
+    "s_4b984f958f7127": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ea7c5-be34-7fb3-91b9-d7b2c9bc0512",
+        "model": "gpt-5.5"
+      },
+      "human_author": "mantrakp04 <mantrakp@gmail.com>"
+    },
+    "s_66859126c0eb1b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d19e1d2d-1d2e-4d42-b9d5-5ed7a35fecf2",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "mantrakp04 <mantrakp@gmail.com>"
+    },
+    "s_6dda682c6466e3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d2384981-6e66-49d9-9149-5fc935af2ad5",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "mantrakp04 <mantrakp@gmail.com>"
+    },
+    "s_81bd3660870688": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c4d7522e-b4df-4528-a04d-0b1016a786db",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "mantrakp04 <mantrakp@gmail.com>"
+    },
+    "s_af9e07a1e60952": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "92fed872-a1cf-41b5-9279-f9d7a21e9016",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "mantrakp04 <mantrakp@gmail.com>"
+    },
+    "s_d4380f2ef96710": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ea7b9-0036-7480-bda1-85980a8cb00d",
+        "model": "gpt-5.5"
+      },
+      "human_author": "mantrakp04 <mantrakp@gmail.com>"
+    },
+    "s_ec432e3c976277": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c3f88426-f83d-4ed8-b21a-c488f33fe104",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "mantrakp04 <mantrakp@gmail.com>"
+    }
+  }
+}
